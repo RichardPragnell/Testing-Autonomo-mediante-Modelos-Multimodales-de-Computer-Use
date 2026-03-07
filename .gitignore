@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+.env
+.env.*
+*.log
+dist/
+coverage/
+artifacts/runs/
+reports/runs/
+.tmp/

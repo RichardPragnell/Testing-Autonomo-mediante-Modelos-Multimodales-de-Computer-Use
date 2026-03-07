@@ -1,0 +1,21 @@
+{
+  "name": "agentic-qa-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.3",
+  "description": "Stagehand-based agentic QA orchestration for benchmarking, diagnosis, self-healing, and coverage exploration.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "cli": "pnpm --filter @agentic-qa/cli cli",
+    "mcp": "pnpm --filter @agentic-qa/mcp-server start"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.0.0"
+  }
+}

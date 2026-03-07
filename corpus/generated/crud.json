@@ -1,0 +1,14 @@
+{
+  "experiment_id": "generated-crud",
+  "source": "generated",
+  "tasks": [
+    {
+      "id": "gen-create-item",
+      "instruction": "Create a new item from the form and verify it appears in the list",
+      "expected": {
+        "type": "text_visible",
+        "value": "New item"
+      }
+    }
+  ]
+}
