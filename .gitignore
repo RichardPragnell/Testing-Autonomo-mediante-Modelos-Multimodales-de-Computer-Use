@@ -5,6 +5,6 @@ node_modules/
 *.log
 dist/
 coverage/
-artifacts/runs/
-reports/runs/
+results/runs/
+results/reports/
 .tmp/

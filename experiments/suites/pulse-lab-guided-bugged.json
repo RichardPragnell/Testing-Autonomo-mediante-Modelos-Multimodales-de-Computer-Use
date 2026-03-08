@@ -1,0 +1,25 @@
+{
+  "suiteId": "pulse-lab-guided-bugged",
+  "targetId": "pulse-lab",
+  "scenarioIds": ["smoke", "guided"],
+  "bugIds": ["critical-filter-empty", "preferences-toast-hidden"],
+  "models": [
+    "google/gemini-2.5-flash",
+    "openai/gpt-4o-mini"
+  ],
+  "explorationMode": "guided",
+  "promptIds": {
+    "guided": "guided.default",
+    "repair": "repair.default"
+  },
+  "trials": 3,
+  "timeoutMs": 90000,
+  "retryCount": 1,
+  "maxSteps": 24,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "seed": 42,
+  "resultsDir": "results"
+}

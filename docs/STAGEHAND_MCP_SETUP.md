@@ -1,29 +1,35 @@
-# Stagehand MCP Docs Setup
+# Stagehand Local Runtime and Docs Setup
 
-This project uses Stagehand SDK at runtime and uses `stagehand-docs` MCP for development assistance.
+This repository runs Stagehand locally against benchmark app clones created under `results/runs/<runId>/workspace`.
+Browserbase cloud is not required for experiment execution.
 
-## MCP server entry
-Use this MCP endpoint in your coding-agent client:
+## Runtime mode
+- `packages/harness-core/src/runner/stagehand-runner.ts` uses `env: "LOCAL"`.
+- Benchmark apps are started from the cloned workspace using the selected target manifest from `apps/<targetId>/target.json`.
+- Model access still comes from provider APIs such as OpenAI, Anthropic, or Google.
 
-`https://docs.stagehand.dev/mcp`
-
-## Required environment variables
-- `STAGEHAND_API_KEY`
+## Required model provider variables
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
 - `GEMINI_API_KEY`
 
-## Suggested client config snippet
-```json
-{
-  "mcpServers": {
-    "stagehand-docs": {
-      "url": "https://docs.stagehand.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer ${STAGEHAND_API_KEY}",
-        "X-Gemini-Key": "${GEMINI_API_KEY}"
-      }
-    }
-  }
-}
-```
+Only the variables needed by the models enabled in `experiments/models/registry.yaml` must be present.
 
-Adjust headers to your MCP client format if needed.
+## Optional local browser variables
+- `STAGEHAND_LOCAL_BROWSER_PATH`
+- `STAGEHAND_LOCAL_HEADLESS`
+- `STAGEHAND_LOCAL_DEVTOOLS`
+- `STAGEHAND_LOCAL_BROWSER_ARGS`
+
+These are passed into Stagehand local browser launch options when defined.
+
+## Local run examples
+1. Start the pristine benchmark target directly:
+   `npx pnpm@9.12.3 app:pulse-lab`
+2. Run a benchmark suite through the harness:
+   `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-guided-bugged.json`
+
+## Optional docs MCP
+Stagehand documentation can still be attached to your coding client through the public MCP endpoint:
+
+`https://docs.stagehand.dev/mcp`

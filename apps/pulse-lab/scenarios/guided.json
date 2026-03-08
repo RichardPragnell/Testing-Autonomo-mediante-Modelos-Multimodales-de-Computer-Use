@@ -1,0 +1,39 @@
+{
+  "scenarioId": "guided",
+  "title": "Pulse Lab guided bug detection",
+  "source": "generated",
+  "tasks": [
+    {
+      "id": "guided-open-filter",
+      "instruction": "Go to the Incidents section, activate the Open only filter, and verify the summary says 5 active incidents.",
+      "expected": {
+        "type": "text_visible",
+        "value": "5 active incidents"
+      }
+    },
+    {
+      "id": "guided-critical-filter",
+      "instruction": "Go to the Incidents section, activate the Critical only filter, and verify the summary says 2 critical incidents.",
+      "expected": {
+        "type": "text_visible",
+        "value": "2 critical incidents"
+      }
+    },
+    {
+      "id": "guided-release-blocker",
+      "instruction": "Open the Releases section and verify the blocked train mentions Blocked by data-contract mismatch.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Blocked by data-contract mismatch"
+      }
+    },
+    {
+      "id": "guided-save-preferences",
+      "instruction": "Open Settings, change the execution mode to Explorer, click Save preferences, and verify the confirmation text Preferences saved is visible.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Preferences saved"
+      }
+    }
+  ]
+}

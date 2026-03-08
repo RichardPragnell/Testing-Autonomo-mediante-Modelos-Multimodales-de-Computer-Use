@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pulse QA Lab</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar panel">
+        <div class="brand">
+          <div class="brand-mark"></div>
+          <div>
+            <p class="eyebrow">Agentic QA Sandbox</p>
+            <h1>Pulse QA Lab</h1>
+            <p class="muted">Local AUT for exploration, diagnosis, and self-heal loops.</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button type="button" class="nav-button" data-route="overview">Overview</button>
+          <button type="button" class="nav-button" data-route="incidents">Incidents</button>
+          <button type="button" class="nav-button" data-route="releases">Releases</button>
+          <button type="button" class="nav-button" data-route="settings">Settings</button>
+        </nav>
+
+        <section class="sidebar-footnote">
+          <p class="eyebrow">Current Build</p>
+          <p class="build-label">seed-local-2026-03-08</p>
+          <p class="muted">Deterministic flows with intentionally mixed pass and fail outcomes.</p>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="hero panel">
+          <div>
+            <p class="eyebrow">Benchmark Workspace</p>
+            <h2 id="view-title">Overview</h2>
+            <p id="view-description" class="hero-copy"></p>
+          </div>
+          <div class="hero-badge">
+            <span class="badge-label">Execution Mode</span>
+            <strong>Local Stagehand</strong>
+          </div>
+        </header>
+
+        <section class="content-grid">
+          <div id="primary-panel" class="panel panel-primary"></div>
+          <aside class="panel panel-secondary">
+            <p class="eyebrow">Scenario Matrix</p>
+            <h3>Local benchmark slices</h3>
+            <div id="scenario-matrix" class="matrix"></div>
+          </aside>
+        </section>
+
+        <div id="toast-region" class="toast-region" aria-live="polite"></div>
+      </main>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

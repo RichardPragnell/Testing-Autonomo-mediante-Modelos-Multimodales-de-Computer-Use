@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "baseUrl": ".",
     "paths": {
-      "@agentic-qa/core": ["packages/core/src/index.ts"]
+      "@agentic-qa/harness-core": ["packages/harness-core/src/index.ts"]
     },
     "strict": true,
     "noEmitOnError": true,

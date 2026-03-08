@@ -1,0 +1,13 @@
+diff --git a/public/modules/domain/incidents.js b/public/modules/domain/incidents.js
+index 1111111..2222222 100644
+--- a/public/modules/domain/incidents.js
++++ b/public/modules/domain/incidents.js
+@@ -4,7 +4,7 @@ export function applyIncidentFilter(incidents, filterKey) {
+   }
+ 
+   if (filterKey === "critical") {
+-    return incidents.filter((incident) => incident.severity === "sev1");
++    return incidents.filter((incident) => incident.priority === "critical");
+   }
+ 
+   if (filterKey === "payments") {
