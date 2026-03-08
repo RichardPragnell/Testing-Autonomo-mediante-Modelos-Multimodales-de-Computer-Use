@@ -47,6 +47,8 @@ The repo also includes `apps/todo-react`, a second benchmark target built with R
 - Bug packs:
   `apps/pulse-lab/bugs/critical-filter-empty`
   `apps/pulse-lab/bugs/preferences-toast-hidden`
+  `apps/todo-react/bugs/new-task-label-lost`
+  `apps/todo-react/bugs/toggle-completion-noop`
 
 ### Bench CLI
 - List targets: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench list targets`

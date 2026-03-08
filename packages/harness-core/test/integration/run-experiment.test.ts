@@ -127,6 +127,42 @@ describe("benchmark suite integration", () => {
     await expect(access(join(workspace.workspacePath, "vite.config.js"))).resolves.toBeUndefined();
   });
 
+  it("applies todo-react bug packs on top of the pristine React template", async () => {
+    const resultsRoot = await mkdtemp(join(tmpdir(), "bench-react-bugs-"));
+    tempDirs.push(resultsRoot);
+
+    const resolvedSuite = await loadBenchmarkSuite({
+      suite: {
+        suiteId: "todo-react-bugs",
+        targetId: "todo-react",
+        scenarioIds: ["guided"],
+        bugIds: ["new-task-label-lost", "toggle-completion-noop"],
+        explorationMode: "guided",
+        trials: 1,
+        timeoutMs: 5_000,
+        retryCount: 0,
+        maxSteps: 8,
+        viewport: { width: 1200, height: 800 },
+        seed: 17,
+        resultsDir: resultsRoot
+      }
+    });
+
+    const workspace = await prepareRunWorkspace({
+      resolvedSuite,
+      runId: "todo-react-bugs-001",
+      resultsRoot
+    });
+
+    const templateStore = await readFile(join(resolvedSuite.target.templatePath, "src", "todo-store.js"), "utf8");
+    const workspaceStore = await readFile(join(workspace.workspacePath, "src", "todo-store.js"), "utf8");
+
+    expect(templateStore).toContain("text: text.trim()");
+    expect(templateStore).toContain("done: !todo.done");
+    expect(workspaceStore).toContain('text: "New task"');
+    expect(workspaceStore).toContain("return todos;");
+  });
+
   it("runs a benchmark suite and persists artifacts under results", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-run-"));
     tempDirs.push(dir);

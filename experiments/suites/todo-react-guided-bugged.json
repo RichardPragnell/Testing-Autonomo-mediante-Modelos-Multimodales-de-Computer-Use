@@ -1,0 +1,25 @@
+{
+  "suiteId": "todo-react-guided-bugged",
+  "targetId": "todo-react",
+  "scenarioIds": ["smoke", "guided"],
+  "bugIds": ["new-task-label-lost", "toggle-completion-noop"],
+  "models": [
+    "google/gemini-2.5-flash",
+    "openai/gpt-4o-mini"
+  ],
+  "explorationMode": "guided",
+  "promptIds": {
+    "guided": "guided.default",
+    "repair": "repair.default"
+  },
+  "trials": 2,
+  "timeoutMs": 90000,
+  "retryCount": 1,
+  "maxSteps": 20,
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "seed": 23,
+  "resultsDir": "results"
+}

@@ -1,0 +1,9 @@
+{
+  "bugId": "new-task-label-lost",
+  "title": "Created todos lose the user-provided label",
+  "description": "New tasks are created with a fixed generic label instead of the text entered in the composer.",
+  "category": "assertion",
+  "severity": "medium",
+  "patchPath": "patch.diff",
+  "expectedFailureTaskIds": ["guided-add-task"]
+}

@@ -95,6 +95,8 @@ Two benchmark suites are committed:
 - `experiments/suites/pulse-lab-autonomous-bugged.json`
 - `experiments/suites/todo-react-guided-clean.json`
 - `experiments/suites/todo-react-autonomous-clean.json`
+- `experiments/suites/todo-react-guided-bugged.json`
+- `experiments/suites/todo-react-autonomous-bugged.json`
 
 Run the guided suite:
 

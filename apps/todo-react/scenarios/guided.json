@@ -13,10 +13,10 @@
     },
     {
       "id": "guided-complete-task",
-      "instruction": "Mark the task Draft Stagehand checklist as completed and verify the summary shows 1 of 3 tasks done.",
+      "instruction": "Mark the task Draft Stagehand checklist as completed and verify the summary shows 1 of 2 tasks done.",
       "expected": {
         "type": "text_visible",
-        "value": "1 of 3 tasks done"
+        "value": "1 of 2 tasks done"
       }
     },
     {
