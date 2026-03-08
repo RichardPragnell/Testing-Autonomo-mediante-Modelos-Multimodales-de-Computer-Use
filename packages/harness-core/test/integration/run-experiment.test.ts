@@ -94,6 +94,39 @@ describe("benchmark suite integration", () => {
     await expect(access(join(workspace.workspacePath, ".git"))).resolves.toBeUndefined();
   });
 
+  it("resolves repo-root placeholders for framework-based targets cloned into a run workspace", async () => {
+    const resultsRoot = await mkdtemp(join(tmpdir(), "bench-react-workspace-"));
+    tempDirs.push(resultsRoot);
+
+    const resolvedSuite = await loadBenchmarkSuite({
+      suite: {
+        suiteId: "todo-react-prepare",
+        targetId: "todo-react",
+        scenarioIds: ["smoke"],
+        bugIds: [],
+        explorationMode: "guided",
+        trials: 1,
+        timeoutMs: 5_000,
+        retryCount: 0,
+        maxSteps: 8,
+        viewport: { width: 1200, height: 800 },
+        seed: 13,
+        resultsDir: resultsRoot
+      }
+    });
+
+    const workspace = await prepareRunWorkspace({
+      resolvedSuite,
+      runId: "todo-react-workspace-001",
+      resultsRoot
+    });
+
+    expect(workspace.aut.command).toContain("node_modules/vite/bin/vite.js");
+    expect(workspace.aut.command).not.toContain("{{repoRoot}}");
+    expect(workspace.validationCommand).toBe("node --test tests/*.test.mjs");
+    await expect(access(join(workspace.workspacePath, "vite.config.js"))).resolves.toBeUndefined();
+  });
+
   it("runs a benchmark suite and persists artifacts under results", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-run-"));
     tempDirs.push(dir);

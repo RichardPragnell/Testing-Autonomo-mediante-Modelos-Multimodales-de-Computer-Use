@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadProjectEnv } from "@agentic-qa/harness-core";
 import { toolContracts } from "./tools.js";
 
 export function createServer(): McpServer {
@@ -37,6 +38,8 @@ export function createServer(): McpServer {
 }
 
 async function main(): Promise<void> {
+  await loadProjectEnv();
+
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);

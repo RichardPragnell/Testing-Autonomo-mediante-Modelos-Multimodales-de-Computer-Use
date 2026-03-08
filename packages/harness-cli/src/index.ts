@@ -4,6 +4,7 @@ import {
   compareBenchmarkRuns,
   describeTarget,
   getBenchmarkReport,
+  loadProjectEnv,
   listSuites,
   listTargets,
   runBenchmarkSuite,
@@ -15,6 +16,8 @@ function print(value: unknown): void {
 }
 
 async function main(): Promise<void> {
+  await loadProjectEnv();
+
   const program = new Command();
   program
     .name("bench")

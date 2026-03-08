@@ -4,6 +4,7 @@ import { describeBenchmarkTarget, listBenchmarkTargets } from "./config/target.j
 import { loadModelRegistry, resolveModelAvailability } from "./config/model-registry.js";
 import { buildModelMetrics } from "./benchmark/score.js";
 import { buildSourceCandidates } from "./diagnostics/source-candidates.js";
+import { loadProjectEnv } from "./env/load.js";
 import { classifyFailure } from "./diagnostics/taxonomy.js";
 import { CoverageGraph } from "./graph/state-graph.js";
 import {
@@ -56,6 +57,8 @@ function buildTaskInstruction(
 }
 
 export async function runBenchmarkSuite(input: RunBenchmarkInput): Promise<RunBenchmarkResult> {
+  await loadProjectEnv();
+
   const resolvedSuite = await loadBenchmarkSuite({
     suitePath: input.suitePath,
     suite: input.suite
@@ -241,6 +244,8 @@ export async function runSelfHeal(input: {
   outputDir?: string;
   cwd?: string;
 }): Promise<RepairAttempt> {
+  await loadProjectEnv();
+
   const resultsRoot = await resolveWorkspacePath(input.outputDir ?? "results");
   const artifact = await readRunArtifact(resultsRoot, input.runId);
   const finding = artifact.findings.find((item) => item.id === input.findingId);

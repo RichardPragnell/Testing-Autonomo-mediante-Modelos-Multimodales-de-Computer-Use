@@ -14,6 +14,7 @@ Browserbase cloud is not required for experiment execution.
 - `GEMINI_API_KEY`
 
 Only the variables needed by the models enabled in `experiments/models/registry.yaml` must be present.
+The repo auto-loads these values from a root `.env` file when present. Start from `.env.example`.
 
 ## Optional local browser variables
 - `STAGEHAND_LOCAL_BROWSER_PATH`

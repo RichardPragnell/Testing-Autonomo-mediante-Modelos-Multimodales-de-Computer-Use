@@ -1,0 +1,14 @@
+{
+  "targetId": "todo-react",
+  "displayName": "Todo React",
+  "baseUrl": "http://127.0.0.1:3101",
+  "devCommand": "node \"{{repoRoot}}/node_modules/vite/bin/vite.js\" --config vite.config.js --host 127.0.0.1 --port 3101",
+  "devEnv": {
+    "BENCH_REPO_ROOT": "{{repoRoot}}",
+    "PORT": "3101"
+  },
+  "defaultValidationCommand": "node --test tests/*.test.mjs",
+  "templateDir": "template",
+  "bugsDir": "bugs",
+  "scenariosDir": "scenarios"
+}

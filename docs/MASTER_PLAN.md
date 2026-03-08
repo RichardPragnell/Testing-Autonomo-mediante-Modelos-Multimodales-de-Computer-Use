@@ -3,6 +3,15 @@
 This file is the source of truth for implementation progress. Step statuses must be one of:
 `not_started`, `in_progress`, `blocked`, `done`, `verified`.
 
+## Research Objective
+This repository is building the benchmark lab and execution loop first. That base includes local AUT cloning, guided and autonomous exploration, multimodal diagnosis artifacts, and isolated self-heal.
+
+The broader research goal is to use that base to compare:
+- different QA harnesses and orchestration approaches
+- different computer-use and multimodal models
+- different benchmark app designs and seeded defect sets
+- different commonly used web frameworks, starting with vanilla JS and React and expanding later to additional stacks
+
 ## Session Workflow
 1. Start session: inspect `experiments/suites/` and the current target manifests under `apps/`.
 2. During work: append milestone, failure, retry, and status events to `docs/progress/events.jsonl`.

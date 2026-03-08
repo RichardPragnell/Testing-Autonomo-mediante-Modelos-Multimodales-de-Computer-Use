@@ -3,7 +3,8 @@
 Date: 2026-03-08
 
 ## Decision
-For the first research cycle, this repository will use a local AUT that lives inside the monorepo instead of adopting an external benchmark as the primary evaluation target.
+For the first research cycle, this repository will use local AUTs that live inside the monorepo instead of adopting an external benchmark as the primary evaluation target.
+This initial phase is focused on building the benchmark harness and execution cycle, while the longer-term evaluation will compare models, harnesses, seeded app variants, and multiple commonly used frontend frameworks.
 
 ## Candidates Reviewed
 - WebArena: good for autonomous navigation benchmarks, but heavy to self-host and not designed around patching the AUT source after failures.
@@ -17,4 +18,4 @@ For the first research cycle, this repository will use a local AUT that lives in
 - The AUT can evolve together with the experiment corpus, diagnosis schema, and repair harness.
 
 ## Follow-Up
-Once the local pipeline is stable, add a second AUT or a thin imported benchmark slice for external validity.
+Once the local pipeline is stable, expand the AUT set across additional frameworks and add a thin imported benchmark slice for external validity.

@@ -1,0 +1,23 @@
+{
+  "scenarioId": "smoke",
+  "title": "Todo React smoke flow",
+  "source": "synthetic",
+  "tasks": [
+    {
+      "id": "smoke-home-title",
+      "instruction": "Open the app and verify the page title Todo React Bench is visible.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Todo React Bench"
+      }
+    },
+    {
+      "id": "smoke-default-count",
+      "instruction": "Verify the summary shows 2 tasks remaining when the app first loads.",
+      "expected": {
+        "type": "text_visible",
+        "value": "2 tasks remaining"
+      }
+    }
+  ]
+}

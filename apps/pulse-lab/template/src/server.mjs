@@ -1,12 +1,38 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createServer } from "node:http";
-import { extname, join, normalize, resolve } from "node:path";
+import { dirname, extname, join, normalize, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const publicRoot = join(appRoot, "public");
+
+async function findEnvFile(startDir = process.cwd()) {
+  let cursor = resolve(startDir);
+  while (true) {
+    const candidate = join(cursor, ".env");
+    try {
+      await stat(candidate);
+      return candidate;
+    } catch {
+      const parent = dirname(cursor);
+      if (parent === cursor) {
+        return null;
+      }
+      cursor = parent;
+    }
+  }
+}
+
+async function loadProjectEnv() {
+  const envPath = await findEnvFile();
+  if (!envPath || typeof process.loadEnvFile !== "function") {
+    return null;
+  }
+  process.loadEnvFile(envPath);
+  return envPath;
+}
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -111,7 +137,8 @@ export async function startPulseLabServer(options = {}) {
 
 const entryPath = process.argv[1] ? resolve(process.argv[1]) : "";
 if (entryPath && entryPath === fileURLToPath(import.meta.url)) {
-  startPulseLabServer()
+  loadProjectEnv()
+    .then(() => startPulseLabServer())
     .then((handle) => {
       process.stdout.write(`pulse-lab ready at ${handle.url}\n`);
     })

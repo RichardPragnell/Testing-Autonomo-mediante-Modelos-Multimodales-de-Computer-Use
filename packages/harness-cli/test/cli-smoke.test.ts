@@ -17,6 +17,7 @@ describe("CLI smoke", () => {
         cwd: cliDir
       });
       expect(stdout).toContain("\"targetId\": \"pulse-lab\"");
+      expect(stdout).toContain("\"targetId\": \"todo-react\"");
     },
     60_000
   );
