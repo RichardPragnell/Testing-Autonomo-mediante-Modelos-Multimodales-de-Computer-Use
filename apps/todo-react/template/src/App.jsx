@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { beginTodoEdit, cancelTodoEdit, commitTodoEdit } from "./todo-editor.js";
 import { addTodo, filterTodos, initialTodos, removeTodo, summarizeTodos, toggleTodo } from "./todo-store.js";
 
 const filters = [
@@ -11,6 +12,8 @@ export default function App() {
   const [todos, setTodos] = useState(initialTodos);
   const [draft, setDraft] = useState("");
   const [filterKey, setFilterKey] = useState("all");
+  const [editingId, setEditingId] = useState(null);
+  const [editingDraft, setEditingDraft] = useState("");
 
   const summary = summarizeTodos(todos);
   const visibleTodos = filterTodos(todos, filterKey);
@@ -19,6 +22,38 @@ export default function App() {
     event.preventDefault();
     setTodos((current) => addTodo(current, draft));
     setDraft("");
+  }
+
+  function handleStartEdit(todo) {
+    const next = beginTodoEdit(todo);
+    setEditingId(next.editingId);
+    setEditingDraft(next.draft);
+  }
+
+  function handleCancelEdit() {
+    const next = cancelTodoEdit();
+    setEditingId(next.editingId);
+    setEditingDraft(next.draft);
+  }
+
+  function handleSaveEdit() {
+    setTodos((current) => commitTodoEdit(current, editingId, editingDraft).todos);
+    const next = cancelTodoEdit();
+    setEditingId(next.editingId);
+    setEditingDraft(next.draft);
+  }
+
+  function handleEditKeyDown(event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      handleSaveEdit();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      handleCancelEdit();
+    }
   }
 
   return (
@@ -80,21 +115,51 @@ export default function App() {
         <ul className="todo-list" aria-label="Todo items">
           {visibleTodos.map((todo) => (
             <li key={todo.id} className={todo.done ? "todo-item is-complete" : "todo-item"}>
-              <label className="todo-main">
-                <input
-                  type="checkbox"
-                  checked={todo.done}
-                  onChange={() => setTodos((current) => toggleTodo(current, todo.id))}
-                />
-                <span>{todo.text}</span>
-              </label>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setTodos((current) => removeTodo(current, todo.id))}
-              >
-                Remove
-              </button>
+              {editingId === todo.id ? (
+                <>
+                  <label className="todo-editor">
+                    <span className="sr-only">Edit task</span>
+                    <input
+                      type="text"
+                      name={`edit-${todo.id}`}
+                      value={editingDraft}
+                      onChange={(event) => setEditingDraft(event.target.value)}
+                      onKeyDown={handleEditKeyDown}
+                    />
+                  </label>
+                  <div className="todo-actions">
+                    <button type="button" className="primary-button action-button" onClick={handleSaveEdit}>
+                      Save
+                    </button>
+                    <button type="button" className="ghost-button action-button" onClick={handleCancelEdit}>
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <label className="todo-main">
+                    <input
+                      type="checkbox"
+                      checked={todo.done}
+                      onChange={() => setTodos((current) => toggleTodo(current, todo.id))}
+                    />
+                    <span>{todo.text}</span>
+                  </label>
+                  <div className="todo-actions">
+                    <button type="button" className="ghost-button action-button" onClick={() => handleStartEdit(todo)}>
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button action-button"
+                      onClick={() => setTodos((current) => removeTodo(current, todo.id))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </>
+              )}
             </li>
           ))}
         </ul>

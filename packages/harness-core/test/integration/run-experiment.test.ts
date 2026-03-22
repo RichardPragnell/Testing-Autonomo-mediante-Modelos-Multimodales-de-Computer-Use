@@ -6,7 +6,7 @@ import { loadBenchmarkSuite } from "../../src/config/suite.js";
 import { prepareRunWorkspace } from "../../src/runtime/workspace.js";
 import { MockAutomationRunner } from "../../src/runner/mock-runner.js";
 import { applyPatchInIsolatedWorktree } from "../../src/self-heal/worktree.js";
-import { runBenchmarkSuite } from "../../src/service.js";
+import { exploreTarget, runBenchmarkSuite, runGuided } from "../../src/service.js";
 import type { AutomationRunner, RunTaskInput, TaskRunResult } from "../../src/types.js";
 
 const tempDirs: string[] = [];
@@ -45,6 +45,18 @@ class SelectiveFailureRunner implements AutomationRunner {
       error: failingTask ? "assert expected 1 of 2 tasks done" : undefined
     };
   }
+}
+
+async function writeRegistry(dir: string, models: string[] = ["google/gemini-2.5-flash", "openai/gpt-4o-mini"]) {
+  const modelsPath = join(dir, "registry.yaml");
+  const lines = ["default_model: google/gemini-2.5-flash", "models:"];
+  for (const modelId of models) {
+    lines.push(`  - id: ${modelId}`);
+    lines.push(`    provider: ${modelId.split("/")[0]}`);
+    lines.push("    enabled: true");
+  }
+  await writeFile(modelsPath, lines.join("\n"), "utf8");
+  return modelsPath;
 }
 
 describe("benchmark suite integration", () => {
@@ -214,6 +226,157 @@ describe("benchmark suite integration", () => {
     20_000
   );
 
+  it(
+    "runs autonomous exploration before evaluating scenarios and persists exploration artifacts",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "bench-autonomous-"));
+      tempDirs.push(dir);
+
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+      const result = await runBenchmarkSuite({
+        modelsPath,
+        runner: new MockAutomationRunner(19),
+        suite: {
+          suiteId: "integration-autonomous-suite",
+          targetId: "todo-react",
+          scenarioIds: ["smoke", "guided"],
+          bugIds: ["new-task-label-lost", "toggle-completion-noop", "edit-task-save-noop"],
+          models: ["google/gemini-2.5-flash"],
+          explorationMode: "autonomous",
+          promptIds: {
+            guided: "guided.default",
+            autonomous: "autonomous.default",
+            repair: "repair.default"
+          },
+          trials: 1,
+          timeoutMs: 10_000,
+          retryCount: 0,
+          maxSteps: 10,
+          viewport: { width: 1280, height: 720 },
+          seed: 23,
+          resultsDir: dir
+        }
+      });
+
+      expect(result.artifact.autonomousExploration).toHaveLength(1);
+      expect(result.report.autonomousExploration).toHaveLength(1);
+      await expect(
+        access(
+          join(
+            dir,
+            "runs",
+            result.artifact.runId,
+            "exploration",
+            "google/gemini-2.5-flash",
+            "trial_1",
+            "graph.json"
+          )
+        )
+      ).resolves.toBeUndefined();
+      await expect(
+        access(
+          join(
+            dir,
+            "runs",
+            result.artifact.runId,
+            "exploration",
+            "google/gemini-2.5-flash",
+            "trial_1",
+            "action-cache.json"
+          )
+        )
+      ).resolves.toBeUndefined();
+    },
+    20_000
+  );
+
+  it("persists standalone exploration artifacts under results/explorations", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-explore-"));
+    tempDirs.push(dir);
+
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+    const result = await exploreTarget({
+      targetId: "todo-react",
+      modelId: "google/gemini-2.5-flash",
+      bugIds: ["toggle-completion-noop"],
+      prompt: "Explore the todo app and discover edit or filter actions.",
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(29)
+    });
+
+    expect(result.artifact.summary.actionsCached).toBeGreaterThan(0);
+    await expect(
+      access(join(dir, "explorations", result.artifact.explorationRunId, "exploration.json"))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(dir, "explorations", result.artifact.explorationRunId, "history.json"))
+    ).resolves.toBeUndefined();
+  });
+
+  it("reuses a compatible exploration cache for guided runtime execution", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-guided-cache-"));
+    tempDirs.push(dir);
+
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+    const exploration = await exploreTarget({
+      targetId: "todo-react",
+      modelId: "google/gemini-2.5-flash",
+      bugIds: [],
+      prompt: "Edit an existing todo item",
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(31)
+    });
+
+    const result = await runGuided({
+      targetId: "todo-react",
+      modelId: "google/gemini-2.5-flash",
+      scenarioIds: ["guided"],
+      bugIds: [],
+      explorationRunId: exploration.artifact.explorationRunId,
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(31)
+    });
+
+    expect(result.artifact.guidedCacheUsage?.compatible).toBe(true);
+    expect(result.artifact.guidedCacheUsage?.matchedActions).toBeGreaterThan(0);
+    const editRun = result.artifact.modelSummaries[0]?.taskRuns.find((task) => task.taskId === "guided-edit-task");
+    expect(editRun?.cacheHints?.length).toBeGreaterThan(0);
+  });
+
+  it("records cache mismatches when a guided runtime run reuses an incompatible exploration artifact", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-guided-mismatch-"));
+    tempDirs.push(dir);
+
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+    const exploration = await exploreTarget({
+      targetId: "todo-react",
+      modelId: "google/gemini-2.5-flash",
+      bugIds: ["toggle-completion-noop"],
+      prompt: "Edit an existing todo item",
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(37)
+    });
+
+    const result = await runGuided({
+      targetId: "todo-react",
+      modelId: "google/gemini-2.5-flash",
+      scenarioIds: ["guided"],
+      bugIds: [],
+      explorationRunId: exploration.artifact.explorationRunId,
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(37)
+    });
+
+    expect(result.artifact.guidedCacheUsage?.compatible).toBe(false);
+    expect(result.artifact.guidedCacheUsage?.reason).toContain("bug mismatch");
+    expect(result.artifact.modelSummaries[0]?.taskRuns[0]?.trace[0]?.action).toBe("cache.mismatch");
+  });
+
   it("persists ranked source candidates for failed tasks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-findings-"));
     tempDirs.push(dir);
@@ -290,7 +453,7 @@ describe("benchmark suite integration", () => {
     const patch = [
       "--- a/src/todo-store.js",
       "+++ b/src/todo-store.js",
-      "@@ -20,7 +20,7 @@ export function addTodo(todos, text) {",
+      "@@ -19,7 +19,7 @@ export function addTodo(todos, text) {",
       " }",
       " ",
       " export function toggleTodo(todos, id) {",
@@ -298,7 +461,7 @@ describe("benchmark suite integration", () => {
       "+  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));",
       " }",
       " ",
-      " export function removeTodo(todos, id) {"
+      " export function updateTodoText(todos, id, text) {"
     ].join("\n") + "\n";
 
     const result = await applyPatchInIsolatedWorktree({

@@ -11,6 +11,7 @@ export * from "./benchmark/score.js";
 export * from "./diagnostics/source-candidates.js";
 export * from "./diagnostics/taxonomy.js";
 export * from "./env/load.js";
+export * from "./exploration/action-cache.js";
 export * from "./graph/state-graph.js";
 export * from "./runtime/workspace.js";
 export * from "./tracking/plan.js";

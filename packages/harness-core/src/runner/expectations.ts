@@ -44,10 +44,21 @@ export async function evaluateExpectation(page: any, expected: TaskExpectation):
     };
   }
 
+  if (expected.type === "text_not_visible") {
+    const bodyText = (await page?.evaluate?.(() => document.body?.innerText ?? "")) ?? "";
+    const success = !bodyText.includes(expected.value);
+    return {
+      success,
+      message: success
+        ? `Body text does not contain ${expected.value}`
+        : `Body text still contains unexpected value ${expected.value}`,
+      urlAfter: safeUrl
+    };
+  }
+
   return {
     success: false,
     message: `Unsupported expectation type ${(expected as { type?: string }).type ?? "unknown"}`,
     urlAfter: safeUrl
   };
 }
-

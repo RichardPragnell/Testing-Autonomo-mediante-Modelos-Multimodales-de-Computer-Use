@@ -7,7 +7,7 @@ import type {
   TaskRunResult
 } from "../types.js";
 
-type RouteHint = "composer" | "filter" | "overview";
+type RouteHint = "composer" | "filter" | "editor" | "overview";
 
 interface CandidateState {
   path: string;
@@ -28,6 +28,10 @@ const routeFiles: Record<RouteHint, Array<{ path: string; score: number; reason:
   filter: [
     { path: "src/todo-store.js", score: 34, reason: "filter hint points to todo filtering and completion logic" },
     { path: "src/App.jsx", score: 24, reason: "filter hint points to filter controls and list rendering" }
+  ],
+  editor: [
+    { path: "src/todo-store.js", score: 32, reason: "editor hint points to todo update logic" },
+    { path: "src/App.jsx", score: 28, reason: "editor hint points to edit controls and save or cancel wiring" }
   ]
 };
 
@@ -81,6 +85,9 @@ function detectRouteHint(values: string[]): RouteHint {
 
   if (/(add task|new task|composer|review benchmark notes)/u.test(haystack)) {
     return "composer";
+  }
+  if (/(edit|save|cancel|outline|rename|updated text)/u.test(haystack)) {
+    return "editor";
   }
   if (/(active filter|completed task|tasks done|remaining|draft stagehand checklist|plan react todo benchmark)/u.test(haystack)) {
     return "filter";

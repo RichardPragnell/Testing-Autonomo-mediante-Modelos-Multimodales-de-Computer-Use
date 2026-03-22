@@ -1,8 +1,8 @@
 diff --git a/src/todo-store.js b/src/todo-store.js
-index cbd309f..28bf146 100644
+index 0000000..1111111 100644
 --- a/src/todo-store.js
 +++ b/src/todo-store.js
-@@ -20,7 +20,7 @@ export function addTodo(todos, text) {
+@@ -19,7 +19,7 @@ export function addTodo(todos, text) {
  }
  
  export function toggleTodo(todos, id) {
@@ -10,4 +10,4 @@ index cbd309f..28bf146 100644
 +  return todos;
  }
  
- export function removeTodo(todos, id) {
+ export function updateTodoText(todos, id, text) {

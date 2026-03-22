@@ -81,7 +81,7 @@ describe("report snapshot", () => {
       suiteId: "todo-react-guided-bugged",
       targetId: "todo-react",
       scenarioIds: ["smoke", "guided"],
-      bugIds: ["new-task-label-lost", "toggle-completion-noop"],
+      bugIds: ["new-task-label-lost", "toggle-completion-noop", "edit-task-save-noop"],
       explorationMode: "guided",
       modelSummaries,
       findings,
@@ -97,6 +97,7 @@ describe("report snapshot", () => {
         "bugIds": [
           "new-task-label-lost",
           "toggle-completion-noop",
+          "edit-task-save-noop",
         ],
         "confidence": {
           "google/gemini-2.5-flash": {

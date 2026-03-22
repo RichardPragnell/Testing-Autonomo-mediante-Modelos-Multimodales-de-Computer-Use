@@ -8,10 +8,14 @@ describe("validateBenchmarkSuite", () => {
       targetId: "todo-react",
       scenarioIds: ["smoke"],
       bugIds: [],
-      explorationMode: "guided"
+      explorationMode: "guided",
+      promptIds: {
+        autonomous: "autonomous.default"
+      }
     });
 
     expect(suite.suiteId).toBe("todo-react-guided");
+    expect(suite.promptIds?.autonomous).toBe("autonomous.default");
     expect(suite.trials).toBe(3);
     expect(suite.timeoutMs).toBe(60000);
     expect(suite.viewport.width).toBe(1280);

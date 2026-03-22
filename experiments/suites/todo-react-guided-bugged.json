@@ -2,7 +2,7 @@
   "suiteId": "todo-react-guided-bugged",
   "targetId": "todo-react",
   "scenarioIds": ["smoke", "guided"],
-  "bugIds": ["new-task-label-lost", "toggle-completion-noop"],
+  "bugIds": ["new-task-label-lost", "toggle-completion-noop", "edit-task-save-noop"],
   "models": [
     "google/gemini-2.5-flash",
     "openai/gpt-4o-mini"

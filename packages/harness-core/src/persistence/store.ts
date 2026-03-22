@@ -4,6 +4,7 @@ import { ensureDir, writeJson, writeText } from "../utils/fs.js";
 import type {
   BenchmarkReport,
   DiagnosisArtifacts,
+  ExplorationArtifact,
   RepairAttempt,
   RunArtifact,
   TaskRunResult
@@ -11,6 +12,22 @@ import type {
 
 export function runDirectory(resultsRoot: string, runId: string): string {
   return join(resultsRoot, "runs", runId);
+}
+
+export function explorationDirectory(resultsRoot: string, explorationRunId: string): string {
+  return join(resultsRoot, "explorations", explorationRunId);
+}
+
+async function persistExplorationFiles(baseDir: string, artifact: ExplorationArtifact): Promise<string> {
+  await ensureDir(baseDir);
+  const artifactPath = join(baseDir, "exploration.json");
+  await writeJson(artifactPath, artifact);
+  await writeJson(join(baseDir, "history.json"), artifact.history);
+  await writeJson(join(baseDir, "pages.json"), artifact.pages);
+  await writeJson(join(baseDir, "graph.json"), artifact.coverageGraph);
+  await writeJson(join(baseDir, "action-cache.json"), artifact.actionCache);
+  await writeJson(join(baseDir, "trace.json"), artifact.trace);
+  return artifactPath;
 }
 
 export async function persistTaskArtifacts(
@@ -47,6 +64,15 @@ export async function persistRunArtifact(resultsRoot: string, artifact: RunArtif
   return artifactPath;
 }
 
+export async function persistRunExplorationArtifacts(
+  resultsRoot: string,
+  runId: string,
+  artifact: ExplorationArtifact
+): Promise<string> {
+  const baseDir = join(runDirectory(resultsRoot, runId), "exploration", artifact.modelId, `trial_${artifact.trial}`);
+  return persistExplorationFiles(baseDir, artifact);
+}
+
 export async function persistRunManifest(resultsRoot: string, artifact: RunArtifact): Promise<string> {
   const manifestPath = join(runDirectory(resultsRoot, artifact.runId), "manifest.json");
   await writeJson(manifestPath, {
@@ -66,6 +92,22 @@ export async function persistRunManifest(resultsRoot: string, artifact: RunArtif
 export async function readRunArtifact(resultsRoot: string, runId: string): Promise<RunArtifact> {
   const raw = await readFile(join(runDirectory(resultsRoot, runId), "run.json"), "utf8");
   return JSON.parse(raw) as RunArtifact;
+}
+
+export async function persistExplorationArtifact(
+  resultsRoot: string,
+  artifact: ExplorationArtifact
+): Promise<string> {
+  const dir = explorationDirectory(resultsRoot, artifact.explorationRunId);
+  return persistExplorationFiles(dir, artifact);
+}
+
+export async function readExplorationArtifact(
+  resultsRoot: string,
+  explorationRunId: string
+): Promise<ExplorationArtifact> {
+  const raw = await readFile(join(explorationDirectory(resultsRoot, explorationRunId), "exploration.json"), "utf8");
+  return JSON.parse(raw) as ExplorationArtifact;
 }
 
 export async function persistReport(resultsRoot: string, report: BenchmarkReport): Promise<string> {

@@ -3,6 +3,12 @@
 This repository runs Stagehand locally against benchmark app clones created under `results/runs/<runId>/workspace`.
 Browserbase cloud is not required for experiment execution.
 
+Use the docs this way:
+- `README.md` for the project overview and entrypoint map
+- `docs/HOW_TO_RUN.md` for install and run workflows
+- `docs/STAGEHAND_MCP_SETUP.md` for Stagehand-local runtime specifics only
+- `docs/MASTER_PLAN.md` for the cleanup and simplification roadmap
+
 ## Runtime mode
 - `packages/harness-core/src/runner/stagehand-runner.ts` uses `env: "LOCAL"`.
 - Benchmark apps are started from the cloned workspace using the selected target manifest from `apps/<targetId>/target.json`.

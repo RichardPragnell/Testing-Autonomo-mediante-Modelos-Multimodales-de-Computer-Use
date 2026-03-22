@@ -2,6 +2,14 @@
 
 This document is the operational runbook for the repository: install it, start the local benchmark app, execute a benchmark suite, inspect results, and run a self-heal attempt.
 
+Use the docs this way:
+- `README.md` for the project overview and entrypoint map
+- `docs/HOW_TO_RUN.md` for the current operational workflow
+- `docs/STAGEHAND_MCP_SETUP.md` for Stagehand-local runtime details
+- `docs/MASTER_PLAN.md` for the cleanup and simplification roadmap
+
+The cleanup roadmap is organized around operator surfaces and docs, `harness-core` simplification, and benchmark fixture or repo hygiene. Use that plan before adding new commands, docs, or generated artifacts.
+
 ## 1. Prerequisites
 
 - Node.js 22 or newer
@@ -102,8 +110,9 @@ What happens during `bench run`:
 3. It clones the pristine app into `results/runs/<runId>/workspace`.
 4. It applies the selected bug packs into that cloned workspace.
 5. It starts the cloned AUT locally.
-6. It runs the selected scenarios with the configured models.
-7. It writes artifacts and reports under `results/`.
+6. If the suite is autonomous, it explores the AUT first and persists `history.json`, `pages.json`, `graph.json`, and `action-cache.json` under the run directory.
+7. It runs the selected scenarios with the configured models.
+8. It writes artifacts and reports under `results/`.
 
 The command prints JSON with:
 - `runId`
@@ -131,6 +140,7 @@ The full run artifact contains:
 - selected target, bug ids, scenario ids, and exploration mode
 - per-model task results
 - findings
+- optional autonomous exploration summaries
 - `sourceCandidates` ranked to point to likely files in the cloned workspace
 
 ## 7. Compare Guided vs Autonomous
@@ -185,12 +195,18 @@ npx pnpm@9.12.3 --filter @agentic-qa/harness-mcp start
 
 Available tools:
 - `bench.run_suite`
+- `bench.explore_target`
+- `bench.run_guided`
 - `bench.get_report`
 - `bench.compare_runs`
 - `bench.run_self_heal`
 - `bench.list_targets`
 - `bench.list_suites`
 - `bench.describe_target`
+
+`bench.explore_target` is MCP-only runtime exploration driven by a free-form prompt.
+
+`bench.run_guided` is MCP-only scenario-backed guided execution and can optionally reuse a prior `explorationRunId` when target id, bug ids, and viewport match.
 
 See also:
 - `docs/STAGEHAND_MCP_SETUP.md`

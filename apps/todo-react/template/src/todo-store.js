@@ -23,6 +23,15 @@ export function toggleTodo(todos, id) {
   return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));
 }
 
+export function updateTodoText(todos, id, text) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return todos;
+  }
+
+  return todos.map((todo) => (todo.id === id ? { ...todo, text: trimmed } : todo));
+}
+
 export function removeTodo(todos, id) {
   return todos.filter((todo) => todo.id !== id);
 }

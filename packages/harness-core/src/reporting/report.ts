@@ -49,6 +49,8 @@ export function buildBenchmarkReport(input: {
   explorationMode: BenchmarkReport["explorationMode"];
   modelSummaries: ModelRunSummary[];
   findings: Finding[];
+  autonomousExploration?: BenchmarkReport["autonomousExploration"];
+  guidedCacheUsage?: BenchmarkReport["guidedCacheUsage"];
   repairs: RepairAttempt[];
 }): BenchmarkReport {
   const leaderboard = buildLeaderboard(input.modelSummaries);
@@ -66,6 +68,8 @@ export function buildBenchmarkReport(input: {
     leaderboard,
     confidence,
     failureClusters: clusterFailures(input.findings),
+    ...(input.autonomousExploration ? { autonomousExploration: input.autonomousExploration } : {}),
+    ...(input.guidedCacheUsage ? { guidedCacheUsage: input.guidedCacheUsage } : {}),
     repairOutcomes: summarizeRepairs(input.repairs)
   };
 }

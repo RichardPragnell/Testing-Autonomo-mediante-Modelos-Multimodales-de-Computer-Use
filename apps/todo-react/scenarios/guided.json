@@ -26,6 +26,22 @@
         "type": "text_visible",
         "value": "Plan React todo benchmark"
       }
+    },
+    {
+      "id": "guided-edit-task",
+      "instruction": "Edit the existing task Plan React todo benchmark so it reads Plan React todo benchmark outline and verify the updated text is visible.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Plan React todo benchmark outline"
+      }
+    },
+    {
+      "id": "guided-create-delete-task",
+      "instruction": "Create a new task called Remove benchmark draft, delete it, and verify it is no longer visible in the task list.",
+      "expected": {
+        "type": "text_not_visible",
+        "value": "Remove benchmark draft"
+      }
     }
   ]
 }

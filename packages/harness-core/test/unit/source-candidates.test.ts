@@ -109,4 +109,57 @@ describe("buildSourceCandidates", () => {
     expect(candidates[1]?.workspaceRelativePath).toBe("src/App.jsx");
     expect(candidates[0]?.reasons.join(" ")).toContain("toggle-completion-noop");
   });
+
+  it("prioritizes edit handlers for edit failures", async () => {
+    const suite = await loadBenchmarkSuite({
+      suite: {
+        suiteId: "source-candidates-edit-task",
+        targetId: "todo-react",
+        scenarioIds: ["guided"],
+        bugIds: ["edit-task-save-noop"],
+        explorationMode: "guided",
+        trials: 1,
+        timeoutMs: 5_000,
+        retryCount: 0,
+        maxSteps: 8,
+        viewport: { width: 1200, height: 800 },
+        seed: 1,
+        resultsDir: "results"
+      }
+    });
+
+    const task = suite.tasks.find((item) => item.id === "guided-edit-task");
+    expect(task).toBeDefined();
+
+    const candidates = buildSourceCandidates({
+      workspacePath: join("C:", "bench", "todo-react-workspace"),
+      suite,
+      task: task!,
+      result: {
+        taskId: "guided-edit-task",
+        trial: 1,
+        modelId: "mock/model",
+        success: false,
+        message: "edited label did not update",
+        latencyMs: 1000,
+        costUsd: 0,
+        urlAfter: "http://127.0.0.1:3101",
+        domSnapshot: "<html><body><span>Plan React todo benchmark</span></body></html>",
+        trace: [
+          {
+            timestamp: "2026-03-08T00:00:00.000Z",
+            action: "agent.execute",
+            details: { instruction: task!.instruction }
+          }
+        ],
+        error: "expected Plan React todo benchmark outline"
+      },
+      category: "state",
+      message: "expected Plan React todo benchmark outline"
+    });
+
+    expect(candidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
+    expect(candidates.some((candidate) => candidate.workspaceRelativePath === "src/App.jsx")).toBe(true);
+    expect(candidates[0]?.reasons.join(" ")).toContain("edit-task-save-noop");
+  });
 });

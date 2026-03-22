@@ -9,6 +9,8 @@
   ],
   "explorationMode": "autonomous",
   "promptIds": {
+    "guided": "guided.default",
+    "autonomous": "autonomous.default",
     "repair": "repair.default"
   },
   "trials": 2,

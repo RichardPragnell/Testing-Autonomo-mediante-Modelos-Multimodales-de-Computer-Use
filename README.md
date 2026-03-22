@@ -14,17 +14,23 @@ It is organized around four explicit concepts:
 - `experiments/`: model registries, benchmark suites, and prompt presets
 - `results/`: generated run workspaces, reports, and committed sample fixtures
 
-The current benchmark target is `apps/todo-react`. Each run clones its template into `results/runs/<runId>/workspace`, applies a selected set of bug packs, starts the app locally, and then lets the harness evaluate exploration, diagnosis, and repair behavior against that isolated workspace.
+The current benchmark target is `apps/todo-react`. Each run clones its template into `results/runs/<runId>/workspace`, applies a selected set of bug packs, starts the app locally, and then lets the harness evaluate guided scenarios, autonomous exploration, diagnosis, and repair behavior against that isolated workspace.
 
 ## Repository Structure
-- `apps/todo-react`: React-based benchmark target with smoke and guided scenarios
+- `apps/todo-react`: React-based benchmark target with smoke and guided scenarios plus seeded bug packs
 - `packages/harness-core`: suite loading, target resolution, workspace prep, Stagehand execution, reporting, and self-heal
 - `packages/harness-cli`: `bench` CLI surface
 - `packages/harness-mcp`: MCP server exposing the benchmark operations
 - `experiments/models`: model registry
 - `experiments/suites`: comparable benchmark suite configs
-- `experiments/prompts`: reusable guided exploration and repair prompts
+- `experiments/prompts`: reusable guided, autonomous, and repair prompts
 - `results/samples`: committed report fixture examples
+
+## Doc Map
+- `README.md`: project overview, quickstart, and entrypoint map
+- `docs/HOW_TO_RUN.md`: current operational workflow
+- `docs/STAGEHAND_MCP_SETUP.md`: Stagehand-local runtime specifics
+- `docs/MASTER_PLAN.md`: cleanup and simplification roadmap
 
 ## Important Commands
 
@@ -50,6 +56,8 @@ The current benchmark target is `apps/todo-react`. Each run clones its template 
 - Start the MCP server: `npx pnpm@9.12.3 --filter @agentic-qa/harness-mcp start`
 - Exposed tools:
   `bench.run_suite`
+  `bench.explore_target`
+  `bench.run_guided`
   `bench.get_report`
   `bench.compare_runs`
   `bench.run_self_heal`
@@ -63,6 +71,14 @@ The current benchmark target is `apps/todo-react`. Each run clones its template 
 - End-to-end runbook: `docs/HOW_TO_RUN.md`
 - Stagehand is configured for local runtime, not Browserbase cloud. See `docs/STAGEHAND_MCP_SETUP.md`.
 - The default model registry lives in `experiments/models/registry.yaml`.
+- Guided benchmark runs remain scenario-driven: each scenario task is a high-level user intent plus an explicit expected outcome.
+- Autonomous benchmark runs explore first, persist Stagehand history plus graph or action-cache artifacts, and then evaluate the selected scenarios.
 - Generated outputs are written to `results/runs` and `results/reports`; only `results/samples` is meant to be committed.
 - Research planning lives in `docs/MASTER_PLAN.md`.
 - Benchmark selection notes live in `docs/BENCHMARK_SELECTION.md`.
+
+## Cleanup Roadmap
+- The current cleanup and simplification plan is tracked in `docs/MASTER_PLAN.md`.
+- The roadmap is organized into three workstreams: operator surfaces and docs, `harness-core` simplification, and benchmark fixture or repo hygiene.
+- The first cleanup phase is documentation vocabulary and drift guards, followed by workflow or persistence refactors, then fixture generation and suite normalization.
+- Use that plan before adding new commands, docs, or result artifacts so the project surface stays coherent.

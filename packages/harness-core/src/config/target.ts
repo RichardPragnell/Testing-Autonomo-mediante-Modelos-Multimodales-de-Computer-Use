@@ -13,7 +13,7 @@ const taskSchema = z.object({
   id: z.string().min(1),
   instruction: z.string().min(1),
   expected: z.object({
-    type: z.enum(["contains", "url_contains", "text_visible"]),
+    type: z.enum(["contains", "url_contains", "text_visible", "text_not_visible"]),
     value: z.string().min(1)
   }),
   source: z.enum(["synthetic", "generated"]).optional()

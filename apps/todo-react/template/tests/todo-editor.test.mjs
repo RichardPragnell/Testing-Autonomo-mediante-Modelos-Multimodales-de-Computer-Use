@@ -1,0 +1,26 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { beginTodoEdit, cancelTodoEdit, commitTodoEdit } from "../src/todo-editor.js";
+import { initialTodos } from "../src/todo-store.js";
+
+test("beginTodoEdit seeds editing state from the selected todo", () => {
+  const next = beginTodoEdit(initialTodos[0]);
+
+  assert.equal(next.editingId, "todo-1");
+  assert.equal(next.draft, "Plan React todo benchmark");
+});
+
+test("cancelTodoEdit clears the editing state", () => {
+  const next = cancelTodoEdit();
+
+  assert.equal(next.editingId, null);
+  assert.equal(next.draft, "");
+});
+
+test("commitTodoEdit saves the text and clears editing state", () => {
+  const next = commitTodoEdit(initialTodos, "todo-1", "Plan React todo benchmark outline");
+
+  assert.equal(next.todos[0]?.text, "Plan React todo benchmark outline");
+  assert.equal(next.editingId, null);
+  assert.equal(next.draft, "");
+});

@@ -15,6 +15,7 @@ const suiteSchema = z.object({
   promptIds: z
     .object({
       guided: z.string().optional(),
+      autonomous: z.string().optional(),
       repair: z.string().optional()
     })
     .optional(),
@@ -69,6 +70,7 @@ export async function loadBenchmarkSuite(input: {
 
   const prompts = {
     guided: suite.promptIds?.guided ? await loadPromptText(suite.promptIds.guided) : undefined,
+    autonomous: suite.promptIds?.autonomous ? await loadPromptText(suite.promptIds.autonomous) : undefined,
     repair: suite.promptIds?.repair ? await loadPromptText(suite.promptIds.repair) : undefined
   };
 

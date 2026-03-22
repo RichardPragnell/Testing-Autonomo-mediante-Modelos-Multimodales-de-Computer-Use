@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addTodo, filterTodos, initialTodos, summarizeTodos, toggleTodo } from "../src/todo-store.js";
+import { addTodo, filterTodos, initialTodos, removeTodo, summarizeTodos, toggleTodo, updateTodoText } from "../src/todo-store.js";
 
 test("addTodo appends a trimmed task", () => {
   const updated = addTodo(initialTodos, "  Review guided prompts  ");
@@ -22,4 +22,17 @@ test("filterTodos returns only active items", () => {
 
   assert.equal(active.length, 1);
   assert.equal(active[0]?.text, "Plan React todo benchmark");
+});
+
+test("updateTodoText persists trimmed edits", () => {
+  const updated = updateTodoText(initialTodos, "todo-1", "  Plan React todo benchmark outline  ");
+
+  assert.equal(updated[0]?.text, "Plan React todo benchmark outline");
+});
+
+test("removeTodo removes the selected task", () => {
+  const updated = removeTodo(initialTodos, "todo-2");
+
+  assert.equal(updated.length, 1);
+  assert.equal(updated[0]?.id, "todo-1");
 });

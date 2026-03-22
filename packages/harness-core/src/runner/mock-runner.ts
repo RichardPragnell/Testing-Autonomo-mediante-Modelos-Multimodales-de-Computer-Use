@@ -1,6 +1,6 @@
 import { sha256 } from "../utils/hash.js";
 import { nowIso } from "../utils/time.js";
-import type { AutomationRunner, RunTaskInput, TaskRunResult } from "../types.js";
+import type { AutomationRunner, ExplorationArtifact, RunTaskInput, TaskRunResult } from "../types.js";
 
 function seededNumber(seedText: string): number {
   const hex = sha256(seedText).slice(0, 12);
@@ -57,11 +57,121 @@ export class MockAutomationRunner implements AutomationRunner {
         {
           timestamp: nowIso(),
           action: "mock.act",
-          details: { instruction: input.task.instruction, score, quality }
+          details: {
+            instruction: input.task.instruction,
+            score,
+            quality,
+            systemPrompt: input.systemPrompt,
+            cacheHintIds: input.cacheHints?.map((item) => item.actionId) ?? []
+          }
         }
       ],
+      cacheHints: input.cacheHints,
       error: success ? undefined : "mock failure"
     };
   }
-}
 
+  async exploreTarget(input: {
+    model: RunTaskInput["model"];
+    trial: number;
+    targetId: string;
+    bugIds: string[];
+    prompt: string;
+    aut: RunTaskInput["aut"];
+    runConfig: RunTaskInput["runConfig"];
+    workspacePath: string;
+  }): Promise<ExplorationArtifact> {
+    const explorationRunId = `mock-explore-${this.seed}-${input.trial}`;
+    return {
+      explorationRunId,
+      targetId: input.targetId,
+      bugIds: input.bugIds,
+      modelId: input.model.id,
+      trial: input.trial,
+      prompt: input.prompt,
+      workspacePath: input.workspacePath,
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
+      compatibility: {
+        targetId: input.targetId,
+        bugIds: input.bugIds,
+        viewport: input.runConfig.viewport
+      },
+      history: [
+        {
+          method: "goto",
+          parameters: { url: input.aut.url },
+          timestamp: nowIso()
+        },
+        {
+          method: "observe",
+          parameters: { prompt: input.prompt },
+          timestamp: nowIso()
+        }
+      ],
+      pages: [
+        {
+          id: "state-root",
+          url: input.aut.url,
+          domHash: sha256("root"),
+          visualHash: sha256("root-visual"),
+          summary: "Mock root page",
+          availableActions: [
+            {
+              selector: "button:text(Edit)",
+              description: "Edit button for the first todo",
+              method: "click",
+              arguments: []
+            }
+          ],
+          visitCount: 1
+        }
+      ],
+      coverageGraph: {
+        nodes: [
+          {
+            id: "state-root",
+            url: input.aut.url,
+            domHash: sha256("root"),
+            visualHash: sha256("root-visual"),
+            visits: 1
+          }
+        ],
+        edges: []
+      },
+      actionCache: [
+        {
+          actionId: "action-edit-first",
+          stateId: "state-root",
+          url: input.aut.url,
+          domHash: sha256("root"),
+          visualHash: sha256("root-visual"),
+          selector: "button:text(Edit)",
+          description: "Edit button for the first todo",
+          method: "click",
+          arguments: [],
+          signature: "edit:first",
+          instructionHints: [input.prompt, "Edit an existing todo item"],
+          observationCount: 1,
+          executionCount: 0
+        }
+      ],
+      trace: [
+        {
+          timestamp: nowIso(),
+          action: "mock.explore",
+          details: {
+            prompt: input.prompt,
+            maxSteps: input.runConfig.maxSteps
+          }
+        }
+      ],
+      summary: {
+        statesDiscovered: 1,
+        transitionsDiscovered: 0,
+        actionsCached: 1,
+        historyEntries: 2
+      }
+    };
+  }
+}

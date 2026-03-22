@@ -93,7 +93,8 @@ h2 {
 .composer,
 .todo-item,
 .todo-main,
-.filter-group {
+.filter-group,
+.todo-actions {
   display: flex;
   align-items: center;
 }
@@ -171,15 +172,37 @@ h2 {
 .todo-main {
   gap: 12px;
   min-width: 0;
+  flex: 1;
 }
 
 .todo-main span {
   word-break: break-word;
 }
 
+.todo-editor {
+  flex: 1;
+}
+
+.todo-editor input {
+  width: 100%;
+  border: 1px solid rgba(53, 80, 141, 0.18);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: #ffffff;
+}
+
 .todo-item.is-complete .todo-main span {
   text-decoration: line-through;
   color: #64728f;
+}
+
+.todo-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.action-button {
+  min-width: 88px;
 }
 
 .ghost-button {
@@ -208,7 +231,8 @@ h2 {
 
   .todo-toolbar,
   .composer,
-  .todo-item {
+  .todo-item,
+  .todo-actions {
     align-items: stretch;
     flex-direction: column;
   }

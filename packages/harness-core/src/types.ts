@@ -50,7 +50,7 @@ export interface ModelRegistry {
   models: ModelConfig[];
 }
 
-export type TaskExpectationType = "contains" | "url_contains" | "text_visible";
+export type TaskExpectationType = "contains" | "url_contains" | "text_visible" | "text_not_visible";
 
 export interface TaskExpectation {
   type: TaskExpectationType;
@@ -116,6 +116,7 @@ export type ExplorationMode = "guided" | "autonomous";
 
 export interface SuitePromptIds {
   guided?: string;
+  autonomous?: string;
   repair?: string;
 }
 
@@ -141,6 +142,7 @@ export interface BenchmarkSuite {
 
 export interface ResolvedPromptSet {
   guided?: string;
+  autonomous?: string;
   repair?: string;
 }
 
@@ -214,6 +216,94 @@ export interface OperationTrace {
   details?: Record<string, unknown>;
 }
 
+export interface StagehandHistoryEntry {
+  method: string;
+  parameters?: Record<string, unknown>;
+  result?: unknown;
+  timestamp: string;
+}
+
+export interface ObservedAction {
+  selector: string;
+  description: string;
+  method?: string;
+  arguments?: string[];
+}
+
+export interface ActionCacheEntry {
+  actionId: string;
+  stateId: string;
+  url: string;
+  domHash: string;
+  visualHash: string;
+  selector: string;
+  description: string;
+  method?: string;
+  arguments: string[];
+  signature: string;
+  instructionHints: string[];
+  observationCount: number;
+  executionCount: number;
+}
+
+export interface ExplorationState {
+  id: string;
+  url: string;
+  domHash: string;
+  visualHash: string;
+  summary: string;
+  availableActions: ObservedAction[];
+  visitCount: number;
+}
+
+export interface ExplorationCompatibility {
+  targetId: string;
+  bugIds: string[];
+  viewport: {
+    width: number;
+    height: number;
+  };
+}
+
+export interface ExplorationSummary {
+  statesDiscovered: number;
+  transitionsDiscovered: number;
+  actionsCached: number;
+  historyEntries: number;
+}
+
+export interface BenchmarkExplorationSummary extends ExplorationSummary {
+  explorationRunId: string;
+  modelId: string;
+  trial: number;
+}
+
+export interface ExplorationCacheUsage {
+  explorationRunId: string;
+  compatible: boolean;
+  reason?: string;
+  matchedActions: number;
+}
+
+export interface ExplorationArtifact {
+  explorationRunId: string;
+  targetId: string;
+  bugIds: string[];
+  modelId: string;
+  trial: number;
+  prompt: string;
+  workspacePath: string;
+  startedAt: string;
+  finishedAt: string;
+  compatibility: ExplorationCompatibility;
+  history: StagehandHistoryEntry[];
+  pages: ExplorationState[];
+  coverageGraph: CoverageGraphSnapshot;
+  actionCache: ActionCacheEntry[];
+  trace: OperationTrace[];
+  summary: ExplorationSummary;
+}
+
 export interface TaskRunResult {
   taskId: string;
   trial: number;
@@ -226,6 +316,8 @@ export interface TaskRunResult {
   screenshotBase64?: string;
   domSnapshot?: string;
   trace: OperationTrace[];
+  historyEntries?: StagehandHistoryEntry[];
+  cacheHints?: ActionCacheEntry[];
   error?: string;
 }
 
@@ -286,6 +378,8 @@ export interface RunArtifact {
   modelSummaries: ModelRunSummary[];
   findings: Finding[];
   coverageGraph: CoverageGraphSnapshot;
+  autonomousExploration?: BenchmarkExplorationSummary[];
+  guidedCacheUsage?: ExplorationCacheUsage;
 }
 
 export interface LeaderboardEntry {
@@ -310,6 +404,8 @@ export interface BenchmarkReport {
   leaderboard: LeaderboardEntry[];
   confidence: Record<string, { low: number; high: number }>;
   failureClusters: Record<FailureCategory, number>;
+  autonomousExploration?: BenchmarkExplorationSummary[];
+  guidedCacheUsage?: ExplorationCacheUsage;
   repairOutcomes: {
     fixed: number;
     not_fixed: number;
@@ -345,10 +441,22 @@ export interface RunTaskInput {
   trial: number;
   aut: AutConfig;
   runConfig: StagehandRunConfig;
+  systemPrompt?: string;
+  cacheHints?: ActionCacheEntry[];
 }
 
 export interface AutomationRunner {
   runTask(input: RunTaskInput): Promise<TaskRunResult>;
+  exploreTarget?(input: {
+    model: ModelAvailability;
+    trial: number;
+    targetId: string;
+    bugIds: string[];
+    prompt: string;
+    aut: AutConfig;
+    runConfig: StagehandRunConfig;
+    workspacePath: string;
+  }): Promise<ExplorationArtifact>;
 }
 
 export interface RunBenchmarkInput {
@@ -360,6 +468,54 @@ export interface RunBenchmarkInput {
 }
 
 export interface RunBenchmarkResult {
+  artifact: RunArtifact;
+  report: BenchmarkReport;
+  artifactPath: string;
+  reportPath: string;
+}
+
+export interface ExploreTargetInput {
+  targetId: string;
+  modelId?: string;
+  bugIds?: string[];
+  prompt: string;
+  modelsPath?: string;
+  resultsDir?: string;
+  timeoutMs?: number;
+  retryCount?: number;
+  maxSteps?: number;
+  viewport?: {
+    width: number;
+    height: number;
+  };
+  runner?: AutomationRunner;
+}
+
+export interface ExploreTargetResult {
+  artifact: ExplorationArtifact;
+  artifactPath: string;
+}
+
+export interface RunGuidedInput {
+  targetId: string;
+  modelId?: string;
+  scenarioIds: string[];
+  bugIds?: string[];
+  modelsPath?: string;
+  resultsDir?: string;
+  guidedPromptId?: string;
+  explorationRunId?: string;
+  timeoutMs?: number;
+  retryCount?: number;
+  maxSteps?: number;
+  viewport?: {
+    width: number;
+    height: number;
+  };
+  runner?: AutomationRunner;
+}
+
+export interface RunGuidedResult {
   artifact: RunArtifact;
   report: BenchmarkReport;
   artifactPath: string;
