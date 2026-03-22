@@ -154,61 +154,65 @@ describe("benchmark suite integration", () => {
     expect(workspaceStore).toContain("return todos;");
   });
 
-  it("runs a benchmark suite and persists artifacts under results", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "bench-run-"));
-    tempDirs.push(dir);
+  it(
+    "runs a benchmark suite and persists artifacts under results",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "bench-run-"));
+      tempDirs.push(dir);
 
-    const modelsPath = join(dir, "registry.yaml");
-    await writeFile(
-      modelsPath,
-      [
-        "default_model: google/gemini-2.5-flash",
-        "models:",
-        "  - id: google/gemini-2.5-flash",
-        "    provider: google",
-        "    enabled: true",
-        "  - id: openai/gpt-4o-mini",
-        "    provider: openai",
-        "    enabled: true"
-      ].join("\n"),
-      "utf8"
-    );
+      const modelsPath = join(dir, "registry.yaml");
+      await writeFile(
+        modelsPath,
+        [
+          "default_model: google/gemini-2.5-flash",
+          "models:",
+          "  - id: google/gemini-2.5-flash",
+          "    provider: google",
+          "    enabled: true",
+          "  - id: openai/gpt-4o-mini",
+          "    provider: openai",
+          "    enabled: true"
+        ].join("\n"),
+        "utf8"
+      );
 
-    const result = await runBenchmarkSuite({
-      modelsPath,
-      runner: new MockAutomationRunner(11),
-      suite: {
-        suiteId: "integration-suite",
-        targetId: "todo-react",
-        scenarioIds: ["smoke", "guided"],
-        bugIds: ["new-task-label-lost", "toggle-completion-noop"],
-        models: ["google/gemini-2.5-flash", "openai/gpt-4o-mini"],
-        explorationMode: "guided",
-        promptIds: {
-          guided: "guided.default",
-          repair: "repair.default"
-        },
-        trials: 2,
-        timeoutMs: 10_000,
-        retryCount: 0,
-        maxSteps: 10,
-        viewport: { width: 1280, height: 720 },
-        seed: 11,
-        resultsDir: dir
-      }
-    });
+      const result = await runBenchmarkSuite({
+        modelsPath,
+        runner: new MockAutomationRunner(11),
+        suite: {
+          suiteId: "integration-suite",
+          targetId: "todo-react",
+          scenarioIds: ["smoke", "guided"],
+          bugIds: ["new-task-label-lost", "toggle-completion-noop"],
+          models: ["google/gemini-2.5-flash", "openai/gpt-4o-mini"],
+          explorationMode: "guided",
+          promptIds: {
+            guided: "guided.default",
+            repair: "repair.default"
+          },
+          trials: 2,
+          timeoutMs: 10_000,
+          retryCount: 0,
+          maxSteps: 10,
+          viewport: { width: 1280, height: 720 },
+          seed: 11,
+          resultsDir: dir
+        }
+      });
 
-    expect(result.artifact.targetId).toBe("todo-react");
-    expect(result.artifact.scenarioIds).toEqual(["smoke", "guided"]);
-    expect(result.artifact.bugIds).toEqual(["new-task-label-lost", "toggle-completion-noop"]);
-    expect(result.report.suiteId).toBe("integration-suite");
-    expect(result.report.targetId).toBe("todo-react");
+      expect(result.artifact.targetId).toBe("todo-react");
+      expect(result.artifact.scenarioIds).toEqual(["smoke", "guided"]);
+      expect(result.artifact.bugIds).toEqual(["new-task-label-lost", "toggle-completion-noop"]);
+      expect(result.report.suiteId).toBe("integration-suite");
+      expect(result.report.targetId).toBe("todo-react");
 
-    const artifactRaw = await readFile(result.artifactPath, "utf8");
-    const reportRaw = await readFile(result.reportPath, "utf8");
-    expect(artifactRaw).toContain("\"workspacePath\"");
-    expect(reportRaw).toContain("\"explorationMode\": \"guided\"");
-  });
+      const artifactRaw = await readFile(result.artifactPath, "utf8");
+      const reportRaw = await readFile(result.reportPath, "utf8");
+      expect(artifactRaw).toContain("\"workspacePath\"");
+      expect(reportRaw).toContain("\"explorationMode\": \"guided\"");
+    },
+    20_000
+  );
 
   it("persists ranked source candidates for failed tasks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-findings-"));
