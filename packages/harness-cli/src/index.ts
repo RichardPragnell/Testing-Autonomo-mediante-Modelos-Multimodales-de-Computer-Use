@@ -1,18 +1,61 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
-  compareBenchmarkRuns,
-  describeTarget,
-  getBenchmarkReport,
+  compareExploreRuns,
+  compareHealRuns,
+  compareQaRuns,
+  getExploreReport,
+  getHealReport,
+  getQaReport,
   loadProjectEnv,
-  listSuites,
-  listTargets,
-  runBenchmarkSuite,
-  runSelfHeal
+  MockAutomationRunner,
+  MockRepairModelClient,
+  runExploreExperiment,
+  runHealExperiment,
+  runQaExperiment
 } from "@agentic-qa/harness-core";
 
 function print(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function parseModels(raw?: string): string[] | undefined {
+  if (!raw?.trim()) {
+    return undefined;
+  }
+  return raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function mockSeed(): number {
+  const raw = process.env.BENCH_MOCK_SEED?.trim();
+  return raw ? Number(raw) || 42 : 42;
+}
+
+function createAutomationRunner() {
+  if (process.env.BENCH_USE_MOCK_RUNNER) {
+    return new MockAutomationRunner(mockSeed());
+  }
+  return undefined;
+}
+
+function createRepairClient() {
+  if (process.env.BENCH_USE_MOCK_REPAIR_MODEL) {
+    return new MockRepairModelClient();
+  }
+  return undefined;
+}
+
+function applySharedRunOptions(command: Command): Command {
+  return command
+    .requiredOption("--app <id>", "Benchmark app identifier")
+    .option("--models <ids>", "Comma-separated model ids")
+    .option("--models-path <path>", "Path to model registry", "experiments/models/registry.yaml")
+    .option("--trials <count>", "Trial count override", (value) => Number(value))
+    .option("--results-dir <path>", "Results directory root", "results")
+    .option("--preset <path>", "Optional preset JSON");
 }
 
 async function main(): Promise<void> {
@@ -21,80 +64,128 @@ async function main(): Promise<void> {
   const program = new Command();
   program
     .name("bench")
-    .description("Benchmark-first harness CLI for local web QA, exploration, and self-healing")
+    .description("Three-experiment benchmark CLI for QA, exploration, and self-healing")
     .showHelpAfterError();
 
-  program
-    .command("run")
-    .requiredOption("--suite <path>", "Path to benchmark suite JSON")
-    .option("--models-path <path>", "Path to model registry", "experiments/models/registry.yaml")
-    .action(async (options: { suite: string; modelsPath: string }) => {
-      const result = await runBenchmarkSuite({
-        suitePath: options.suite,
-        modelsPath: options.modelsPath
+  const qa = program.command("qa").description("Guided QA benchmark");
+  applySharedRunOptions(qa.command("run").description("Run the QA benchmark")).action(
+    async (options: {
+      app: string;
+      models?: string;
+      modelsPath: string;
+      trials?: number;
+      resultsDir: string;
+      preset?: string;
+    }) => {
+      const result = await runQaExperiment({
+        appId: options.app,
+        models: parseModels(options.models),
+        modelsPath: options.modelsPath,
+        trials: options.trials,
+        resultsDir: options.resultsDir,
+        presetPath: options.preset,
+        runner: createAutomationRunner()
       });
       print({
         runId: result.artifact.runId,
         artifactPath: result.artifactPath,
-        reportPath: result.reportPath
+        reportPath: result.reportPath,
+        htmlPath: result.htmlPath
       });
-    });
-
-  program
-    .command("report")
+    }
+  );
+  qa.command("report")
     .requiredOption("--run-id <id>", "Run ID")
-    .action(async (options: { runId: string }) => {
-      print(await getBenchmarkReport(options.runId));
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runId: string; resultsDir: string }) => {
+      print(await getQaReport(options.runId, options.resultsDir));
     });
-
-  program
-    .command("compare")
+  qa.command("compare")
     .requiredOption("--run-ids <ids...>", "Run IDs to compare")
-    .action(async (options: { runIds: string[] }) => {
-      print(await compareBenchmarkRuns(options.runIds));
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runIds: string[]; resultsDir: string }) => {
+      print(await compareQaRuns(options.runIds, options.resultsDir));
     });
 
-  program
-    .command("heal")
+  const explore = program.command("explore").description("Autonomous exploration benchmark");
+  applySharedRunOptions(explore.command("run").description("Run the exploration benchmark")).action(
+    async (options: {
+      app: string;
+      models?: string;
+      modelsPath: string;
+      trials?: number;
+      resultsDir: string;
+      preset?: string;
+    }) => {
+      const result = await runExploreExperiment({
+        appId: options.app,
+        models: parseModels(options.models),
+        modelsPath: options.modelsPath,
+        trials: options.trials,
+        resultsDir: options.resultsDir,
+        presetPath: options.preset,
+        runner: createAutomationRunner()
+      });
+      print({
+        runId: result.artifact.runId,
+        artifactPath: result.artifactPath,
+        reportPath: result.reportPath,
+        htmlPath: result.htmlPath
+      });
+    }
+  );
+  explore.command("report")
     .requiredOption("--run-id <id>", "Run ID")
-    .requiredOption("--finding-id <id>", "Finding ID")
-    .requiredOption("--agent-command <command>", "Command that receives context JSON via stdin and returns unified diff")
-    .option("--validation-command <command>", "Validation command in isolated worktree")
-    .action(
-      async (options: {
-        runId: string;
-        findingId: string;
-        agentCommand: string;
-        validationCommand?: string;
-      }) => {
-        print(
-          await runSelfHeal({
-            runId: options.runId,
-            findingId: options.findingId,
-            agentCommand: options.agentCommand,
-            validationCommand: options.validationCommand
-          })
-        );
-      }
-    );
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runId: string; resultsDir: string }) => {
+      print(await getExploreReport(options.runId, options.resultsDir));
+    });
+  explore.command("compare")
+    .requiredOption("--run-ids <ids...>", "Run IDs to compare")
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runIds: string[]; resultsDir: string }) => {
+      print(await compareExploreRuns(options.runIds, options.resultsDir));
+    });
 
-  const list = program.command("list").description("List benchmark resources");
-
-  list.command("targets").action(async () => {
-    print(await listTargets());
-  });
-
-  list.command("suites").action(async () => {
-    print(await listSuites());
-  });
-
-  const describe = program.command("describe").description("Describe benchmark resources");
-
-  describe
-    .command("target")
-    .requiredOption("--target <id>", "Target identifier")
-    .action(async (options: { target: string }) => {
-      print(await describeTarget(options.target));
+  const heal = program.command("heal").description("Self-healing benchmark");
+  applySharedRunOptions(heal.command("run").description("Run the self-heal benchmark")).action(
+    async (options: {
+      app: string;
+      models?: string;
+      modelsPath: string;
+      trials?: number;
+      resultsDir: string;
+      preset?: string;
+    }) => {
+      const result = await runHealExperiment({
+        appId: options.app,
+        models: parseModels(options.models),
+        modelsPath: options.modelsPath,
+        trials: options.trials,
+        resultsDir: options.resultsDir,
+        presetPath: options.preset,
+        runner: createAutomationRunner(),
+        repairClient: createRepairClient()
+      });
+      print({
+        runId: result.artifact.runId,
+        artifactPath: result.artifactPath,
+        reportPath: result.reportPath,
+        htmlPath: result.htmlPath
+      });
+    }
+  );
+  heal.command("report")
+    .requiredOption("--run-id <id>", "Run ID")
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runId: string; resultsDir: string }) => {
+      print(await getHealReport(options.runId, options.resultsDir));
+    });
+  heal.command("compare")
+    .requiredOption("--run-ids <ids...>", "Run IDs to compare")
+    .option("--results-dir <path>", "Results directory root", "results")
+    .action(async (options: { runIds: string[]; resultsDir: string }) => {
+      print(await compareHealRuns(options.runIds, options.resultsDir));
     });
 
   await program.parseAsync(process.argv);

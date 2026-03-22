@@ -125,6 +125,7 @@ export function buildSourceCandidates(input: {
   result: TaskRunResult;
   category: FailureCategory;
   message: string;
+  includeBugHints?: boolean;
 }): SourceCandidate[] {
   const candidates = new Map<string, CandidateState>();
   const routeHint = detectRouteHint([
@@ -137,18 +138,20 @@ export function buildSourceCandidates(input: {
     ...collectTraceText(input.result)
   ]);
 
-  for (const bug of input.suite.selectedBugs) {
-    if (!bug.expectedFailureTaskIds.includes(input.task.id)) {
-      continue;
-    }
-    for (const touchedFile of bug.touchedFiles) {
-      addCandidate(
-        candidates,
-        input.workspacePath,
-        touchedFile,
-        90,
-        `bug pack ${bug.bugId} is expected to fail on task ${input.task.id}`
-      );
+  if (input.includeBugHints ?? true) {
+    for (const bug of input.suite.selectedBugs) {
+      if (!bug.expectedFailureTaskIds.includes(input.task.id)) {
+        continue;
+      }
+      for (const touchedFile of bug.touchedFiles) {
+        addCandidate(
+          candidates,
+          input.workspacePath,
+          touchedFile,
+          90,
+          `bug pack ${bug.bugId} is expected to fail on task ${input.task.id}`
+        );
+      }
     }
   }
 

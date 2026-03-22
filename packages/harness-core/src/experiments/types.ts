@@ -1,0 +1,403 @@
+import type {
+  BenchmarkTask,
+  Finding,
+  ModelAvailability,
+  OperationTrace,
+  ResolvedBenchmarkTarget,
+  TaskRunResult
+} from "../types.js";
+
+export type ExperimentKind = "qa" | "explore" | "heal";
+
+export interface CapabilityDefinition {
+  capabilityId: string;
+  title: string;
+  taskIds: string[];
+}
+
+export interface ExploreHeuristicTargets {
+  minStates: number;
+  minTransitions: number;
+  actionKinds: string[];
+}
+
+export interface HealCaseDefinition {
+  caseId: string;
+  title: string;
+  bugId: string;
+  reproductionTaskIds: string[];
+  regressionTaskIds: string[];
+  goldTouchedFiles: string[];
+  validationCommand?: string;
+}
+
+export interface AppBenchmarkManifest {
+  appId: string;
+  displayName: string;
+  prompts: {
+    qa: string;
+    explore: string;
+    heal: string;
+  };
+  runtime: {
+    timeoutMs: number;
+    retryCount: number;
+    maxSteps: number;
+    viewport: {
+      width: number;
+      height: number;
+    };
+    qaTrials: number;
+    exploreTrials: number;
+    healTrials: number;
+  };
+  capabilities: CapabilityDefinition[];
+  qa: {
+    capabilityIds: string[];
+  };
+  explore: {
+    capabilityIds: string[];
+    probeTaskIds: string[];
+    heuristicTargets: ExploreHeuristicTargets;
+  };
+  heal: {
+    caseIds: string[];
+    cases: HealCaseDefinition[];
+  };
+}
+
+export interface ResolvedAppBenchmark {
+  manifestPath: string;
+  benchmark: AppBenchmarkManifest;
+  target: ResolvedBenchmarkTarget;
+  tasks: Map<string, BenchmarkTask>;
+  capabilityMap: Map<string, CapabilityDefinition>;
+  healCaseMap: Map<string, HealCaseDefinition>;
+}
+
+export interface ExperimentRuntime {
+  timeoutMs: number;
+  retryCount: number;
+  maxSteps: number;
+  viewport: {
+    width: number;
+    height: number;
+  };
+}
+
+export interface QaExperimentSpec {
+  appId: string;
+  capabilityIds: string[];
+  taskIds: string[];
+  models?: string[];
+  promptId: string;
+  trials: number;
+  runtime: ExperimentRuntime;
+  resultsDir: string;
+}
+
+export interface ExploreExperimentSpec {
+  appId: string;
+  capabilityIds: string[];
+  probeTaskIds: string[];
+  models?: string[];
+  promptId: string;
+  trials: number;
+  runtime: ExperimentRuntime;
+  resultsDir: string;
+  heuristicTargets: ExploreHeuristicTargets;
+}
+
+export interface HealExperimentSpec {
+  appId: string;
+  caseIds: string[];
+  models?: string[];
+  promptId: string;
+  trials: number;
+  runtime: ExperimentRuntime;
+  resultsDir: string;
+}
+
+export interface RepairUsage {
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  costUsd: number;
+}
+
+export interface RepairDiagnosis {
+  summary: string;
+  suspectedFiles: string[];
+  notes?: string;
+}
+
+export interface RepairModelResult {
+  diagnosis: RepairDiagnosis;
+  patch?: string;
+  usage: RepairUsage;
+  rawResponse: string;
+}
+
+export interface QaCapabilityTrialResult {
+  capabilityId: string;
+  title: string;
+  trial: number;
+  success: boolean;
+  taskIds: string[];
+  failedTaskIds: string[];
+}
+
+export interface QaModelMetrics {
+  modelId: string;
+  capabilityPassRate: number;
+  fullScenarioCompletionRate: number;
+  stability: number;
+  taskPassRate: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+  score: number;
+  executedTasks: number;
+  skippedTasks: number;
+}
+
+export interface QaModelSummary {
+  model: ModelAvailability;
+  metrics: QaModelMetrics;
+  taskRuns: TaskRunResult[];
+  capabilityRuns: QaCapabilityTrialResult[];
+}
+
+export interface QaRunArtifact {
+  kind: "qa";
+  runId: string;
+  appId: string;
+  startedAt: string;
+  finishedAt: string;
+  spec: QaExperimentSpec;
+  modelSummaries: QaModelSummary[];
+}
+
+export interface QaLeaderboardEntry {
+  rank: number;
+  modelId: string;
+  provider: string;
+  score: number;
+  capabilityPassRate: number;
+  fullScenarioCompletionRate: number;
+  stability: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+}
+
+export interface QaReport {
+  kind: "qa";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  spec: QaExperimentSpec;
+  leaderboard: QaLeaderboardEntry[];
+  modelSummaries: QaModelSummary[];
+}
+
+export interface ExploreCapabilityDiscovery {
+  capabilityId: string;
+  title: string;
+  trial: number;
+  discovered: boolean;
+  matchedActionIds: string[];
+}
+
+export interface ExploreProbeRun {
+  trial: number;
+  taskId: string;
+  success: boolean;
+  matchedActionIds: string[];
+  taskRun: TaskRunResult;
+}
+
+export interface ExploreTrialArtifact {
+  trial: number;
+  explorationRunId: string;
+  statesDiscovered: number;
+  transitionsDiscovered: number;
+  actionsCached: number;
+  actionKinds: string[];
+  capabilityDiscovery: ExploreCapabilityDiscovery[];
+  probeRuns: ExploreProbeRun[];
+}
+
+export interface ExploreModelMetrics {
+  modelId: string;
+  capabilityDiscoveryRate: number;
+  probeReplayPassRate: number;
+  stateCoverage: number;
+  transitionCoverage: number;
+  actionDiversity: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+  score: number;
+}
+
+export interface ExploreModelSummary {
+  model: ModelAvailability;
+  metrics: ExploreModelMetrics;
+  trials: ExploreTrialArtifact[];
+}
+
+export interface ExploreRunArtifact {
+  kind: "explore";
+  runId: string;
+  appId: string;
+  startedAt: string;
+  finishedAt: string;
+  spec: ExploreExperimentSpec;
+  modelSummaries: ExploreModelSummary[];
+}
+
+export interface ExploreLeaderboardEntry {
+  rank: number;
+  modelId: string;
+  provider: string;
+  score: number;
+  capabilityDiscoveryRate: number;
+  probeReplayPassRate: number;
+  stateCoverage: number;
+  transitionCoverage: number;
+  actionDiversity: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+}
+
+export interface ExploreReport {
+  kind: "explore";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  spec: ExploreExperimentSpec;
+  leaderboard: ExploreLeaderboardEntry[];
+  modelSummaries: ExploreModelSummary[];
+}
+
+export interface HealCaseTrialResult {
+  caseId: string;
+  title: string;
+  trial: number;
+  reproductionRuns: TaskRunResult[];
+  findings: Finding[];
+  diagnosis?: RepairDiagnosis;
+  suspectedFiles: string[];
+  goldTouchedFiles: string[];
+  patchGenerated: boolean;
+  patchApplied: boolean;
+  validationPassed: boolean;
+  validationExitCode?: number;
+  failingTaskFixRate: number;
+  regressionFreeRate: number;
+  localizationScore: number;
+  fixed: boolean;
+  repairUsage: RepairUsage;
+  patchPath?: string;
+  note: string;
+  postPatchReproductionRuns: TaskRunResult[];
+  postPatchRegressionRuns: TaskRunResult[];
+}
+
+export interface HealModelMetrics {
+  modelId: string;
+  localizationAccuracy: number;
+  patchApplyRate: number;
+  validationPassRate: number;
+  failingTaskFixRate: number;
+  regressionFreeRate: number;
+  fixRate: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+  score: number;
+}
+
+export interface HealModelSummary {
+  model: ModelAvailability;
+  metrics: HealModelMetrics;
+  caseResults: HealCaseTrialResult[];
+}
+
+export interface HealRunArtifact {
+  kind: "heal";
+  runId: string;
+  appId: string;
+  startedAt: string;
+  finishedAt: string;
+  spec: HealExperimentSpec;
+  modelSummaries: HealModelSummary[];
+}
+
+export interface HealLeaderboardEntry {
+  rank: number;
+  modelId: string;
+  provider: string;
+  score: number;
+  localizationAccuracy: number;
+  patchApplyRate: number;
+  validationPassRate: number;
+  failingTaskFixRate: number;
+  regressionFreeRate: number;
+  fixRate: number;
+  avgLatencyMs: number;
+  avgCostUsd: number;
+}
+
+export interface HealReport {
+  kind: "heal";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  spec: HealExperimentSpec;
+  leaderboard: HealLeaderboardEntry[];
+  modelSummaries: HealModelSummary[];
+}
+
+export interface ExperimentRunPaths {
+  artifactPath: string;
+  reportPath: string;
+  htmlPath: string;
+}
+
+export interface QaRunResult extends ExperimentRunPaths {
+  artifact: QaRunArtifact;
+  report: QaReport;
+}
+
+export interface ExploreRunResult extends ExperimentRunPaths {
+  artifact: ExploreRunArtifact;
+  report: ExploreReport;
+}
+
+export interface HealRunResult extends ExperimentRunPaths {
+  artifact: HealRunArtifact;
+  report: HealReport;
+}
+
+export interface CompareLeaderboardEntry {
+  modelId: string;
+  avgScore: number;
+  runs: number;
+}
+
+export interface CompareResult<TReport> {
+  reports: TReport[];
+  aggregateLeaderboard: CompareLeaderboardEntry[];
+  htmlPath: string;
+}
+
+export interface RepairPromptContext {
+  appId: string;
+  findings: Finding[];
+  candidateFiles: Array<{
+    path: string;
+    reasons: string[];
+    content: string;
+  }>;
+  validationCommand: string;
+  traces: OperationTrace[];
+}

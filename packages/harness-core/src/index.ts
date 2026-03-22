@@ -1,4 +1,10 @@
 export * from "./types.js";
+export * from "./experiments/types.js";
+export * from "./experiments/benchmark.js";
+export * from "./experiments/qa.js";
+export * from "./experiments/explore.js";
+export * from "./experiments/heal.js";
+export * from "./experiments/scoring.js";
 export * from "./service.js";
 export * from "./runner/stagehand-runner.js";
 export * from "./runner/mock-runner.js";
@@ -15,3 +21,4 @@ export * from "./exploration/action-cache.js";
 export * from "./graph/state-graph.js";
 export * from "./runtime/workspace.js";
 export * from "./tracking/plan.js";
+export * from "./self-heal/model-client.js";
