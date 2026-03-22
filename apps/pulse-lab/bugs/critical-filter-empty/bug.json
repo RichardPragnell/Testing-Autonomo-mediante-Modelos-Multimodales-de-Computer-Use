@@ -1,9 +1,0 @@
-{
-  "bugId": "critical-filter-empty",
-  "title": "Critical filter uses a missing field",
-  "description": "The critical incident filter reads a nonexistent priority field and returns no incidents.",
-  "category": "state",
-  "severity": "medium",
-  "patchPath": "patch.diff",
-  "expectedFailureTaskIds": ["guided-critical-filter"]
-}

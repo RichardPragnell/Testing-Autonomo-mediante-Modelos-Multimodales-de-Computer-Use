@@ -30,7 +30,7 @@ export async function prepareRunWorkspace(input: {
 }): Promise<RunWorkspace> {
   const runRoot = join(input.resultsRoot, "runs", input.runId);
   const workspacePath = join(runRoot, "workspace");
-  const repoRoot = dirname(await resolveWorkspacePath("package.json"));
+  const repoRoot = dirname(await resolveWorkspacePath("pnpm-workspace.yaml"));
   const templateContext = { repoRoot, workspacePath };
 
   await removeDir(workspacePath);

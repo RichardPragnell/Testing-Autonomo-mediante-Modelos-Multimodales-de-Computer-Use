@@ -7,7 +7,7 @@ import type {
   TaskRunResult
 } from "../types.js";
 
-type RouteHint = "incidents" | "overview" | "releases" | "settings";
+type RouteHint = "composer" | "filter" | "overview";
 
 interface CandidateState {
   path: string;
@@ -18,52 +18,45 @@ interface CandidateState {
 
 const routeFiles: Record<RouteHint, Array<{ path: string; score: number; reason: string }>> = {
   overview: [
-    { path: "public/app.js", score: 20, reason: "route hint points to the overview shell controller" },
-    { path: "public/modules/ui/render.js", score: 24, reason: "route hint points to overview rendering" }
+    { path: "src/App.jsx", score: 24, reason: "overview hint points to the main React app shell" },
+    { path: "src/todo-store.js", score: 20, reason: "overview hint points to shared todo state helpers" }
   ],
-  incidents: [
-    { path: "public/modules/domain/incidents.js", score: 34, reason: "route hint points to incident filtering logic" },
-    { path: "public/modules/ui/render.js", score: 26, reason: "route hint points to incident board rendering" },
-    { path: "public/app.js", score: 18, reason: "route hint points to the incident route controller" }
+  composer: [
+    { path: "src/todo-store.js", score: 34, reason: "composer hint points to todo creation logic" },
+    { path: "src/App.jsx", score: 26, reason: "composer hint points to form wiring and rendering" }
   ],
-  releases: [
-    { path: "public/modules/domain/releases.js", score: 34, reason: "route hint points to release summary logic" },
-    { path: "public/modules/ui/render.js", score: 24, reason: "route hint points to release rendering" },
-    { path: "public/app.js", score: 18, reason: "route hint points to the release route controller" }
-  ],
-  settings: [
-    { path: "public/modules/state/preferences.js", score: 34, reason: "route hint points to preference state logic" },
-    { path: "public/modules/ui/render.js", score: 24, reason: "route hint points to toast and settings rendering" },
-    { path: "public/app.js", score: 22, reason: "route hint points to settings event wiring" }
+  filter: [
+    { path: "src/todo-store.js", score: 34, reason: "filter hint points to todo filtering and completion logic" },
+    { path: "src/App.jsx", score: 24, reason: "filter hint points to filter controls and list rendering" }
   ]
 };
 
 const categoryFiles: Record<FailureCategory, Array<{ path: string; score: number; reason: string }>> = {
   assertion: [
-    { path: "public/modules/ui/render.js", score: 22, reason: "assertion failures often surface in rendered text" },
-    { path: "public/app.js", score: 12, reason: "assertion failures can come from route-state wiring" }
+    { path: "src/App.jsx", score: 22, reason: "assertion failures often surface in rendered React output" },
+    { path: "src/todo-store.js", score: 12, reason: "assertion failures can come from incorrect todo state helpers" }
   ],
   locator: [
-    { path: "public/modules/ui/render.js", score: 30, reason: "locator failures usually come from missing or changed markup" },
-    { path: "public/app.js", score: 16, reason: "locator failures can come from event wiring or route transitions" }
+    { path: "src/App.jsx", score: 30, reason: "locator failures usually come from changed JSX or missing elements" },
+    { path: "src/main.jsx", score: 12, reason: "locator failures can come from incorrect app bootstrap" }
   ],
   navigation: [
-    { path: "public/app.js", score: 26, reason: "navigation failures often come from route handling" },
-    { path: "src/server.mjs", score: 18, reason: "navigation failures can come from AUT bootstrap or static serving" }
+    { path: "src/main.jsx", score: 22, reason: "navigation failures can come from broken React bootstrap" },
+    { path: "src/App.jsx", score: 16, reason: "navigation failures can come from top-level app rendering" }
   ],
   state: [
-    { path: "public/app.js", score: 14, reason: "state failures can come from client-side state transitions" }
+    { path: "src/todo-store.js", score: 24, reason: "state failures often originate in todo mutation helpers" },
+    { path: "src/App.jsx", score: 14, reason: "state failures can come from React event wiring" }
   ],
   timeout: [
-    { path: "public/app.js", score: 18, reason: "timeouts can come from stuck client-side transitions" },
-    { path: "public/modules/ui/render.js", score: 12, reason: "timeouts can come from render loops or hidden UI waits" },
-    { path: "src/server.mjs", score: 10, reason: "timeouts can come from AUT startup or response issues" }
+    { path: "src/App.jsx", score: 18, reason: "timeouts can come from render loops or stalled UI updates" },
+    { path: "src/main.jsx", score: 12, reason: "timeouts can come from app startup issues" }
   ],
   unexpected_ui: [
-    { path: "public/modules/ui/render.js", score: 30, reason: "unexpected UI usually comes from toast, modal, or conditional rendering" },
-    { path: "public/app.js", score: 16, reason: "unexpected UI can be triggered by incorrect client-side events" }
+    { path: "src/App.jsx", score: 30, reason: "unexpected UI usually comes from conditional JSX or list rendering" },
+    { path: "src/todo-store.js", score: 16, reason: "unexpected UI can be triggered by incorrect todo state values" }
   ],
-  unknown: [{ path: "public/app.js", score: 8, reason: "fallback candidate from the shared app shell" }]
+  unknown: [{ path: "src/App.jsx", score: 8, reason: "fallback candidate from the shared app shell" }]
 };
 
 function normalizeRelativePath(path: string): string {
@@ -86,14 +79,11 @@ function collectTraceText(result: TaskRunResult): string[] {
 function detectRouteHint(values: string[]): RouteHint {
   const haystack = values.join(" ").toLowerCase();
 
-  if (/(settings|preferences|execution mode|save preferences|preferences saved)/u.test(haystack)) {
-    return "settings";
+  if (/(add task|new task|composer|review benchmark notes)/u.test(haystack)) {
+    return "composer";
   }
-  if (/(incidents|incident board|critical incidents|active incidents|critical only|open only|payments)/u.test(haystack)) {
-    return "incidents";
-  }
-  if (/(releases|release checklist|blocked train|data-contract mismatch|monitoring)/u.test(haystack)) {
-    return "releases";
+  if (/(active filter|completed task|tasks done|remaining|draft stagehand checklist|plan react todo benchmark)/u.test(haystack)) {
+    return "filter";
   }
   return "overview";
 }
@@ -163,33 +153,23 @@ export function buildSourceCandidates(input: {
     addCandidate(candidates, input.workspacePath, hint.path, hint.score, hint.reason);
   }
 
-  if (routeHint === "incidents" && input.category === "state") {
+  if (routeHint === "filter" && input.category === "state") {
     addCandidate(
       candidates,
       input.workspacePath,
-      "public/modules/domain/incidents.js",
+      "src/todo-store.js",
       24,
-      "state failure inside the incidents route often originates in filter or summary helpers"
+      "filter state failures often originate in todo toggle or filtering helpers"
     );
   }
 
-  if (routeHint === "releases" && input.category === "state") {
+  if (routeHint === "composer" && input.category === "assertion") {
     addCandidate(
       candidates,
       input.workspacePath,
-      "public/modules/domain/releases.js",
+      "src/todo-store.js",
       24,
-      "state failure inside the releases route often originates in release summary helpers"
-    );
-  }
-
-  if (routeHint === "settings" && (input.category === "state" || input.category === "unexpected_ui")) {
-    addCandidate(
-      candidates,
-      input.workspacePath,
-      "public/modules/state/preferences.js",
-      24,
-      "settings failures often originate in preference state serialization"
+      "composer assertion failures often originate in todo creation helpers"
     );
   }
 

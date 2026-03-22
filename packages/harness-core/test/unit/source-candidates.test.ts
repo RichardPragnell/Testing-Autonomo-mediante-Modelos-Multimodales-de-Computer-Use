@@ -4,13 +4,13 @@ import { loadBenchmarkSuite } from "../../src/config/suite.js";
 import { buildSourceCandidates } from "../../src/diagnostics/source-candidates.js";
 
 describe("buildSourceCandidates", () => {
-  it("prioritizes incident domain files for the seeded critical-filter bug", async () => {
+  it("prioritizes todo-store for the seeded add-task bug", async () => {
     const suite = await loadBenchmarkSuite({
       suite: {
-        suiteId: "source-candidates-incidents",
-        targetId: "pulse-lab",
+        suiteId: "source-candidates-add-task",
+        targetId: "todo-react",
         scenarioIds: ["guided"],
-        bugIds: ["critical-filter-empty"],
+        bugIds: ["new-task-label-lost"],
         explorationMode: "guided",
         trials: 1,
         timeoutMs: 5_000,
@@ -22,48 +22,48 @@ describe("buildSourceCandidates", () => {
       }
     });
 
-    const task = suite.tasks.find((item) => item.id === "guided-critical-filter");
+    const task = suite.tasks.find((item) => item.id === "guided-add-task");
     expect(task).toBeDefined();
 
     const candidates = buildSourceCandidates({
-      workspacePath: join("C:", "bench", "pulse-lab-workspace"),
+      workspacePath: join("C:", "bench", "todo-react-workspace"),
       suite,
       task: task!,
       result: {
-        taskId: "guided-critical-filter",
+        taskId: "guided-add-task",
         trial: 1,
         modelId: "mock/model",
         success: false,
-        message: "critical summary mismatch",
+        message: "created todo label did not match input",
         latencyMs: 1000,
         costUsd: 0,
-        urlAfter: "http://127.0.0.1:3000/#incidents",
-        domSnapshot: "<html><body><p class='incident-summary'>0 critical incidents</p></body></html>",
+        urlAfter: "http://127.0.0.1:3101",
+        domSnapshot: "<html><body><span>New task</span></body></html>",
         trace: [
           {
             timestamp: "2026-03-08T00:00:00.000Z",
             action: "mock.goto",
-            details: { url: "http://127.0.0.1:3000/#incidents" }
+            details: { url: "http://127.0.0.1:3101" }
           }
         ],
-        error: "assert expected 2 critical incidents"
+        error: "expected Review benchmark notes to be visible"
       },
-      category: "state",
-      message: "assert expected 2 critical incidents"
+      category: "assertion",
+      message: "expected Review benchmark notes to be visible"
     });
 
-    expect(candidates[0]?.workspaceRelativePath).toBe("public/modules/domain/incidents.js");
-    expect(candidates[0]?.reasons.join(" ")).toContain("critical-filter-empty");
-    expect(candidates.some((candidate) => candidate.workspaceRelativePath === "public/modules/ui/render.js")).toBe(true);
+    expect(candidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
+    expect(candidates[0]?.reasons.join(" ")).toContain("new-task-label-lost");
+    expect(candidates.some((candidate) => candidate.workspaceRelativePath === "src/App.jsx")).toBe(true);
   });
 
-  it("prioritizes preferences state and toast rendering for settings feedback failures", async () => {
+  it("prioritizes todo-store and app rendering for completion failures", async () => {
     const suite = await loadBenchmarkSuite({
       suite: {
-        suiteId: "source-candidates-settings",
-        targetId: "pulse-lab",
+        suiteId: "source-candidates-complete-task",
+        targetId: "todo-react",
         scenarioIds: ["guided"],
-        bugIds: ["preferences-toast-hidden"],
+        bugIds: ["toggle-completion-noop"],
         explorationMode: "guided",
         trials: 1,
         timeoutMs: 5_000,
@@ -75,23 +75,23 @@ describe("buildSourceCandidates", () => {
       }
     });
 
-    const task = suite.tasks.find((item) => item.id === "guided-save-preferences");
+    const task = suite.tasks.find((item) => item.id === "guided-complete-task");
     expect(task).toBeDefined();
 
     const candidates = buildSourceCandidates({
-      workspacePath: join("C:", "bench", "pulse-lab-workspace"),
+      workspacePath: join("C:", "bench", "todo-react-workspace"),
       suite,
       task: task!,
       result: {
-        taskId: "guided-save-preferences",
+        taskId: "guided-complete-task",
         trial: 1,
         modelId: "mock/model",
         success: false,
-        message: "toast not visible",
+        message: "completion summary did not update",
         latencyMs: 1000,
         costUsd: 0,
-        urlAfter: "http://127.0.0.1:3000/#settings",
-        domSnapshot: "<html><body><form id='preferences-form'></form><div id='toast-region'></div></body></html>",
+        urlAfter: "http://127.0.0.1:3101",
+        domSnapshot: "<html><body><strong>0 of 2 tasks done</strong></body></html>",
         trace: [
           {
             timestamp: "2026-03-08T00:00:00.000Z",
@@ -99,14 +99,14 @@ describe("buildSourceCandidates", () => {
             details: { instruction: task!.instruction }
           }
         ],
-        error: "Preferences saved confirmation was not visible"
+        error: "expected 1 of 2 tasks done"
       },
-      category: "unexpected_ui",
-      message: "Preferences saved confirmation was not visible"
+      category: "state",
+      message: "expected 1 of 2 tasks done"
     });
 
-    expect(candidates[0]?.workspaceRelativePath).toBe("public/modules/state/preferences.js");
-    expect(candidates[1]?.workspaceRelativePath).toBe("public/modules/ui/render.js");
-    expect(candidates[0]?.reasons.join(" ")).toContain("preferences-toast-hidden");
+    expect(candidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
+    expect(candidates[1]?.workspaceRelativePath).toBe("src/App.jsx");
+    expect(candidates[0]?.reasons.join(" ")).toContain("toggle-completion-noop");
   });
 });

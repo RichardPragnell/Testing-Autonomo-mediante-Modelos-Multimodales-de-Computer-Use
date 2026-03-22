@@ -14,11 +14,9 @@ It is organized around four explicit concepts:
 - `experiments/`: model registries, benchmark suites, and prompt presets
 - `results/`: generated run workspaces, reports, and committed sample fixtures
 
-The first benchmark target is `apps/pulse-lab`. Each run clones its template into `results/runs/<runId>/workspace`, applies a selected set of bug packs, starts the app locally, and then lets the harness evaluate exploration, diagnosis, and repair behavior against that isolated workspace.
-The repo also includes `apps/todo-react`, a second benchmark target built with React to start covering framework diversity as part of the benchmark matrix.
+The current benchmark target is `apps/todo-react`. Each run clones its template into `results/runs/<runId>/workspace`, applies a selected set of bug packs, starts the app locally, and then lets the harness evaluate exploration, diagnosis, and repair behavior against that isolated workspace.
 
 ## Repository Structure
-- `apps/pulse-lab`: target manifest, pristine template, bug packs, and scenario files
 - `apps/todo-react`: React-based benchmark target with smoke and guided scenarios
 - `packages/harness-core`: suite loading, target resolution, workspace prep, Stagehand execution, reporting, and self-heal
 - `packages/harness-cli`: `bench` CLI surface
@@ -37,24 +35,13 @@ The repo also includes `apps/todo-react`, a second benchmark target built with R
 - Run the full test suite: `npx pnpm@9.12.3 test`
 
 ### Benchmark Target
-- Start the pristine Pulse Lab app directly: `npx pnpm@9.12.3 app:pulse-lab`
 - Start the React todo app directly: `npx pnpm@9.12.3 app:todo-react`
-- Target manifest: `apps/pulse-lab/target.json`
-- Alternate target manifest: `apps/todo-react/target.json`
-- Scenarios:
-  `apps/pulse-lab/scenarios/smoke.json`
-  `apps/pulse-lab/scenarios/guided.json`
-- Bug packs:
-  `apps/pulse-lab/bugs/critical-filter-empty`
-  `apps/pulse-lab/bugs/preferences-toast-hidden`
-  `apps/todo-react/bugs/new-task-label-lost`
-  `apps/todo-react/bugs/toggle-completion-noop`
 
 ### Bench CLI
 - List targets: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench list targets`
 - List suites: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench list suites`
-- Describe a target: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench describe target --target pulse-lab`
-- Run a suite: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-guided-bugged.json`
+- Describe a target: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench describe target --target todo-react`
+- Run a suite: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/todo-react-guided-bugged.json`
 - Read a report: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench report --run-id <runId>`
 - Compare runs: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench compare --run-ids <runIdA> <runIdB>`
 - Run self-heal: `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal --run-id <runId> --finding-id <findingId> --agent-command "<your-agent-command>"`
@@ -72,7 +59,7 @@ The repo also includes `apps/todo-react`, a second benchmark target built with R
 
 ## Notes
 - Local configuration template: `.env.example`
-- The CLI, MCP server, benchmark runs, and Pulse Lab local server auto-load `.env` from the repository root when present.
+- The CLI, MCP server, benchmark runs, and local benchmark app server auto-load `.env` from the repository root when present.
 - End-to-end runbook: `docs/HOW_TO_RUN.md`
 - Stagehand is configured for local runtime, not Browserbase cloud. See `docs/STAGEHAND_MCP_SETUP.md`.
 - The default model registry lives in `experiments/models/registry.yaml`.

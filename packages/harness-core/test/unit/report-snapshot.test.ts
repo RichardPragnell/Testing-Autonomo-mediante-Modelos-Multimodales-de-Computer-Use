@@ -78,10 +78,10 @@ describe("report snapshot", () => {
 
     const report = buildBenchmarkReport({
       runId: "run-1",
-      suiteId: "pulse-lab-guided-bugged",
-      targetId: "pulse-lab",
+      suiteId: "todo-react-guided-bugged",
+      targetId: "todo-react",
       scenarioIds: ["smoke", "guided"],
-      bugIds: ["critical-filter-empty", "preferences-toast-hidden"],
+      bugIds: ["new-task-label-lost", "toggle-completion-noop"],
       explorationMode: "guided",
       modelSummaries,
       findings,
@@ -95,8 +95,8 @@ describe("report snapshot", () => {
       `
       {
         "bugIds": [
-          "critical-filter-empty",
-          "preferences-toast-hidden",
+          "new-task-label-lost",
+          "toggle-completion-noop",
         ],
         "confidence": {
           "google/gemini-2.5-flash": {
@@ -152,8 +152,8 @@ describe("report snapshot", () => {
           "smoke",
           "guided",
         ],
-        "suiteId": "pulse-lab-guided-bugged",
-        "targetId": "pulse-lab",
+        "suiteId": "todo-react-guided-bugged",
+        "targetId": "todo-react",
       }
       `
     );

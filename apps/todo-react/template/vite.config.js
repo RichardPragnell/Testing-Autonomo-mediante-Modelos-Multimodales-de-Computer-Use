@@ -1,7 +1,6 @@
 import { access } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { defineConfig } from "vite";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 
@@ -23,7 +22,7 @@ async function findRepoRoot(startDir) {
   }
 }
 
-export default defineConfig(async () => {
+export default async () => {
   const repoRoot = process.env.BENCH_REPO_ROOT
     ? resolve(process.env.BENCH_REPO_ROOT)
     : await findRepoRoot(rootDir);
@@ -46,4 +45,4 @@ export default defineConfig(async () => {
       port: 3101
     }
   };
-});
+};

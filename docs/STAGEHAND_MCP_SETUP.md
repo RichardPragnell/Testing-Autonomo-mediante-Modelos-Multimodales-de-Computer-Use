@@ -26,9 +26,9 @@ These are passed into Stagehand local browser launch options when defined.
 
 ## Local run examples
 1. Start the pristine benchmark target directly:
-   `npx pnpm@9.12.3 app:pulse-lab`
+   `npx pnpm@9.12.3 app:todo-react`
 2. Run a benchmark suite through the harness:
-   `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-guided-bugged.json`
+   `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/todo-react-guided-bugged.json`
 
 ## Optional docs MCP
 Stagehand documentation can still be attached to your coding client through the public MCP endpoint:

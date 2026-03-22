@@ -1,9 +1,0 @@
-{
-  "bugId": "preferences-toast-hidden",
-  "title": "Preferences save notification is invisible",
-  "description": "The preferences save action returns a notification payload with the wrong property name, so the toast renderer ignores it.",
-  "category": "unexpected_ui",
-  "severity": "medium",
-  "patchPath": "patch.diff",
-  "expectedFailureTaskIds": ["guided-save-preferences"]
-}

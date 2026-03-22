@@ -16,7 +16,6 @@ describe("CLI smoke", () => {
       const { stdout } = await execFileAsync(process.execPath, [tsxCli, "src/index.ts", "list", "targets"], {
         cwd: cliDir
       });
-      expect(stdout).toContain("\"targetId\": \"pulse-lab\"");
       expect(stdout).toContain("\"targetId\": \"todo-react\"");
     },
     60_000
@@ -28,7 +27,7 @@ describe("CLI smoke", () => {
       const { stdout } = await execFileAsync(process.execPath, [tsxCli, "src/index.ts", "list", "suites"], {
         cwd: cliDir
       });
-      expect(stdout).toContain("\"suiteId\": \"pulse-lab-guided-bugged\"");
+      expect(stdout).toContain("\"suiteId\": \"todo-react-guided-bugged\"");
       expect(stdout).toContain("\"explorationMode\": \"guided\"");
     },
     60_000

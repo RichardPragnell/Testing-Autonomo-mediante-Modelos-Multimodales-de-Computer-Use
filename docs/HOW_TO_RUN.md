@@ -36,26 +36,7 @@ npx pnpm@9.12.3 test
 
 ## 3. Start The Benchmark App Directly
 
-The first benchmark target is `apps/pulse-lab`. You can run its pristine template directly without the harness:
-
-```bash
-npx pnpm@9.12.3 app:pulse-lab
-```
-
-Open:
-
-```text
-http://127.0.0.1:3000
-```
-
-What this gives you:
-- The clean app template from `apps/pulse-lab/template`
-- No benchmark cloning yet
-- No bug packs applied yet
-
-Use this when you want to inspect the baseline app manually.
-
-The repo also includes a React-based target:
+The benchmark target is `apps/todo-react`. You can run its pristine template directly without the harness:
 
 ```bash
 npx pnpm@9.12.3 app:todo-react
@@ -66,6 +47,13 @@ Open:
 ```text
 http://127.0.0.1:3101
 ```
+
+What this gives you:
+- The clean app template from `apps/todo-react/template`
+- No benchmark cloning yet
+- No bug packs applied yet
+
+Use this when you want to inspect the baseline app manually.
 
 ## 4. List What Can Be Run
 
@@ -84,15 +72,13 @@ npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench list suites
 Describe the current target:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench describe target --target pulse-lab
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench describe target --target todo-react
 ```
 
 ## 5. Run A Benchmark Suite
 
-Two benchmark suites are committed:
+Committed benchmark suites:
 
-- `experiments/suites/pulse-lab-guided-bugged.json`
-- `experiments/suites/pulse-lab-autonomous-bugged.json`
 - `experiments/suites/todo-react-guided-clean.json`
 - `experiments/suites/todo-react-autonomous-clean.json`
 - `experiments/suites/todo-react-guided-bugged.json`
@@ -101,18 +87,18 @@ Two benchmark suites are committed:
 Run the guided suite:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-guided-bugged.json
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/todo-react-guided-bugged.json
 ```
 
 Run the autonomous suite:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-autonomous-bugged.json
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/todo-react-autonomous-bugged.json
 ```
 
 What happens during `bench run`:
 1. The harness loads the suite from `experiments/suites`.
-2. It loads the target manifest from `apps/pulse-lab/target.json`.
+2. It loads the target manifest from `apps/todo-react/target.json`.
 3. It clones the pristine app into `results/runs/<runId>/workspace`.
 4. It applies the selected bug packs into that cloned workspace.
 5. It starts the cloned AUT locally.
@@ -186,7 +172,7 @@ Important contract for `--agent-command`:
 - The patch is applied in an isolated worktree rooted in the cloned run workspace
 
 That means:
-- the pristine target under `apps/pulse-lab/template` is not modified
+- the pristine target under `apps/todo-react/template` is not modified
 - the repair attempt is isolated to the benchmark run workspace
 
 ## 9. Run The MCP Server
@@ -220,7 +206,7 @@ experiments/models/registry.yaml
 If you want to run a custom registry:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/pulse-lab-guided-bugged.json --models-path path/to/registry.yaml
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench run --suite experiments/suites/todo-react-guided-bugged.json --models-path path/to/registry.yaml
 ```
 
 ## 11. Common Local Workflow
@@ -241,7 +227,7 @@ If `bench run` starts but does not execute model calls:
 - verify that at least one enabled model has its required API key set
 
 If the AUT does not start:
-- verify that port `3000` is free
+- verify that port `3101` is free
 - verify that the cloned workspace exists under `results/runs/<runId>/workspace`
 
 If self-heal says no patch was generated:

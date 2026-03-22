@@ -22,18 +22,18 @@ afterEach(async () => {
 
 class SelectiveFailureRunner implements AutomationRunner {
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
-    const failingTask = input.task.id === "guided-critical-filter";
+    const failingTask = input.task.id === "guided-complete-task";
     return {
       taskId: input.task.id,
       trial: input.trial,
       modelId: input.model.id,
       success: !failingTask,
-      message: failingTask ? "critical summary mismatch" : "ok",
+      message: failingTask ? "completion summary mismatch" : "ok",
       latencyMs: 100,
       costUsd: 0,
-      urlAfter: `http://127.0.0.1:3000/#${failingTask ? "incidents" : "overview"}`,
+      urlAfter: "http://127.0.0.1:3101",
       domSnapshot: failingTask
-        ? "<html><body><p class='incident-summary'>0 critical incidents</p></body></html>"
+        ? "<html><body><strong>0 of 2 tasks done</strong></body></html>"
         : "<html><body><h1>ok</h1></body></html>",
       trace: [
         {
@@ -42,7 +42,7 @@ class SelectiveFailureRunner implements AutomationRunner {
           details: { instruction: input.task.instruction }
         }
       ],
-      error: failingTask ? "assert expected 2 critical incidents" : undefined
+      error: failingTask ? "assert expected 1 of 2 tasks done" : undefined
     };
   }
 }
@@ -55,9 +55,9 @@ describe("benchmark suite integration", () => {
     const resolvedSuite = await loadBenchmarkSuite({
       suite: {
         suiteId: "workspace-prepare",
-        targetId: "pulse-lab",
+        targetId: "todo-react",
         scenarioIds: ["guided"],
-        bugIds: ["critical-filter-empty", "preferences-toast-hidden"],
+        bugIds: ["new-task-label-lost", "toggle-completion-noop"],
         explorationMode: "guided",
         trials: 1,
         timeoutMs: 5_000,
@@ -75,22 +75,13 @@ describe("benchmark suite integration", () => {
       resultsRoot
     });
 
-    const templateIncidents = await readFile(
-      join(resolvedSuite.target.templatePath, "public", "modules", "domain", "incidents.js"),
-      "utf8"
-    );
-    const workspaceIncidents = await readFile(
-      join(workspace.workspacePath, "public", "modules", "domain", "incidents.js"),
-      "utf8"
-    );
-    const workspacePreferences = await readFile(
-      join(workspace.workspacePath, "public", "modules", "state", "preferences.js"),
-      "utf8"
-    );
+    const templateStore = await readFile(join(resolvedSuite.target.templatePath, "src", "todo-store.js"), "utf8");
+    const workspaceStore = await readFile(join(workspace.workspacePath, "src", "todo-store.js"), "utf8");
 
-    expect(templateIncidents).toContain('incident.severity === "sev1"');
-    expect(workspaceIncidents).toContain('incident.priority === "critical"');
-    expect(workspacePreferences).toContain('text: "Preferences saved"');
+    expect(templateStore).toContain("text: text.trim()");
+    expect(templateStore).toContain("done: !todo.done");
+    expect(workspaceStore).toContain('text: "New task"');
+    expect(workspaceStore).toContain("return todos;");
     await expect(access(join(workspace.workspacePath, ".git"))).resolves.toBeUndefined();
   });
 
@@ -188,9 +179,9 @@ describe("benchmark suite integration", () => {
       runner: new MockAutomationRunner(11),
       suite: {
         suiteId: "integration-suite",
-        targetId: "pulse-lab",
+        targetId: "todo-react",
         scenarioIds: ["smoke", "guided"],
-        bugIds: ["critical-filter-empty", "preferences-toast-hidden"],
+        bugIds: ["new-task-label-lost", "toggle-completion-noop"],
         models: ["google/gemini-2.5-flash", "openai/gpt-4o-mini"],
         explorationMode: "guided",
         promptIds: {
@@ -207,11 +198,11 @@ describe("benchmark suite integration", () => {
       }
     });
 
-    expect(result.artifact.targetId).toBe("pulse-lab");
+    expect(result.artifact.targetId).toBe("todo-react");
     expect(result.artifact.scenarioIds).toEqual(["smoke", "guided"]);
-    expect(result.artifact.bugIds).toEqual(["critical-filter-empty", "preferences-toast-hidden"]);
+    expect(result.artifact.bugIds).toEqual(["new-task-label-lost", "toggle-completion-noop"]);
     expect(result.report.suiteId).toBe("integration-suite");
-    expect(result.report.targetId).toBe("pulse-lab");
+    expect(result.report.targetId).toBe("todo-react");
 
     const artifactRaw = await readFile(result.artifactPath, "utf8");
     const reportRaw = await readFile(result.reportPath, "utf8");
@@ -241,9 +232,9 @@ describe("benchmark suite integration", () => {
       runner: new SelectiveFailureRunner(),
       suite: {
         suiteId: "finding-source-candidates",
-        targetId: "pulse-lab",
+        targetId: "todo-react",
         scenarioIds: ["guided"],
-        bugIds: ["critical-filter-empty"],
+        bugIds: ["toggle-completion-noop"],
         models: ["openai/gpt-4o-mini"],
         explorationMode: "guided",
         trials: 1,
@@ -257,14 +248,12 @@ describe("benchmark suite integration", () => {
     });
 
     expect(result.artifact.findings).toHaveLength(1);
-    expect(result.artifact.findings[0]?.sourceCandidates[0]?.workspaceRelativePath).toBe(
-      "public/modules/domain/incidents.js"
-    );
-    expect(result.artifact.findings[0]?.sourceCandidates[0]?.reasons.join(" ")).toContain("critical-filter-empty");
+    expect(result.artifact.findings[0]?.sourceCandidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
+    expect(result.artifact.findings[0]?.sourceCandidates[0]?.reasons.join(" ")).toContain("toggle-completion-noop");
 
     const artifactRaw = await readFile(result.artifactPath, "utf8");
     expect(artifactRaw).toContain("\"sourceCandidates\"");
-    expect(artifactRaw).toContain("public/modules/domain/incidents.js");
+    expect(artifactRaw).toContain("src/todo-store.js");
   });
 
   it("keeps self-heal validation isolated to the cloned workspace repo", async () => {
@@ -274,9 +263,9 @@ describe("benchmark suite integration", () => {
     const resolvedSuite = await loadBenchmarkSuite({
       suite: {
         suiteId: "heal-isolation",
-        targetId: "pulse-lab",
+        targetId: "todo-react",
         scenarioIds: ["guided"],
-        bugIds: ["critical-filter-empty"],
+        bugIds: ["toggle-completion-noop"],
         explorationMode: "guided",
         trials: 1,
         timeoutMs: 5_000,
@@ -295,17 +284,17 @@ describe("benchmark suite integration", () => {
     });
 
     const patch = [
-      "--- a/public/modules/domain/incidents.js",
-      "+++ b/public/modules/domain/incidents.js",
-      "@@ -4,7 +4,7 @@ export function applyIncidentFilter(incidents, filterKey) {",
-      "   }",
+      "--- a/src/todo-store.js",
+      "+++ b/src/todo-store.js",
+      "@@ -20,7 +20,7 @@ export function addTodo(todos, text) {",
+      " }",
       " ",
-      "   if (filterKey === \"critical\") {",
-      "-    return incidents.filter((incident) => incident.priority === \"critical\");",
-      "+    return incidents.filter((incident) => incident.severity === \"sev1\");",
-      "   }",
+      " export function toggleTodo(todos, id) {",
+      "-  return todos;",
+      "+  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));",
+      " }",
       " ",
-      "   if (filterKey === \"payments\") {"
+      " export function removeTodo(todos, id) {"
     ].join("\n") + "\n";
 
     const result = await applyPatchInIsolatedWorktree({
@@ -315,17 +304,11 @@ describe("benchmark suite integration", () => {
       attemptId: "heal-attempt"
     });
 
-    const workspaceIncidents = await readFile(
-      join(workspace.workspacePath, "public", "modules", "domain", "incidents.js"),
-      "utf8"
-    );
-    const templateIncidents = await readFile(
-      join(resolvedSuite.target.templatePath, "public", "modules", "domain", "incidents.js"),
-      "utf8"
-    );
+    const workspaceStore = await readFile(join(workspace.workspacePath, "src", "todo-store.js"), "utf8");
+    const templateStore = await readFile(join(resolvedSuite.target.templatePath, "src", "todo-store.js"), "utf8");
 
     expect(result.outcome).toBe("fixed");
-    expect(workspaceIncidents).toContain('incident.priority === "critical"');
-    expect(templateIncidents).toContain('incident.severity === "sev1"');
+    expect(workspaceStore).toContain("return todos;");
+    expect(templateStore).toContain("done: !todo.done");
   });
 });
