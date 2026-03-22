@@ -1,26 +1,33 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadBenchmarkSuite } from "../../src/config/suite.js";
 import { buildSourceCandidates } from "../../src/diagnostics/source-candidates.js";
+import { loadAppBenchmark } from "../../src/experiments/benchmark.js";
+import { buildResolvedSuite } from "../../src/experiments/common.js";
+
+async function loadResolvedSuite(taskIds: string[], bugIds: string[]) {
+  const benchmark = await loadAppBenchmark("todo-react");
+  return buildResolvedSuite({
+    resolvedBenchmark: benchmark,
+    taskIds,
+    bugIds,
+    explorationMode: "guided",
+    suiteId: "source-candidates",
+    resultsDir: "results",
+    runtime: {
+      timeoutMs: 5_000,
+      retryCount: 0,
+      maxSteps: 8,
+      viewport: { width: 1200, height: 800 }
+    },
+    promptIds: {
+      guided: benchmark.benchmark.prompts.qa
+    }
+  });
+}
 
 describe("buildSourceCandidates", () => {
   it("prioritizes todo-store for the seeded add-task bug", async () => {
-    const suite = await loadBenchmarkSuite({
-      suite: {
-        suiteId: "source-candidates-add-task",
-        targetId: "todo-react",
-        scenarioIds: ["guided"],
-        bugIds: ["new-task-label-lost"],
-        explorationMode: "guided",
-        trials: 1,
-        timeoutMs: 5_000,
-        retryCount: 0,
-        maxSteps: 8,
-        viewport: { width: 1200, height: 800 },
-        seed: 1,
-        resultsDir: "results"
-      }
-    });
+    const suite = await loadResolvedSuite(["guided-add-task"], ["new-task-label-lost"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-add-task");
     expect(task).toBeDefined();
@@ -58,22 +65,7 @@ describe("buildSourceCandidates", () => {
   });
 
   it("prioritizes todo-store and app rendering for completion failures", async () => {
-    const suite = await loadBenchmarkSuite({
-      suite: {
-        suiteId: "source-candidates-complete-task",
-        targetId: "todo-react",
-        scenarioIds: ["guided"],
-        bugIds: ["toggle-completion-noop"],
-        explorationMode: "guided",
-        trials: 1,
-        timeoutMs: 5_000,
-        retryCount: 0,
-        maxSteps: 8,
-        viewport: { width: 1200, height: 800 },
-        seed: 1,
-        resultsDir: "results"
-      }
-    });
+    const suite = await loadResolvedSuite(["guided-complete-task"], ["toggle-completion-noop"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-complete-task");
     expect(task).toBeDefined();
@@ -111,22 +103,7 @@ describe("buildSourceCandidates", () => {
   });
 
   it("prioritizes edit handlers for edit failures", async () => {
-    const suite = await loadBenchmarkSuite({
-      suite: {
-        suiteId: "source-candidates-edit-task",
-        targetId: "todo-react",
-        scenarioIds: ["guided"],
-        bugIds: ["edit-task-save-noop"],
-        explorationMode: "guided",
-        trials: 1,
-        timeoutMs: 5_000,
-        retryCount: 0,
-        maxSteps: 8,
-        viewport: { width: 1200, height: 800 },
-        seed: 1,
-        resultsDir: "results"
-      }
-    });
+    const suite = await loadResolvedSuite(["guided-edit-task"], ["edit-task-save-noop"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-edit-task");
     expect(task).toBeDefined();

@@ -63,9 +63,7 @@ Use the manifest instead of spreading benchmark definitions across separate suit
 QA measures how well a model follows the guided scenarios and reaches the expected outcomes.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa todo-react
 ```
 
 QA reports compare:
@@ -81,9 +79,7 @@ QA reports compare:
 Exploration measures whether the model discovers useful app functionality before it is asked to validate anything.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore todo-react
 ```
 
 Exploration reports compare:
@@ -99,9 +95,7 @@ Exploration reports compare:
 Self-heal measures how well a model can diagnose, patch, and validate seeded bugs.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal todo-react
 ```
 
 Heal reports compare:
@@ -126,22 +120,27 @@ Each run should produce:
 - a compact JSON summary report
 - a static HTML dashboard with comparative charts
 
-## 9. Model Registry
+## 9. Reading Results
 
-The default model registry is `experiments/models/registry.yaml`.
+The CLI prints:
 
-If you want to run a custom registry, pass `--models-path path/to/registry.yaml` to the relevant `bench qa|explore|heal run` command.
+- `runId`
+- `artifactPath`
+- `reportPath`
+- `htmlPath`
+
+Use those output paths directly. The CLI no longer provides separate `report` or `compare` commands.
 
 ## 10. Common Local Workflow
 
 Minimal practical loop:
 
 1. Export one provider API key.
-2. Run `bench qa run --app todo-react`.
-3. Run `bench explore run --app todo-react`.
-4. Run `bench heal run --app todo-react`.
+2. Run `bench qa todo-react`.
+3. Run `bench explore todo-react`.
+4. Run `bench heal todo-react`.
 5. Open the JSON and HTML reports under `results/<experiment>/reports`.
-6. Compare runs with the corresponding `bench <experiment> compare` command.
+6. Compare runs by opening the generated report files directly.
 
 ## 11. Troubleshooting
 

@@ -272,12 +272,6 @@ export interface ExplorationSummary {
   historyEntries: number;
 }
 
-export interface BenchmarkExplorationSummary extends ExplorationSummary {
-  explorationRunId: string;
-  modelId: string;
-  trial: number;
-}
-
 export interface ExplorationCacheUsage {
   explorationRunId: string;
   compatible: boolean;
@@ -321,29 +315,6 @@ export interface TaskRunResult {
   error?: string;
 }
 
-export interface ModelRunMetrics {
-  modelId: string;
-  total: number;
-  passed: number;
-  failed: number;
-  skipped: number;
-  passRate: number;
-  stability: number;
-  avgLatencyMs: number;
-  avgCostUsd: number;
-  score: number;
-  confidence95: {
-    low: number;
-    high: number;
-  };
-}
-
-export interface ModelRunSummary {
-  model: ModelAvailability;
-  metrics: ModelRunMetrics;
-  taskRuns: TaskRunResult[];
-}
-
 export interface CoverageGraphNode {
   id: string;
   url: string;
@@ -362,67 +333,6 @@ export interface CoverageGraphEdge {
 export interface CoverageGraphSnapshot {
   nodes: CoverageGraphNode[];
   edges: CoverageGraphEdge[];
-}
-
-export interface RunArtifact {
-  runId: string;
-  suiteId: string;
-  targetId: string;
-  scenarioIds: string[];
-  bugIds: string[];
-  explorationMode: ExplorationMode;
-  workspacePath: string;
-  startedAt: string;
-  finishedAt: string;
-  suiteSnapshot: ResolvedBenchmarkSuite;
-  modelSummaries: ModelRunSummary[];
-  findings: Finding[];
-  coverageGraph: CoverageGraphSnapshot;
-  autonomousExploration?: BenchmarkExplorationSummary[];
-  guidedCacheUsage?: ExplorationCacheUsage;
-}
-
-export interface LeaderboardEntry {
-  rank: number;
-  modelId: string;
-  provider: string;
-  score: number;
-  passRate: number;
-  stability: number;
-  avgLatencyMs: number;
-  avgCostUsd: number;
-}
-
-export interface BenchmarkReport {
-  runId: string;
-  suiteId: string;
-  targetId: string;
-  scenarioIds: string[];
-  bugIds: string[];
-  explorationMode: ExplorationMode;
-  generatedAt: string;
-  leaderboard: LeaderboardEntry[];
-  confidence: Record<string, { low: number; high: number }>;
-  failureClusters: Record<FailureCategory, number>;
-  autonomousExploration?: BenchmarkExplorationSummary[];
-  guidedCacheUsage?: ExplorationCacheUsage;
-  repairOutcomes: {
-    fixed: number;
-    not_fixed: number;
-    regression: number;
-    skipped: number;
-  };
-}
-
-export interface RepairAttempt {
-  attemptId: string;
-  runId: string;
-  findingId: string;
-  outcome: "fixed" | "not_fixed" | "regression" | "skipped";
-  note: string;
-  patchPath?: string;
-  validationExitCode?: number;
-  createdAt: string;
 }
 
 export interface StagehandRunConfig {
@@ -459,71 +369,4 @@ export interface AutomationRunner {
   }): Promise<ExplorationArtifact>;
 }
 
-export interface RunBenchmarkInput {
-  suitePath?: string;
-  suite?: Partial<BenchmarkSuite>;
-  modelsPath?: string;
-  reportsDir?: string;
-  runner?: AutomationRunner;
-}
-
-export interface RunBenchmarkResult {
-  artifact: RunArtifact;
-  report: BenchmarkReport;
-  artifactPath: string;
-  reportPath: string;
-}
-
-export interface ExploreTargetInput {
-  targetId: string;
-  modelId?: string;
-  bugIds?: string[];
-  prompt: string;
-  modelsPath?: string;
-  resultsDir?: string;
-  timeoutMs?: number;
-  retryCount?: number;
-  maxSteps?: number;
-  viewport?: {
-    width: number;
-    height: number;
-  };
-  runner?: AutomationRunner;
-}
-
-export interface ExploreTargetResult {
-  artifact: ExplorationArtifact;
-  artifactPath: string;
-}
-
-export interface RunGuidedInput {
-  targetId: string;
-  modelId?: string;
-  scenarioIds: string[];
-  bugIds?: string[];
-  modelsPath?: string;
-  resultsDir?: string;
-  guidedPromptId?: string;
-  explorationRunId?: string;
-  timeoutMs?: number;
-  retryCount?: number;
-  maxSteps?: number;
-  viewport?: {
-    width: number;
-    height: number;
-  };
-  runner?: AutomationRunner;
-}
-
-export interface RunGuidedResult {
-  artifact: RunArtifact;
-  report: BenchmarkReport;
-  artifactPath: string;
-  reportPath: string;
-}
-
 export type ExperimentTask = BenchmarkTask;
-export type ExperimentSpec = BenchmarkSuite;
-export type ExperimentReport = BenchmarkReport;
-export type RunExperimentInput = RunBenchmarkInput;
-export type RunExperimentResult = RunBenchmarkResult;

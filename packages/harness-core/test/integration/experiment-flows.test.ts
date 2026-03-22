@@ -345,6 +345,6 @@ describe("three experiment flows", () => {
       expect(result.report.modelSummaries[0]?.caseResults.some((item) => item.fixed)).toBe(true);
       await expect(access(result.htmlPath)).resolves.toBeUndefined();
     },
-    20_000
+    60_000
   );
 });

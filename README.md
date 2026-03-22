@@ -38,28 +38,22 @@ Open `http://127.0.0.1:3101`.
 Guided QA:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa todo-react
 ```
 
 Autonomous exploration:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore todo-react
 ```
 
 Self-heal:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal run --app todo-react
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal report --run-id <runId>
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal compare --run-ids <runIdA> <runIdB>
+npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal todo-react
 ```
 
-The default model registry lives in `experiments/models/registry.yaml`. Pass `--models-path path/to/registry.yaml` when you want to compare a different registry.
+The CLI now stays intentionally narrow: it only starts runs. Inspect the generated JSON and HTML files directly under `results/<experiment>/reports`.
 
 ## Notes
 
