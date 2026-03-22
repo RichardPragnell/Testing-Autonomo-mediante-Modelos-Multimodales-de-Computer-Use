@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "bench-lab": "dist/index.js"
+    "bench-lab": "dist/packages/harness-cli/src/index.js"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/packages/harness-cli/src/index.js",
+  "types": "dist/packages/harness-cli/src/index.d.ts",
   "scripts": {
     "bench": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
@@ -19,6 +19,7 @@
     "commander": "^12.1.0"
   },
   "devDependencies": {
+    "tsx": "^4.19.2",
     "vitest": "^3.0.0"
   }
 }

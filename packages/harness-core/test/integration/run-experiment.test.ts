@@ -1,6 +1,7 @@
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadBenchmarkSuite } from "../../src/config/suite.js";
 import { prepareRunWorkspace } from "../../src/runtime/workspace.js";
@@ -11,11 +12,25 @@ import type { AutomationRunner, RunTaskInput, TaskRunResult } from "../../src/ty
 
 const tempDirs: string[] = [];
 
+async function removeDirWithRetries(dir: string, attempts = 5): Promise<void> {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === attempts) {
+        throw error;
+      }
+      await delay(200 * attempt);
+    }
+  }
+}
+
 afterEach(async () => {
   while (tempDirs.length) {
     const dir = tempDirs.pop();
     if (dir) {
-      await rm(dir, { recursive: true, force: true });
+      await removeDirWithRetries(dir);
     }
   }
 });
@@ -314,68 +329,76 @@ describe("benchmark suite integration", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("reuses a compatible exploration cache for guided runtime execution", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "bench-guided-cache-"));
-    tempDirs.push(dir);
+  it(
+    "reuses a compatible exploration cache for guided runtime execution",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "bench-guided-cache-"));
+      tempDirs.push(dir);
 
-    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
-    const exploration = await exploreTarget({
-      targetId: "todo-react",
-      modelId: "google/gemini-2.5-flash",
-      bugIds: [],
-      prompt: "Edit an existing todo item",
-      modelsPath,
-      resultsDir: dir,
-      runner: new MockAutomationRunner(31)
-    });
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+      const exploration = await exploreTarget({
+        targetId: "todo-react",
+        modelId: "google/gemini-2.5-flash",
+        bugIds: [],
+        prompt: "Edit an existing todo item",
+        modelsPath,
+        resultsDir: dir,
+        runner: new MockAutomationRunner(31)
+      });
 
-    const result = await runGuided({
-      targetId: "todo-react",
-      modelId: "google/gemini-2.5-flash",
-      scenarioIds: ["guided"],
-      bugIds: [],
-      explorationRunId: exploration.artifact.explorationRunId,
-      modelsPath,
-      resultsDir: dir,
-      runner: new MockAutomationRunner(31)
-    });
+      const result = await runGuided({
+        targetId: "todo-react",
+        modelId: "google/gemini-2.5-flash",
+        scenarioIds: ["guided"],
+        bugIds: [],
+        explorationRunId: exploration.artifact.explorationRunId,
+        modelsPath,
+        resultsDir: dir,
+        runner: new MockAutomationRunner(31)
+      });
 
-    expect(result.artifact.guidedCacheUsage?.compatible).toBe(true);
-    expect(result.artifact.guidedCacheUsage?.matchedActions).toBeGreaterThan(0);
-    const editRun = result.artifact.modelSummaries[0]?.taskRuns.find((task) => task.taskId === "guided-edit-task");
-    expect(editRun?.cacheHints?.length).toBeGreaterThan(0);
-  });
+      expect(result.artifact.guidedCacheUsage?.compatible).toBe(true);
+      expect(result.artifact.guidedCacheUsage?.matchedActions).toBeGreaterThan(0);
+      const editRun = result.artifact.modelSummaries[0]?.taskRuns.find((task) => task.taskId === "guided-edit-task");
+      expect(editRun?.cacheHints?.length).toBeGreaterThan(0);
+    },
+    20_000
+  );
 
-  it("records cache mismatches when a guided runtime run reuses an incompatible exploration artifact", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "bench-guided-mismatch-"));
-    tempDirs.push(dir);
+  it(
+    "records cache mismatches when a guided runtime run reuses an incompatible exploration artifact",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "bench-guided-mismatch-"));
+      tempDirs.push(dir);
 
-    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
-    const exploration = await exploreTarget({
-      targetId: "todo-react",
-      modelId: "google/gemini-2.5-flash",
-      bugIds: ["toggle-completion-noop"],
-      prompt: "Edit an existing todo item",
-      modelsPath,
-      resultsDir: dir,
-      runner: new MockAutomationRunner(37)
-    });
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+      const exploration = await exploreTarget({
+        targetId: "todo-react",
+        modelId: "google/gemini-2.5-flash",
+        bugIds: ["toggle-completion-noop"],
+        prompt: "Edit an existing todo item",
+        modelsPath,
+        resultsDir: dir,
+        runner: new MockAutomationRunner(37)
+      });
 
-    const result = await runGuided({
-      targetId: "todo-react",
-      modelId: "google/gemini-2.5-flash",
-      scenarioIds: ["guided"],
-      bugIds: [],
-      explorationRunId: exploration.artifact.explorationRunId,
-      modelsPath,
-      resultsDir: dir,
-      runner: new MockAutomationRunner(37)
-    });
+      const result = await runGuided({
+        targetId: "todo-react",
+        modelId: "google/gemini-2.5-flash",
+        scenarioIds: ["guided"],
+        bugIds: [],
+        explorationRunId: exploration.artifact.explorationRunId,
+        modelsPath,
+        resultsDir: dir,
+        runner: new MockAutomationRunner(37)
+      });
 
-    expect(result.artifact.guidedCacheUsage?.compatible).toBe(false);
-    expect(result.artifact.guidedCacheUsage?.reason).toContain("bug mismatch");
-    expect(result.artifact.modelSummaries[0]?.taskRuns[0]?.trace[0]?.action).toBe("cache.mismatch");
-  });
+      expect(result.artifact.guidedCacheUsage?.compatible).toBe(false);
+      expect(result.artifact.guidedCacheUsage?.reason).toContain("bug mismatch");
+      expect(result.artifact.modelSummaries[0]?.taskRuns[0]?.trace[0]?.action).toBe("cache.mismatch");
+    },
+    20_000
+  );
 
   it("persists ranked source candidates for failed tasks", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-findings-"));

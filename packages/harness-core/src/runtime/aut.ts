@@ -6,6 +6,18 @@ export interface RunningAut {
   stop: () => Promise<void>;
 }
 
+function waitForClose(child: ReturnType<typeof spawn>): Promise<void> {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.killed) {
+      resolve();
+      return;
+    }
+
+    child.once("close", () => resolve());
+    child.once("error", () => resolve());
+  });
+}
+
 async function isUrlReachable(url: string): Promise<boolean> {
   try {
     const response = await fetch(url, { method: "GET" });
@@ -15,7 +27,11 @@ async function isUrlReachable(url: string): Promise<boolean> {
   }
 }
 
-export async function startAut(aut: AutConfig, timeoutMs = 60_000): Promise<RunningAut | undefined> {
+export async function startAut(
+  aut: AutConfig,
+  timeoutMs = 60_000,
+  pollIntervalMs = 200
+): Promise<RunningAut | undefined> {
   if (!aut.command) {
     return undefined;
   }
@@ -34,7 +50,7 @@ export async function startAut(aut: AutConfig, timeoutMs = 60_000): Promise<Runn
     if (await isUrlReachable(aut.url)) {
       break;
     }
-    await delay(1_000);
+    await delay(pollIntervalMs);
   }
 
   if (!(await isUrlReachable(aut.url))) {
@@ -54,14 +70,16 @@ export async function startAut(aut: AutConfig, timeoutMs = 60_000): Promise<Runn
           killer.once("close", () => resolve());
           killer.once("error", () => resolve());
         });
+        await waitForClose(child);
+        await delay(100);
         return;
       }
       child.kill("SIGTERM");
-      await delay(500);
+      await Promise.race([waitForClose(child), delay(500)]);
       if (child.exitCode === null) {
         child.kill("SIGKILL");
+        await waitForClose(child);
       }
     }
   };
 }
-
