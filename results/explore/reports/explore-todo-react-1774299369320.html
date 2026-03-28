@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>todo-react Exploration Benchmark</title>
+    <style>
+      :root {
+        --bg: #f7f4ef;
+        --panel: #fffdf8;
+        --ink: #1c1a17;
+        --muted: #6f685d;
+        --line: #dfd6c8;
+        --bar: #18625d;
+        --bar-soft: #b9ddd3;
+        --accent: #bf5a36;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(191, 90, 54, 0.12), transparent 28%),
+          linear-gradient(180deg, #fbf8f2 0%, var(--bg) 100%);
+      }
+      main {
+        width: min(1180px, calc(100vw - 32px));
+        margin: 24px auto 48px;
+        display: grid;
+        gap: 16px;
+      }
+      header, .panel {
+        background: color-mix(in srgb, var(--panel) 92%, white 8%);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 20px 22px;
+        box-shadow: 0 14px 40px rgba(28, 26, 23, 0.06);
+      }
+      header h1 {
+        margin: 0 0 8px;
+        font-size: clamp(1.8rem, 4vw, 3rem);
+      }
+      header p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+      .grid {
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      }
+      h2 {
+        margin: 0 0 14px;
+        font-size: 1.1rem;
+      }
+      .bar-row + .bar-row { margin-top: 14px; }
+      .bar-meta, .bar-hint {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .bar-meta {
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .bar-hint {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      .bar-track {
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        background: var(--bar-soft);
+        overflow: hidden;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, var(--bar), var(--accent));
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        padding: 10px 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+      }
+      th { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+      td { font-size: 0.96rem; }
+      @media (max-width: 640px) {
+        header, .panel { padding: 16px; }
+        th, td { padding: 9px 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>todo-react Exploration Benchmark</h1>
+        <p>Autonomous exploration coverage across 6 model(s).</p>
+      </header>
+      <section class="panel">
+        <h2>Overall Score</h2>
+        
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-pro</span>
+            <span>99.9 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:99.86%"></div>
+          </div>
+          <div class="bar-hint">100.0% capability discovery</div>
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-flash</span>
+            <span>32.0 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:31.96%"></div>
+          </div>
+          <div class="bar-hint">0.0% capability discovery</div>
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o</span>
+            <span>0.0 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          <div class="bar-hint">0.0% capability discovery</div>
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o-mini</span>
+            <span>0.0 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          <div class="bar-hint">0.0% capability discovery</div>
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-7-sonnet-latest</span>
+            <span>0.0 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          <div class="bar-hint">0.0% capability discovery</div>
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-5-haiku-latest</span>
+            <span>0.0 / 100</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          <div class="bar-hint">0.0% capability discovery</div>
+        </div>
+      
+      </section>
+      <div class="grid">
+        
+      <section class="panel">
+        <h2>Capability Discovery</h2>
+        
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-pro</span>
+            <span>100.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-flash</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o-mini</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-7-sonnet-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-5-haiku-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+      </section>
+    
+      <section class="panel">
+        <h2>Probe Replay</h2>
+        
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-pro</span>
+            <span>100.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-flash</span>
+            <span>100.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o-mini</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-7-sonnet-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-5-haiku-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+      </section>
+    
+      <section class="panel">
+        <h2>State Coverage</h2>
+        
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-pro</span>
+            <span>100.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:100%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-flash</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o-mini</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-7-sonnet-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-5-haiku-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+      </section>
+    
+      <section class="panel">
+        <h2>Action Diversity</h2>
+        
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-pro</span>
+            <span>83.3%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:83.33%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>google/gemini-2.5-flash</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>openai/gpt-4o-mini</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-7-sonnet-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+        <div class="bar-row">
+          <div class="bar-meta">
+            <span>anthropic/claude-3-5-haiku-latest</span>
+            <span>0.0%</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width:0%"></div>
+          </div>
+          
+        </div>
+      
+      </section>
+    
+      </div>
+      <section class="panel">
+        <h2>Leaderboard</h2>
+        <table><thead><tr><th>Rank</th><th>Model</th><th>Score</th><th>Discovery</th><th>Probe Replay</th><th>States</th><th>Transitions</th><th>Actions</th></tr></thead><tbody><tr><td>1</td><td>google/gemini-2.5-pro</td><td>99.863</td><td>100.0%</td><td>100.0%</td><td>100.0%</td><td>100.0%</td><td>83.3%</td></tr><tr><td>2</td><td>google/gemini-2.5-flash</td><td>31.958</td><td>0.0%</td><td>100.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>3</td><td>openai/gpt-4o</td><td>0.000</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>4</td><td>openai/gpt-4o-mini</td><td>0.000</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>5</td><td>anthropic/claude-3-7-sonnet-latest</td><td>0.000</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr><tr><td>6</td><td>anthropic/claude-3-5-haiku-latest</td><td>0.000</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td><td>0.0%</td></tr></tbody></table>
+      </section>
+    </main>
+  </body>
+</html>

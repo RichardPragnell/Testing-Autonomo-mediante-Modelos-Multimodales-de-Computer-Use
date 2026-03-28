@@ -42,6 +42,9 @@ importers:
         specifier: ^12.1.0
         version: 12.1.0
     devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.15)(tsx@4.21.0)(yaml@2.8.2)
@@ -74,6 +77,9 @@ importers:
         specifier: ^4.3.0
         version: 4.3.6
     devDependencies:
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
       vitest:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@22.19.15)(tsx@4.21.0)(yaml@2.8.2)

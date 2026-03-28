@@ -1,0 +1,175 @@
+{
+  "nodes": [
+    {
+      "id": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "bfa76480ad1b8dc62f392d51a813d21575fd31ecc22bddfdafb3ef3b3ada1e61",
+      "visits": 15
+    },
+    {
+      "id": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "eb6360717238dfd93997550e1e2ef3ba277a6d8fb7c7f0a01b7dd3ba76917364",
+      "visits": 7
+    },
+    {
+      "id": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "5a13d445433fb1e678e60fb511d5556fa3c07c949b3e85f7678f5dcf8171d6cb",
+      "visits": 5
+    },
+    {
+      "id": "bde34e05c6d677a4a12387b402631e066a5ae0794ab1afbda70db41e340174b5",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "0c04c7b48861d905eb0759fc3d12c773ac078a56fda81da49e757a9b11eddb1c",
+      "visits": 3
+    },
+    {
+      "id": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "2033c4d78dcb736e8b28ea94349f2d8a54998c0c1279d30fdb246407bde23bfc",
+      "visits": 5
+    },
+    {
+      "id": "a27ab67f15c0c97af965acb035eea48101d13abeedd1a8ce61ee2486c50afb64",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "58b0d4ca991f7746175c1d59561c11d477f08d43d82af2891b112fbb59f108a3",
+      "visits": 2
+    },
+    {
+      "id": "2731b646b23763e3fdf81070763d369654ebb109f113f69f98b68efb6a592415",
+      "url": "http://127.0.0.1:3101/",
+      "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "visualHash": "77a81fa84a642988715a76e0733e108feff621db36b299c4c7121cbdb698d536",
+      "visits": 3
+    }
+  ],
+  "edges": [
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "action": "Active button, part of the Todo filters tab list.",
+      "count": 1
+    },
+    {
+      "from": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "to": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "action": "Active filter button",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "action": "A button to add a new task to the list.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "action": "A button to edit the 'Draft Stagehand checklist' task.",
+      "count": 1
+    },
+    {
+      "from": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "to": "bde34e05c6d677a4a12387b402631e066a5ae0794ab1afbda70db41e340174b5",
+      "action": "Active button to filter tasks.",
+      "count": 1
+    },
+    {
+      "from": "bde34e05c6d677a4a12387b402631e066a5ae0794ab1afbda70db41e340174b5",
+      "to": "bde34e05c6d677a4a12387b402631e066a5ae0794ab1afbda70db41e340174b5",
+      "action": "Button to add a new task.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "action": "A button to edit the 'Plan React todo benchmark' task.",
+      "count": 1
+    },
+    {
+      "from": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "to": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "action": "Button to add a new task.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "action": "A button to edit the task 'Draft Stagehand checklist'.",
+      "count": 1
+    },
+    {
+      "from": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "to": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+      "action": "Add task button.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "action": "A button to edit the task 'Plan React todo benchmark'.",
+      "count": 1
+    },
+    {
+      "from": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+      "to": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "action": "Button to cancel editing a task.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "action": "A button to filter and show all tasks.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "action": "A button to filter and show only active tasks.",
+      "count": 1
+    },
+    {
+      "from": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "to": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "action": "Active button, a filter for the todo list.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "a27ab67f15c0c97af965acb035eea48101d13abeedd1a8ce61ee2486c50afb64",
+      "action": "A button to filter and show only completed tasks.",
+      "count": 1
+    },
+    {
+      "from": "a27ab67f15c0c97af965acb035eea48101d13abeedd1a8ce61ee2486c50afb64",
+      "to": "2731b646b23763e3fdf81070763d369654ebb109f113f69f98b68efb6a592415",
+      "action": "A button to add a new task to the list.",
+      "count": 1
+    },
+    {
+      "from": "2731b646b23763e3fdf81070763d369654ebb109f113f69f98b68efb6a592415",
+      "to": "2731b646b23763e3fdf81070763d369654ebb109f113f69f98b68efb6a592415",
+      "action": "Button to add a new task.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "action": "A button to filter the todo list to show all tasks.",
+      "count": 1
+    },
+    {
+      "from": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+      "to": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+      "action": "A button to filter the todo list to show only active tasks.",
+      "count": 1
+    }
+  ]
+}

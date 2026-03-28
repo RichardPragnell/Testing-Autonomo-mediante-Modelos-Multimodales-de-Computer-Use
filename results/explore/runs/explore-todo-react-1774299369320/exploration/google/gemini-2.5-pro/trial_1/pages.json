@@ -1,0 +1,482 @@
+[
+  {
+    "id": "1e3ee24a10405f988c0f13cd524ce15d2ea95da3c0087a3a71a9e4d0d8ddecc2",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "bfa76480ad1b8dc62f392d51a813d21575fd31ecc22bddfdafb3ef3b3ada1e61",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter tasks and show all.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter tasks and show only active ones.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter tasks and show only completed ones.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox to enter a new task.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox to mark the 'Plan React todo benchmark' task as complete.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to edit the 'Plan React todo benchmark' task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to remove the 'Plan React todo benchmark' task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox to mark the 'Draft Stagehand checklist' task as complete.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Button to edit the 'Draft Stagehand checklist' task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Button to remove the 'Draft Stagehand checklist' task.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 11
+  },
+  {
+    "id": "95e46bd5803b6a80d80ed384fbae70e37edb1a1d25c1f017a14c1cafcd458e5d",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "eb6360717238dfd93997550e1e2ef3ba277a6d8fb7c7f0a01b7dd3ba76917364",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "All button, a filter for the todo list.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Active button, a filter for the todo list.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Completed button, a filter for the todo list.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "New task textbox, for entering a new todo item.",
+        "method": "fill",
+        "arguments": [
+          "new task"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Add task button, to add a new todo item to the list.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for the task 'Plan React todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Edit button for the task 'Plan React todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Remove button for the task 'Plan React todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox for the task 'Draft Stagehand checklist'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Edit button for the task 'Draft Stagehand checklist'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Remove button for the task 'Draft Stagehand checklist'.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 2
+  },
+  {
+    "id": "24166fb4fb93ae91a5985138e9be1a5331965cd730cbd5bee24e663cd75e31c4",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "5a13d445433fb1e678e60fb511d5556fa3c07c949b3e85f7678f5dcf8171d6cb",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter tasks and show all.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter tasks and show only active ones.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter tasks and show only completed ones.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox to enter a new task.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox to mark the task 'Plan React todo benchmark' as complete.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to edit a task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to remove a task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Textbox to edit the task 'Draft Stagehand checklist'.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Button to save the changes to an edited task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Button to cancel editing a task.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 2
+  },
+  {
+    "id": "bde34e05c6d677a4a12387b402631e066a5ae0794ab1afbda70db41e340174b5",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "0c04c7b48861d905eb0759fc3d12c773ac078a56fda81da49e757a9b11eddb1c",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter and show all tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter and show only active tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter and show only completed tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox to enter a new task.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox to mark the task 'Plan React todo benchmark' as complete.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to edit the task 'Plan React todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to remove the task 'Plan React todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Textbox to edit the task 'Draft Stagehand checklist'.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Button to save the edited task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Button to cancel the edit of a task.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 1
+  },
+  {
+    "id": "b6669d5e612714031b30c081234d6d9f5f24d020f104eedd0650b6e04d22983a",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "2033c4d78dcb736e8b28ea94349f2d8a54998c0c1279d30fdb246407bde23bfc",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter and show all tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter and show only active tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter and show only completed tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox to enter a new task.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Textbox to edit the task 'Plan React todo benchmark'.",
+        "method": "fill",
+        "arguments": [
+          ""
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to save the edited task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to cancel editing a task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox to mark the task 'Draft Stagehand checklist' as complete or incomplete.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Button to edit the task 'Draft Stagehand checklist'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Button to remove the task 'Draft Stagehand checklist'.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 2
+  },
+  {
+    "id": "a27ab67f15c0c97af965acb035eea48101d13abeedd1a8ce61ee2486c50afb64",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "58b0d4ca991f7746175c1d59561c11d477f08d43d82af2891b112fbb59f108a3",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "A button to filter and show all todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "A button to filter and show only active todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "A button to filter and show only completed todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "A textbox to input the description of a new task.",
+        "method": "fill",
+        "arguments": [
+          "a new task"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "A button to add a new task to the list.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 1
+  },
+  {
+    "id": "2731b646b23763e3fdf81070763d369654ebb109f113f69f98b68efb6a592415",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "77a81fa84a642988715a76e0733e108feff621db36b299c4c7121cbdb698d536",
+    "summary": "Todo React Bench - Todo React Bench | Task board - BENCHMARK TARGET Todo React Bench Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion. REMAINING 2 tasks remaining PROGRESS 0 of 2 tasks done TODO FLOW Task board All Active Co",
+    "availableActions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter and show all tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter and show only active tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter and show only completed tasks.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox to enter a new task.",
+        "method": "fill",
+        "arguments": [
+          "New task"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "visitCount": 1
+  }
+]
