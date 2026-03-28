@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ResolvedBenchmarkSuite, TaskRunResult } from "../types.js";
-import type { ActionCacheEntry, AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
+import type { AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
+import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
+import { summarizeTaskRunCache } from "../cache/summary.js";
 import { loadPromptText } from "../config/prompt.js";
 import { persistTaskArtifacts } from "../persistence/store.js";
 import { buildSourceCandidates } from "../diagnostics/source-candidates.js";
@@ -157,7 +159,6 @@ export async function executeGuidedTasks(input: {
   systemPrompt?: string;
   includeFindings?: boolean;
   includeBugHints?: boolean;
-  cacheHints?: Map<string, ActionCacheEntry[]>;
   taskIds?: string[];
 }): Promise<{
   taskRuns: TaskRunResult[];
@@ -166,6 +167,17 @@ export async function executeGuidedTasks(input: {
   const taskRuns: TaskRunResult[] = [];
   const findings: Finding[] = [];
   const selectedTaskIds = input.taskIds ? new Set(input.taskIds) : undefined;
+  const cacheConfig = await resolveExecutionCacheConfig({
+    resultsDir: input.resolvedSuite.suite.resultsDir,
+    targetId: input.resolvedSuite.suite.targetId,
+    bugIds: input.resolvedSuite.suite.bugIds,
+    viewport: input.resolvedSuite.suite.viewport,
+    modelId: input.model.id,
+    configSignature: buildStagehandConfigSignature({
+      executionKind: "guided",
+      systemPrompt: input.systemPrompt
+    })
+  });
 
   for (const task of input.resolvedSuite.tasks) {
     if (selectedTaskIds && !selectedTaskIds.has(task.id)) {
@@ -182,8 +194,8 @@ export async function executeGuidedTasks(input: {
         maxSteps: input.resolvedSuite.suite.maxSteps,
         viewport: input.resolvedSuite.suite.viewport
       },
+      cacheConfig,
       systemPrompt: input.systemPrompt,
-      cacheHints: input.cacheHints?.get(task.id)
     });
     taskRuns.push(result);
 
@@ -235,6 +247,7 @@ export function summarizeTaskRuns(taskRuns: TaskRunResult[]): {
   avgLatencyMs: number;
   avgCostUsd: number;
   stability: number;
+  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
 } {
   const successes = taskRuns.filter((run) => run.success).length;
   const taskPassRate = taskRuns.length ? successes / taskRuns.length : 0;
@@ -242,7 +255,8 @@ export function summarizeTaskRuns(taskRuns: TaskRunResult[]): {
     taskPassRate: round(taskPassRate),
     avgLatencyMs: round(avg(taskRuns.map((run) => run.latencyMs)), 3),
     avgCostUsd: round(avg(taskRuns.map((run) => run.costUsd))),
-    stability: computeBinaryStability(groupTaskOutcomesByTask(taskRuns))
+    stability: computeBinaryStability(groupTaskOutcomesByTask(taskRuns)),
+    cacheSummary: summarizeTaskRunCache(taskRuns)
   };
 }
 

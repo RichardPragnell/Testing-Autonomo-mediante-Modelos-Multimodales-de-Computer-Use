@@ -9,7 +9,9 @@ import { compareExploreRuns, getExploreReport, runExploreExperiment } from "./ex
 import { compareHealRuns, getHealReport, runHealExperiment } from "./experiments/heal.js";
 import { compareQaRuns, getQaReport, runQaExperiment } from "./experiments/qa.js";
 import type { AppBenchmarkManifest, CompareResult, ExploreReport, HealReport, QaReport } from "./experiments/types.js";
-import { matchActionCache, resolveExplorationCompatibility } from "./exploration/action-cache.js";
+import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "./cache/config.js";
+import { summarizeTaskRunCache } from "./cache/summary.js";
+import { resolveExplorationCompatibility } from "./exploration/action-cache.js";
 import { persistRunExplorationArtifacts } from "./persistence/store.js";
 import { StagehandAutomationRunner } from "./runner/stagehand-runner.js";
 import { startAut } from "./runtime/aut.js";
@@ -21,6 +23,7 @@ import type {
   ExplorationArtifact,
   ExplorationCacheUsage,
   Finding,
+  ExecutionCacheConfig,
   ModelAvailability,
   StagehandRunConfig,
   TaskRunResult
@@ -40,11 +43,13 @@ interface RuntimeGuidedRunRecord {
   bugIds: string[];
   promptId: string;
   runtime: StagehandRunConfig;
+  cacheConfig: ExecutionCacheConfig;
   startedAt: string;
   finishedAt: string;
   workspacePath: string;
   validationCommand: string;
   explorationCacheUsage?: ExplorationCacheUsage;
+  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
   taskRuns: TaskRunResult[];
   findings: Finding[];
 }
@@ -57,11 +62,13 @@ interface RuntimeExploreRunRecord {
   bugIds: string[];
   prompt: string;
   runtime: StagehandRunConfig;
+  cacheConfig: ExecutionCacheConfig;
   startedAt: string;
   finishedAt: string;
   workspacePath: string;
   explorationRunId: string;
   artifactPath: string;
+  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
   summary: ExplorationArtifact["summary"];
 }
 
@@ -179,7 +186,8 @@ function summarizeTaskRuns(taskRuns: TaskRunResult[]) {
   return {
     total: taskRuns.length,
     passed: taskRuns.filter((taskRun) => taskRun.success).length,
-    failed: taskRuns.filter((taskRun) => !taskRun.success).length
+    failed: taskRuns.filter((taskRun) => !taskRun.success).length,
+    cacheSummary: summarizeTaskRunCache(taskRuns)
   };
 }
 
@@ -556,6 +564,17 @@ export async function exploreTarget(input: ExploreTargetInput) {
     runId,
     resultsRoot
   });
+  const cacheConfig = await resolveExecutionCacheConfig({
+    resultsDir,
+    targetId: input.targetId,
+    bugIds,
+    viewport: runtime.viewport,
+    modelId: model.id,
+    configSignature: buildStagehandConfigSignature({
+      executionKind: "explore",
+      instructionPrompt: input.prompt
+    })
+  });
   const runner = input.runner ?? new StagehandAutomationRunner();
   if (typeof runner.exploreTarget !== "function") {
     throw new Error("selected automation runner does not support runtime exploration");
@@ -571,6 +590,7 @@ export async function exploreTarget(input: ExploreTargetInput) {
       prompt: input.prompt,
       aut: workspace.aut,
       runConfig: runtime,
+      cacheConfig,
       workspacePath: workspace.workspacePath
     });
     const artifactPath = await persistRunExplorationArtifacts(resultsRoot, runId, artifact);
@@ -582,11 +602,13 @@ export async function exploreTarget(input: ExploreTargetInput) {
       bugIds,
       prompt: input.prompt,
       runtime,
+      cacheConfig,
       startedAt: artifact.startedAt,
       finishedAt: artifact.finishedAt,
       workspacePath: workspace.workspacePath,
       explorationRunId: artifact.explorationRunId,
       artifactPath,
+      cacheSummary: artifact.cacheSummary,
       summary: artifact.summary
     };
     const runPath = join(resultsRoot, "runs", runId, "run.json");
@@ -634,7 +656,6 @@ export async function runGuided(input: RunGuidedInput) {
   });
 
   let explorationCacheUsage: ExplorationCacheUsage | undefined;
-  let cacheHints: Map<string, ReturnType<typeof matchActionCache>> | undefined;
   if (input.explorationRunId) {
     const located = await findExplorationArtifact(input.explorationRunId, resultsDir);
     if (!located) {
@@ -651,27 +672,20 @@ export async function runGuided(input: RunGuidedInput) {
         bugIds,
         viewport: runtime.viewport
       });
-
-      if (explorationCacheUsage.compatible) {
-        cacheHints = new Map(
-          taskIds.map((taskId) => {
-            const task = benchmark.tasks.get(taskId);
-            if (!task) {
-              throw new Error(`unknown task ${taskId} for target ${input.targetId}`);
-            }
-            return [
-              taskId,
-              matchActionCache({
-                cache: located.artifact.actionCache,
-                instruction: task.instruction,
-                limit: 3
-              })
-            ] as const;
-          })
-        );
-      }
     }
   }
+
+  const cacheConfig = await resolveExecutionCacheConfig({
+    resultsDir,
+    targetId: input.targetId,
+    bugIds,
+    viewport: runtime.viewport,
+    modelId: model.id,
+    configSignature: buildStagehandConfigSignature({
+      executionKind: "guided",
+      systemPrompt: resolvedSuite.prompts.guided
+    })
+  });
 
   const runner = input.runner ?? new StagehandAutomationRunner();
   const aut = await startAut(workspace.aut);
@@ -685,8 +699,7 @@ export async function runGuided(input: RunGuidedInput) {
       runner,
       trial: 1,
       systemPrompt: resolvedSuite.prompts.guided,
-      includeFindings: true,
-      cacheHints
+      includeFindings: true
     });
 
     const record: RuntimeGuidedRunRecord = {
@@ -698,11 +711,13 @@ export async function runGuided(input: RunGuidedInput) {
       bugIds,
       promptId,
       runtime,
+      cacheConfig,
       startedAt: nowIso(),
       finishedAt: nowIso(),
       workspacePath: workspace.workspacePath,
       validationCommand: workspace.validationCommand,
       explorationCacheUsage,
+      cacheSummary: summarizeTaskRunCache(execution.taskRuns),
       taskRuns: execution.taskRuns,
       findings: execution.findings
     };

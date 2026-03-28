@@ -48,7 +48,8 @@ async function writeRegistry(dir: string, models: string[]): Promise<string> {
 
 class RichExploreRunner implements AutomationRunner {
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
-    const success = input.task.id.startsWith("smoke") || (input.cacheHints?.length ?? 0) > 0;
+    const success = input.task.id.startsWith("smoke") || input.cacheConfig.namespace.length > 0;
+    const cacheStatus = input.trial > 1 ? "hit" : "miss";
     return {
       taskId: input.task.id,
       trial: input.trial,
@@ -64,11 +65,20 @@ class RichExploreRunner implements AutomationRunner {
           action: "rich.probe",
           details: {
             taskId: input.task.id,
-            cacheHints: input.cacheHints?.map((entry) => entry.actionId) ?? []
+            cacheNamespace: input.cacheConfig.namespace,
+            cacheStatus
           }
         }
       ],
-      cacheHints: input.cacheHints
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "agent_native",
+        status: cacheStatus,
+        aiInvoked: cacheStatus !== "hit",
+        warnings: []
+      }
     };
   }
 
@@ -80,8 +90,25 @@ class RichExploreRunner implements AutomationRunner {
     prompt: string;
     aut: RunTaskInput["aut"];
     runConfig: RunTaskInput["runConfig"];
+    cacheConfig: RunTaskInput["cacheConfig"];
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
+    const observeCache = [
+      {
+        entryId: "observe-s1",
+        key: "observe-s1-key",
+        instruction: input.prompt,
+        stateId: "s1",
+        url: input.aut.url,
+        domHash: "dom-1",
+        visualHash: "vis-1",
+        actions: [],
+        hitCount: 0,
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    ];
+
     return {
       explorationRunId: `rich-explore-${input.trial}`,
       targetId: input.targetId,
@@ -226,11 +253,33 @@ class RichExploreRunner implements AutomationRunner {
           executionCount: 0
         }
       ],
-      trace: [],
+      observeCache,
+      cacheSummary: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        total: 1,
+        hits: 0,
+        misses: 1,
+        refreshedAfterFailure: 0,
+        aiInvocations: 1,
+        warnings: [],
+        modes: ["observe_manual"]
+      },
+      trace: [
+        {
+          timestamp: nowIso(),
+          action: "rich.explore",
+          details: {
+            cacheNamespace: input.cacheConfig.namespace
+          }
+        }
+      ],
       summary: {
         statesDiscovered: 4,
         transitionsDiscovered: 3,
         actionsCached: 5,
+        observeCacheEntries: observeCache.length,
         historyEntries: 0
       }
     };
@@ -277,10 +326,20 @@ class BugAwareRunner implements AutomationRunner {
           timestamp: nowIso(),
           action: "bug-aware.run",
           details: {
-            taskId: input.task.id
+            taskId: input.task.id,
+            cacheNamespace: input.cacheConfig.namespace
           }
         }
       ],
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "agent_native",
+        status: "miss",
+        aiInvoked: true,
+        warnings: []
+      },
       error: success ? undefined : "expected app behavior not observed"
     };
   }

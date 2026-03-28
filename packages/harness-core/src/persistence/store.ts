@@ -14,7 +14,11 @@ async function persistExplorationFiles(baseDir: string, artifact: ExplorationArt
   await writeJson(join(baseDir, "history.json"), artifact.history);
   await writeJson(join(baseDir, "pages.json"), artifact.pages);
   await writeJson(join(baseDir, "graph.json"), artifact.coverageGraph);
+  await writeJson(join(baseDir, "observe-cache.json"), artifact.observeCache);
   await writeJson(join(baseDir, "action-cache.json"), artifact.actionCache);
+  if (artifact.cacheSummary) {
+    await writeJson(join(baseDir, "cache-summary.json"), artifact.cacheSummary);
+  }
   await writeJson(join(baseDir, "trace.json"), artifact.trace);
   return artifactPath;
 }

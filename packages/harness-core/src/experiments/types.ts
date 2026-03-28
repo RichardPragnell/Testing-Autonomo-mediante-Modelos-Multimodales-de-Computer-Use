@@ -1,5 +1,6 @@
 import type {
   BenchmarkTask,
+  CacheUsageSummary,
   Finding,
   ModelAvailability,
   OperationTrace,
@@ -164,6 +165,7 @@ export interface QaModelMetrics {
 export interface QaModelSummary {
   model: ModelAvailability;
   metrics: QaModelMetrics;
+  cacheSummary?: CacheUsageSummary;
   taskRuns: TaskRunResult[];
   capabilityRuns: QaCapabilityTrialResult[];
 }
@@ -223,6 +225,7 @@ export interface ExploreTrialArtifact {
   transitionsDiscovered: number;
   actionsCached: number;
   actionKinds: string[];
+  cacheSummary?: CacheUsageSummary;
   capabilityDiscovery: ExploreCapabilityDiscovery[];
   probeRuns: ExploreProbeRun[];
 }
@@ -242,6 +245,7 @@ export interface ExploreModelMetrics {
 export interface ExploreModelSummary {
   model: ModelAvailability;
   metrics: ExploreModelMetrics;
+  probeCacheSummary?: CacheUsageSummary;
   trials: ExploreTrialArtifact[];
 }
 
@@ -319,6 +323,7 @@ export interface HealModelMetrics {
 export interface HealModelSummary {
   model: ModelAvailability;
   metrics: HealModelMetrics;
+  cacheSummary?: CacheUsageSummary;
   caseResults: HealCaseTrialResult[];
 }
 

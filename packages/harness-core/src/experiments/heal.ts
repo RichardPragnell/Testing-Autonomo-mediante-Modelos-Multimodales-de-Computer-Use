@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { AutomationRunner, ModelAvailability, OperationTrace, TaskRunResult } from "../types.js";
+import { summarizeTaskRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { StagehandAutomationRunner } from "../runner/stagehand-runner.js";
@@ -536,6 +537,13 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
     modelSummaries.push({
       model,
       metrics: computeModelMetrics(model, caseResults),
+      cacheSummary: summarizeTaskRunCache(
+        caseResults.flatMap((caseResult) => [
+          ...caseResult.reproductionRuns,
+          ...caseResult.postPatchReproductionRuns,
+          ...caseResult.postPatchRegressionRuns
+        ])
+      ),
       caseResults
     });
   }

@@ -100,12 +100,14 @@ describe("action cache", () => {
         history: [],
         pages: [],
         coverageGraph: { nodes: [], edges: [] },
+        observeCache: [],
         actionCache: [],
         trace: [],
         summary: {
           statesDiscovered: 0,
           transitionsDiscovered: 0,
           actionsCached: 0,
+          observeCacheEntries: 0,
           historyEntries: 0
         }
       },

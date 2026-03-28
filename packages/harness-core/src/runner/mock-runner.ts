@@ -40,6 +40,7 @@ export class MockAutomationRunner implements AutomationRunner {
     const screenshotBase64 = Buffer.from(
       `${input.model.id}:${input.task.id}:${input.trial}:${success ? "ok" : "ko"}`
     ).toString("base64");
+    const cacheStatus = input.trial > 1 ? "hit" : "miss";
 
     return {
       taskId: input.task.id,
@@ -62,11 +63,20 @@ export class MockAutomationRunner implements AutomationRunner {
             score,
             quality,
             systemPrompt: input.systemPrompt,
-            cacheHintIds: input.cacheHints?.map((item) => item.actionId) ?? []
+            cacheNamespace: input.cacheConfig.namespace,
+            cacheStatus
           }
         }
       ],
-      cacheHints: input.cacheHints,
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "agent_native",
+        status: cacheStatus,
+        aiInvoked: cacheStatus !== "hit",
+        warnings: []
+      },
       error: success ? undefined : "mock failure"
     };
   }
@@ -79,9 +89,33 @@ export class MockAutomationRunner implements AutomationRunner {
     prompt: string;
     aut: RunTaskInput["aut"];
     runConfig: RunTaskInput["runConfig"];
+    cacheConfig: RunTaskInput["cacheConfig"];
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
     const explorationRunId = `mock-explore-${this.seed}-${input.trial}`;
+    const observeCache = [
+      {
+        entryId: "observe-root",
+        key: sha256(`${input.cacheConfig.namespace}|root`),
+        instruction: input.prompt,
+        stateId: "state-root",
+        url: input.aut.url,
+        domHash: sha256("root"),
+        visualHash: sha256("root-visual"),
+        actions: [
+          {
+            selector: "button:text(Edit)",
+            description: "Edit button for the first todo",
+            method: "click",
+            arguments: []
+          }
+        ],
+        hitCount: input.trial > 1 ? 1 : 0,
+        createdAt: nowIso(),
+        updatedAt: nowIso()
+      }
+    ];
+
     return {
       explorationRunId,
       targetId: input.targetId,
@@ -156,13 +190,27 @@ export class MockAutomationRunner implements AutomationRunner {
           executionCount: 0
         }
       ],
+      observeCache,
+      cacheSummary: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        total: 1,
+        hits: input.trial > 1 ? 1 : 0,
+        misses: input.trial > 1 ? 0 : 1,
+        refreshedAfterFailure: 0,
+        aiInvocations: input.trial > 1 ? 0 : 1,
+        warnings: [],
+        modes: ["observe_manual"]
+      },
       trace: [
         {
           timestamp: nowIso(),
           action: "mock.explore",
           details: {
             prompt: input.prompt,
-            maxSteps: input.runConfig.maxSteps
+            maxSteps: input.runConfig.maxSteps,
+            cacheNamespace: input.cacheConfig.namespace
           }
         }
       ],
@@ -170,6 +218,7 @@ export class MockAutomationRunner implements AutomationRunner {
         statesDiscovered: 1,
         transitionsDiscovered: 0,
         actionsCached: 1,
+        observeCacheEntries: observeCache.length,
         historyEntries: 2
       }
     };

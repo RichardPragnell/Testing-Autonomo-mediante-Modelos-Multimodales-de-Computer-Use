@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { ActionCacheEntry, AutomationRunner, ModelAvailability } from "../types.js";
+import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
+import { summarizeTaskRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { matchActionCache } from "../exploration/action-cache.js";
@@ -337,6 +339,19 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
       }
 
       const trials: ExploreTrialArtifact[] = [];
+      const probeTaskRuns: ExploreProbeRun["taskRun"][] = [];
+      const explorationPrompt = resolvedSuite.prompts.autonomous ?? spec.promptId;
+      const exploreCacheConfig = await resolveExecutionCacheConfig({
+        resultsDir,
+        targetId: input.appId,
+        bugIds: [],
+        viewport: spec.runtime.viewport,
+        modelId: model.id,
+        configSignature: buildStagehandConfigSignature({
+          executionKind: "explore",
+          instructionPrompt: explorationPrompt
+        })
+      });
 
       for (let trial = 1; trial <= spec.trials; trial += 1) {
         const explorationArtifact = await runner.exploreTarget({
@@ -344,7 +359,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           trial,
           targetId: input.appId,
           bugIds: [],
-          prompt: resolvedSuite.prompts.autonomous ?? spec.promptId,
+          prompt: explorationPrompt,
           aut: workspace.aut,
           runConfig: {
             timeoutMs: spec.runtime.timeoutMs,
@@ -352,6 +367,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
             maxSteps: spec.runtime.maxSteps,
             viewport: spec.runtime.viewport
           },
+          cacheConfig: exploreCacheConfig,
           workspacePath: workspace.workspacePath
         });
         await persistRunExplorationArtifacts(resultsRoot, runId, explorationArtifact);
@@ -376,19 +392,6 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           };
         });
 
-        const cacheHints = new Map<string, ActionCacheEntry[]>();
-        for (const taskId of spec.probeTaskIds) {
-          const task = benchmark.tasks.get(taskId)!;
-          cacheHints.set(
-            taskId,
-            matchActionCache({
-              cache: explorationArtifact.actionCache,
-              instruction: task.instruction,
-              limit: 3
-            })
-          );
-        }
-
         const probeExecution = await executeGuidedTasks({
           runId,
           resultsRoot,
@@ -398,14 +401,14 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           runner,
           trial,
           systemPrompt: resolvedSuite.prompts.guided,
-          cacheHints,
           taskIds: spec.probeTaskIds
         });
+        probeTaskRuns.push(...probeExecution.taskRuns);
         const probeRuns: ExploreProbeRun[] = probeExecution.taskRuns.map((taskRun) => ({
           trial,
           taskId: taskRun.taskId,
           success: taskRun.success,
-          matchedActionIds: cacheHints.get(taskRun.taskId)?.map((entry) => entry.actionId) ?? [],
+          matchedActionIds: [],
           taskRun
         }));
 
@@ -416,6 +419,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           transitionsDiscovered: explorationArtifact.summary.transitionsDiscovered,
           actionsCached: explorationArtifact.summary.actionsCached,
           actionKinds: inferActionKinds(explorationArtifact.actionCache),
+          cacheSummary: explorationArtifact.cacheSummary,
           capabilityDiscovery,
           probeRuns
         });
@@ -428,6 +432,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           trials,
           heuristicTargets: spec.heuristicTargets
         }),
+        probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
         trials
       });
     }

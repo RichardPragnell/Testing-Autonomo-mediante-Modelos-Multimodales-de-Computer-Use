@@ -1,10 +1,22 @@
+import { summarizeCacheTelemetry } from "../cache/summary.js";
 import { buildActionCacheEntries, markExecutedActions } from "../exploration/action-cache.js";
+import {
+  findObserveCacheEntry,
+  loadObserveCache,
+  markObserveCacheHit,
+  saveObserveCache,
+  upsertObserveCacheEntry
+} from "../exploration/observe-cache.js";
 import { CoverageGraph, fingerprintState } from "../graph/state-graph.js";
 import { evaluateExpectation } from "./expectations.js";
 import type {
   ActionCacheEntry,
   AutomationRunner,
+  CacheMode,
+  CacheStatus,
+  CacheTelemetry,
   ExplorationArtifact,
+  ObserveCacheEntry,
   ObservedAction,
   OperationTrace,
   RunTaskInput,
@@ -12,6 +24,17 @@ import type {
   TaskRunResult
 } from "../types.js";
 import { nowIso } from "../utils/time.js";
+
+type StagehandExecutionResult = {
+  metadata?: Record<string, unknown>;
+};
+
+type StagehandLogLine = {
+  category?: string;
+  message: string;
+  level?: number;
+  timestamp?: string;
+};
 
 function estimateCostUsd(metrics: any): number {
   if (!metrics) {
@@ -21,6 +44,19 @@ function estimateCostUsd(metrics: any): number {
   const completionTokens = Number(metrics.totalCompletionTokens ?? 0);
   const totalTokens = promptTokens + completionTokens;
   return Number((totalTokens * 0.000001).toFixed(6));
+}
+
+function estimateAiInvocation(metrics: any): boolean {
+  if (!metrics) {
+    return false;
+  }
+
+  return (
+    Number(metrics.totalPromptTokens ?? 0) +
+      Number(metrics.totalCompletionTokens ?? 0) +
+      Number(metrics.totalReasoningTokens ?? 0) >
+    0
+  );
 }
 
 function normalizeHistoryEntry(entry: any): StagehandHistoryEntry {
@@ -62,9 +98,11 @@ function readBooleanEnv(name: string): boolean | undefined {
   return !["0", "false", "no", "off"].includes(rawValue.toLowerCase());
 }
 
-function buildLocalBrowserLaunchOptions(input: RunTaskInput): Record<string, unknown> {
+function buildLocalBrowserLaunchOptions(input: {
+  viewport: RunTaskInput["runConfig"]["viewport"];
+}): Record<string, unknown> {
   const options: Record<string, unknown> = {
-    viewport: input.runConfig.viewport
+    viewport: input.viewport
   };
   const executablePath = process.env.STAGEHAND_LOCAL_BROWSER_PATH?.trim();
   if (executablePath) {
@@ -89,7 +127,38 @@ function buildLocalBrowserLaunchOptions(input: RunTaskInput): Record<string, unk
   return options;
 }
 
-function buildStagehandConfig(stagehandEnv: string, input: { model: RunTaskInput["model"]; runConfig: RunTaskInput["runConfig"] }): any {
+function normalizeStagehandLog(line: any): StagehandLogLine | undefined {
+  if (!line || typeof line !== "object" || typeof line.message !== "string") {
+    return undefined;
+  }
+
+  return {
+    category: typeof line.category === "string" ? line.category : undefined,
+    message: line.message,
+    level: typeof line.level === "number" ? line.level : undefined,
+    timestamp: typeof line.timestamp === "string" ? line.timestamp : nowIso()
+  };
+}
+
+function createStagehandLogCollector(target: StagehandLogLine[]) {
+  return (line: any) => {
+    const normalized = normalizeStagehandLog(line);
+    if (!normalized || normalized.category !== "cache") {
+      return;
+    }
+    target.push(normalized);
+  };
+}
+
+function buildStagehandConfig(
+  stagehandEnv: string,
+  input: {
+    model: RunTaskInput["model"];
+    runConfig: RunTaskInput["runConfig"];
+    cacheConfig: RunTaskInput["cacheConfig"];
+    logger?: (line: any) => void;
+  }
+): any {
   const apiKey = process.env[input.model.envKey];
   const config: any = {
     env: stagehandEnv as any,
@@ -98,22 +167,19 @@ function buildStagehandConfig(stagehandEnv: string, input: { model: RunTaskInput
           modelName: input.model.id,
           apiKey
         }
-      : input.model.id
+      : input.model.id,
+    cacheDir: input.cacheConfig.cacheDir,
+    selfHeal: true
   };
+
+  if (input.logger) {
+    config.logger = input.logger;
+  }
 
   if (stagehandEnv === "LOCAL") {
     config.localBrowserLaunchOptions = {
       ...buildLocalBrowserLaunchOptions({
-        model: input.model,
-        task: {
-          id: "noop",
-          instruction: "",
-          expected: { type: "text_visible", value: "" },
-          source: "synthetic"
-        },
-        trial: 1,
-        aut: { url: "http://127.0.0.1" },
-        runConfig: input.runConfig
+        viewport: input.runConfig.viewport
       })
     };
   }
@@ -131,19 +197,23 @@ function appendHistoryTrace(trace: OperationTrace[], history: StagehandHistoryEn
   }
 }
 
-function buildCacheHintInstruction(taskInstruction: string, cacheHints: ActionCacheEntry[]): string {
-  if (!cacheHints.length) {
-    return taskInstruction;
+function appendCacheTrace(trace: OperationTrace[], cache: CacheTelemetry | undefined): void {
+  if (!cache) {
+    return;
   }
 
-  const hintText = cacheHints
-    .map(
-      (entry, index) =>
-        `${index + 1}. ${entry.method ?? "click"} ${entry.description} via ${entry.selector}${entry.arguments.length ? ` args=${entry.arguments.join(", ")}` : ""}`
-    )
-    .join("\n");
-
-  return `Known reusable actions for this page:\n${hintText}\n\nTask: ${taskInstruction}`;
+  trace.push({
+    timestamp: nowIso(),
+    action: `cache.${cache.mode}`,
+    details: {
+      namespace: cache.namespace,
+      rootDir: cache.rootDir,
+      configSignature: cache.configSignature,
+      status: cache.status,
+      aiInvoked: cache.aiInvoked,
+      warnings: cache.warnings
+    }
+  });
 }
 
 async function readPageSummary(page: any): Promise<string> {
@@ -192,7 +262,39 @@ function normalizeObservedActions(actions: any[]): ObservedAction[] {
     }));
 }
 
-function chooseExplorationAction(actionCache: ActionCacheEntry[], executedActionIds: Set<string>, stateId: string): ActionCacheEntry | undefined {
+function updateStateActionCache(
+  cache: ActionCacheEntry[],
+  stateId: string,
+  incoming: ActionCacheEntry[]
+): ActionCacheEntry[] {
+  const previousById = new Map(
+    cache.filter((entry) => entry.stateId === stateId).map((entry) => [entry.actionId, entry])
+  );
+  const preserved = cache.filter((entry) => entry.stateId !== stateId);
+
+  return [
+    ...preserved,
+    ...incoming.map((entry) => {
+      const previous = previousById.get(entry.actionId);
+      if (!previous) {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        instructionHints: [...new Set([...previous.instructionHints, ...entry.instructionHints])],
+        observationCount: previous.observationCount + entry.observationCount,
+        executionCount: previous.executionCount
+      };
+    })
+  ];
+}
+
+function chooseExplorationAction(
+  actionCache: ActionCacheEntry[],
+  executedActionIds: Set<string>,
+  stateId: string
+): ActionCacheEntry | undefined {
   return actionCache
     .filter((entry) => entry.stateId === stateId && !executedActionIds.has(entry.actionId))
     .sort((left, right) => left.executionCount - right.executionCount || left.description.localeCompare(right.description))
@@ -211,6 +313,87 @@ function buildExecutableAction(entry: ActionCacheEntry, step: number): ObservedA
   };
 }
 
+function buildGuidedCacheTelemetry(input: {
+  cacheConfig: RunTaskInput["cacheConfig"];
+  mode: CacheMode;
+  metrics: any;
+  logs: StagehandLogLine[];
+  executionResult?: StagehandExecutionResult;
+}): CacheTelemetry {
+  const messages = input.logs.map((item) => item.message.toLowerCase());
+  const hasHit =
+    input.executionResult?.metadata?.cacheHit === true || messages.some((message) => message.includes("cache hit"));
+  const replayFailed = messages.some((message) => message.includes("cache replay failed"));
+  const selfHealed = messages.some((message) => message.includes("cache entry updated after self-heal"));
+  const warnings: string[] = [];
+
+  if (replayFailed) {
+    warnings.push("Stagehand cache replay failed and AI fallback refreshed the cache.");
+  }
+  if (selfHealed) {
+    warnings.push("Stagehand cache replay self-healed cached selectors or actions.");
+  }
+
+  const status: CacheStatus = replayFailed || selfHealed ? "refreshed_after_failure" : hasHit ? "hit" : "miss";
+
+  return {
+    rootDir: input.cacheConfig.rootDir,
+    namespace: input.cacheConfig.namespace,
+    configSignature: input.cacheConfig.configSignature,
+    mode: input.mode,
+    status,
+    aiInvoked: estimateAiInvocation(input.metrics),
+    warnings
+  };
+}
+
+function buildObserveCacheTelemetry(input: {
+  cacheConfig: RunTaskInput["cacheConfig"];
+  status: CacheStatus;
+  warnings?: string[];
+}): CacheTelemetry {
+  return {
+    rootDir: input.cacheConfig.rootDir,
+    namespace: input.cacheConfig.namespace,
+    configSignature: input.cacheConfig.configSignature,
+    mode: "observe_manual",
+    status: input.status,
+    aiInvoked: input.status !== "hit",
+    warnings: input.warnings ?? []
+  };
+}
+
+function buildExplorationObserveInstruction(prompt: string): string {
+  return `Exploration goal: ${prompt}\nFind the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.`;
+}
+
+function pickReplacementAction(
+  previous: ActionCacheEntry,
+  refreshedEntries: ActionCacheEntry[]
+): ActionCacheEntry | undefined {
+  return refreshedEntries
+    .map((entry) => {
+      let score = 0;
+      if ((entry.method ?? "click") === (previous.method ?? "click")) {
+        score += 10;
+      }
+      if (entry.description === previous.description) {
+        score += 20;
+      } else if (
+        entry.description.toLowerCase().includes(previous.description.toLowerCase()) ||
+        previous.description.toLowerCase().includes(entry.description.toLowerCase())
+      ) {
+        score += 10;
+      }
+      if (entry.arguments.join("|") === previous.arguments.join("|")) {
+        score += 5;
+      }
+      return { entry, score };
+    })
+    .sort((left, right) => right.score - left.score || left.entry.description.localeCompare(right.entry.description))
+    .at(0)?.entry;
+}
+
 export class StagehandAutomationRunner implements AutomationRunner {
   constructor(private readonly stagehandEnv: string = "LOCAL") {}
 
@@ -220,9 +403,18 @@ export class StagehandAutomationRunner implements AutomationRunner {
     let stagehand: any | undefined;
 
     for (let attempt = 0; attempt <= input.runConfig.retryCount; attempt += 1) {
+      const stagehandLogs: StagehandLogLine[] = [];
+      let history: StagehandHistoryEntry[] = [];
       try {
         const { Stagehand } = await import("@browserbasehq/stagehand");
-        stagehand = new Stagehand(buildStagehandConfig(this.stagehandEnv, input));
+        stagehand = new Stagehand(
+          buildStagehandConfig(this.stagehandEnv, {
+            model: input.model,
+            runConfig: input.runConfig,
+            cacheConfig: input.cacheConfig,
+            logger: createStagehandLogCollector(stagehandLogs)
+          })
+        );
         await stagehand.init();
         const page =
           stagehand.page ??
@@ -252,18 +444,21 @@ export class StagehandAutomationRunner implements AutomationRunner {
           details: { url: input.aut.url, attempt }
         });
 
-        const instruction = buildCacheHintInstruction(input.task.instruction, input.cacheHints ?? []);
-        const agent = typeof stagehand.agent === "function"
-          ? stagehand.agent({
-              model: input.model.id,
-              mode: "dom",
-              systemPrompt: input.systemPrompt
-            })
-          : undefined;
+        let executionMode: CacheMode = "act_native";
+        let executionResult: any;
+        const agent =
+          typeof stagehand.agent === "function"
+            ? stagehand.agent({
+                model: input.model.id,
+                mode: "dom",
+                systemPrompt: input.systemPrompt
+              })
+            : undefined;
 
         if (agent?.execute) {
-          await agent.execute({
-            instruction,
+          executionMode = "agent_native";
+          executionResult = await agent.execute({
+            instruction: input.task.instruction,
             maxSteps: input.runConfig.maxSteps
           });
           trace.push({
@@ -271,27 +466,38 @@ export class StagehandAutomationRunner implements AutomationRunner {
             action: "agent.execute",
             details: {
               instruction: input.task.instruction,
-              cacheHints: input.cacheHints?.map((entry) => entry.actionId) ?? [],
-              maxSteps: input.runConfig.maxSteps
+              maxSteps: input.runConfig.maxSteps,
+              cacheNamespace: input.cacheConfig.namespace
             }
           });
         } else if (typeof stagehand.act === "function") {
-          await stagehand.act(instruction);
+          executionMode = "act_native";
+          executionResult = await stagehand.act(input.task.instruction);
           trace.push({
             timestamp: nowIso(),
             action: "act",
             details: {
               instruction: input.task.instruction,
-              cacheHints: input.cacheHints?.map((entry) => entry.actionId) ?? []
+              cacheNamespace: input.cacheConfig.namespace
             }
           });
+        } else {
+          throw new Error("stagehand execution primitive not available");
         }
 
         const assertion = await evaluateExpectation(page, input.task.expected);
         const pageSnapshot = await snapshotPage(page);
         const metrics = await readStagehandMetrics(stagehand);
-        const history = await readStagehandHistory(stagehand);
+        history = await readStagehandHistory(stagehand);
+        const cache = buildGuidedCacheTelemetry({
+          cacheConfig: input.cacheConfig,
+          mode: executionMode,
+          metrics,
+          logs: stagehandLogs,
+          executionResult
+        });
 
+        appendCacheTrace(trace, cache);
         appendHistoryTrace(trace, history);
 
         await stagehand.close?.();
@@ -308,9 +514,21 @@ export class StagehandAutomationRunner implements AutomationRunner {
           domSnapshot: pageSnapshot.domSnapshot,
           trace,
           historyEntries: history,
+          cache,
           cacheHints: input.cacheHints
         };
       } catch (error) {
+        const metrics = await readStagehandMetrics(stagehand);
+        history = await readStagehandHistory(stagehand);
+        appendHistoryTrace(trace, history);
+        const cache = buildGuidedCacheTelemetry({
+          cacheConfig: input.cacheConfig,
+          mode: "agent_native",
+          metrics,
+          logs: stagehandLogs
+        });
+        appendCacheTrace(trace, cache);
+
         trace.push({
           timestamp: nowIso(),
           action: "error",
@@ -328,10 +546,12 @@ export class StagehandAutomationRunner implements AutomationRunner {
             success: false,
             message: "task execution failed after retries",
             latencyMs: Date.now() - started,
-            costUsd: 0,
+            costUsd: estimateCostUsd(metrics),
             trace,
-            error: error instanceof Error ? error.message : String(error),
-            cacheHints: input.cacheHints
+            historyEntries: history,
+            cache,
+            cacheHints: input.cacheHints,
+            error: error instanceof Error ? error.message : String(error)
           };
         }
       }
@@ -346,6 +566,12 @@ export class StagehandAutomationRunner implements AutomationRunner {
       latencyMs: Date.now() - started,
       costUsd: 0,
       trace,
+      cache: buildGuidedCacheTelemetry({
+        cacheConfig: input.cacheConfig,
+        mode: "agent_native",
+        metrics: undefined,
+        logs: []
+      }),
       cacheHints: input.cacheHints
     };
   }
@@ -358,23 +584,28 @@ export class StagehandAutomationRunner implements AutomationRunner {
     prompt: string;
     aut: RunTaskInput["aut"];
     runConfig: RunTaskInput["runConfig"];
+    cacheConfig: RunTaskInput["cacheConfig"];
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
     const trace: OperationTrace[] = [];
     const coverageGraph = new CoverageGraph();
     const pages = new Map<string, ExplorationArtifact["pages"][number]>();
     const executedActionIds = new Set<string>();
+    const cacheEvents: CacheTelemetry[] = [];
     let actionCache: ActionCacheEntry[] = [];
+    let observeCache: ObserveCacheEntry[] = [];
     let stagehand: any | undefined;
     const startedAt = nowIso();
     const explorationRunId = `explore-${input.targetId}-${Date.now()}-${input.model.id.replace(/[^\w-]+/g, "_")}`;
 
     try {
+      observeCache = await loadObserveCache(input.cacheConfig);
       const { Stagehand } = await import("@browserbasehq/stagehand");
       stagehand = new Stagehand(
         buildStagehandConfig(this.stagehandEnv, {
           model: input.model,
-          runConfig: input.runConfig
+          runConfig: input.runConfig,
+          cacheConfig: input.cacheConfig
         })
       );
       await stagehand.init();
@@ -397,7 +628,6 @@ export class StagehandAutomationRunner implements AutomationRunner {
         details: { url: input.aut.url, prompt: input.prompt }
       });
 
-      let currentStateId = "";
       for (let step = 0; step < input.runConfig.maxSteps; step += 1) {
         const pageSnapshot = await snapshotPage(page);
         const fingerprint = fingerprintState({
@@ -405,19 +635,65 @@ export class StagehandAutomationRunner implements AutomationRunner {
           domSnapshot: pageSnapshot.domSnapshot,
           screenshotBase64: pageSnapshot.screenshotBase64
         });
-        currentStateId = coverageGraph.upsertState({
+        const currentStateId = coverageGraph.upsertState({
           url: pageSnapshot.url || input.aut.url,
           domSnapshot: pageSnapshot.domSnapshot,
           screenshotBase64: pageSnapshot.screenshotBase64
         });
+        const observeInstruction = buildExplorationObserveInstruction(input.prompt);
 
-        const observedActions = normalizeObservedActions(
-          typeof stagehand.observe === "function"
-            ? await stagehand.observe(
-                `Exploration goal: ${input.prompt}\nFind the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.`
-              )
-            : []
-        );
+        let observeWarnings: string[] = [];
+        let observeCacheStatus: CacheStatus;
+        let observedActions: ObservedAction[] = [];
+
+        const cachedObservation = findObserveCacheEntry(observeCache, {
+          instruction: observeInstruction,
+          url: pageSnapshot.url || input.aut.url,
+          stateId: currentStateId,
+          domHash: fingerprint.domHash,
+          visualHash: fingerprint.visualHash
+        });
+
+        if (cachedObservation) {
+          observeCacheStatus = "hit";
+          observedActions = cachedObservation.actions;
+          observeCache = markObserveCacheHit(observeCache, cachedObservation.entryId);
+          await saveObserveCache(input.cacheConfig, observeCache);
+          trace.push({
+            timestamp: nowIso(),
+            action: "explore.observe",
+            details: {
+              step,
+              stateId: currentStateId,
+              source: "cache",
+              actionsDiscovered: observedActions.length
+            }
+          });
+        } else {
+          observeCacheStatus = "miss";
+          observedActions = normalizeObservedActions(
+            typeof stagehand.observe === "function" ? await stagehand.observe(observeInstruction) : []
+          );
+          observeCache = upsertObserveCacheEntry(observeCache, {
+            instruction: observeInstruction,
+            url: pageSnapshot.url || input.aut.url,
+            stateId: currentStateId,
+            domHash: fingerprint.domHash,
+            visualHash: fingerprint.visualHash,
+            actions: observedActions
+          });
+          await saveObserveCache(input.cacheConfig, observeCache);
+          trace.push({
+            timestamp: nowIso(),
+            action: "explore.observe",
+            details: {
+              step,
+              stateId: currentStateId,
+              source: "model",
+              actionsDiscovered: observedActions.length
+            }
+          });
+        }
 
         const currentPage = pages.get(currentStateId);
         if (currentPage) {
@@ -436,39 +712,25 @@ export class StagehandAutomationRunner implements AutomationRunner {
           });
         }
 
-        actionCache = markExecutedActions(
-          actionCache,
-          [],
-          undefined
-        );
-        actionCache = [
-          ...new Map(
-            [
-              ...actionCache,
-              ...buildActionCacheEntries({
-                stateId: currentStateId,
-                url: pageSnapshot.url || input.aut.url,
-                domHash: fingerprint.domHash,
-                visualHash: fingerprint.visualHash,
-                actions: observedActions,
-                instructionHint: input.prompt
-              })
-            ].map((entry) => [entry.actionId, entry])
-          ).values()
-        ];
-
-        trace.push({
-          timestamp: nowIso(),
-          action: "explore.observe",
-          details: {
-            step,
-            stateId: currentStateId,
-            actionsDiscovered: observedActions.length
-          }
+        const stateEntries = buildActionCacheEntries({
+          stateId: currentStateId,
+          url: pageSnapshot.url || input.aut.url,
+          domHash: fingerprint.domHash,
+          visualHash: fingerprint.visualHash,
+          actions: observedActions,
+          instructionHint: input.prompt
         });
+        actionCache = updateStateActionCache(actionCache, currentStateId, stateEntries);
 
         const nextAction = chooseExplorationAction(actionCache, executedActionIds, currentStateId);
         if (!nextAction) {
+          cacheEvents.push(
+            buildObserveCacheTelemetry({
+              cacheConfig: input.cacheConfig,
+              status: observeCacheStatus,
+              warnings: observeWarnings
+            })
+          );
           trace.push({
             timestamp: nowIso(),
             action: "explore.complete",
@@ -481,12 +743,93 @@ export class StagehandAutomationRunner implements AutomationRunner {
         }
 
         const beforeStateId = currentStateId;
-        const executableAction = buildExecutableAction(nextAction, step);
-        if (typeof stagehand.act === "function") {
-          await stagehand.act(executableAction);
+        let executedEntry = nextAction;
+        let actionSucceeded = false;
+
+        try {
+          if (typeof stagehand.act !== "function") {
+            throw new Error("stagehand act not available");
+          }
+          await stagehand.act(buildExecutableAction(nextAction, step));
+          actionSucceeded = true;
+        } catch (error) {
+          trace.push({
+            timestamp: nowIso(),
+            action: "explore.act_error",
+            details: {
+              step,
+              actionId: nextAction.actionId,
+              message: error instanceof Error ? error.message : String(error)
+            }
+          });
+
+          if (observeCacheStatus === "hit" && typeof stagehand.observe === "function" && typeof stagehand.act === "function") {
+            const refreshedObservedActions = normalizeObservedActions(await stagehand.observe(observeInstruction));
+            observeCache = upsertObserveCacheEntry(observeCache, {
+              instruction: observeInstruction,
+              url: pageSnapshot.url || input.aut.url,
+              stateId: currentStateId,
+              domHash: fingerprint.domHash,
+              visualHash: fingerprint.visualHash,
+              actions: refreshedObservedActions
+            });
+            await saveObserveCache(input.cacheConfig, observeCache);
+            observeCacheStatus = "refreshed_after_failure";
+            observeWarnings = [
+              `Cached observed action failed for "${nextAction.description}" and observe() refreshed the page action set.`
+            ];
+
+            const refreshedEntries = buildActionCacheEntries({
+              stateId: currentStateId,
+              url: pageSnapshot.url || input.aut.url,
+              domHash: fingerprint.domHash,
+              visualHash: fingerprint.visualHash,
+              actions: refreshedObservedActions,
+              instructionHint: input.prompt
+            });
+            actionCache = updateStateActionCache(actionCache, currentStateId, refreshedEntries);
+
+            const replacement = pickReplacementAction(nextAction, refreshedEntries);
+            if (replacement) {
+              executedEntry = replacement;
+              await stagehand.act(buildExecutableAction(replacement, step));
+              actionSucceeded = true;
+              trace.push({
+                timestamp: nowIso(),
+                action: "explore.observe_refresh",
+                details: {
+                  step,
+                  previousActionId: nextAction.actionId,
+                  nextActionId: replacement.actionId
+                }
+              });
+            }
+          }
         }
-        executedActionIds.add(nextAction.actionId);
-        actionCache = markExecutedActions(actionCache, [nextAction.actionId], input.prompt);
+
+        cacheEvents.push(
+          buildObserveCacheTelemetry({
+            cacheConfig: input.cacheConfig,
+            status: observeCacheStatus,
+            warnings: observeWarnings
+          })
+        );
+
+        if (!actionSucceeded) {
+          trace.push({
+            timestamp: nowIso(),
+            action: "explore.complete",
+            details: {
+              reason: "action_failed",
+              stateId: currentStateId,
+              actionId: executedEntry.actionId
+            }
+          });
+          break;
+        }
+
+        executedActionIds.add(executedEntry.actionId);
+        actionCache = markExecutedActions(actionCache, [executedEntry.actionId], input.prompt);
 
         const afterSnapshot = await snapshotPage(page);
         const afterStateId = coverageGraph.upsertState({
@@ -494,14 +837,14 @@ export class StagehandAutomationRunner implements AutomationRunner {
           domSnapshot: afterSnapshot.domSnapshot,
           screenshotBase64: afterSnapshot.screenshotBase64
         });
-        coverageGraph.addTransition(beforeStateId, afterStateId, nextAction.description);
+        coverageGraph.addTransition(beforeStateId, afterStateId, executedEntry.description);
         trace.push({
           timestamp: nowIso(),
           action: "explore.act",
           details: {
             step,
-            actionId: nextAction.actionId,
-            description: nextAction.description,
+            actionId: executedEntry.actionId,
+            description: executedEntry.description,
             stateId: beforeStateId,
             nextStateId: afterStateId
           }
@@ -547,12 +890,15 @@ export class StagehandAutomationRunner implements AutomationRunner {
         history,
         pages: [...pages.values()],
         coverageGraph: coverageGraph.snapshot(),
+        observeCache,
         actionCache,
+        cacheSummary: summarizeCacheTelemetry(cacheEvents),
         trace,
         summary: {
           statesDiscovered: pages.size,
           transitionsDiscovered: coverageGraph.snapshot().edges.length,
           actionsCached: actionCache.length,
+          observeCacheEntries: observeCache.length,
           historyEntries: history.length
         }
       };
@@ -582,12 +928,15 @@ export class StagehandAutomationRunner implements AutomationRunner {
         history: [],
         pages: [],
         coverageGraph: { nodes: [], edges: [] },
+        observeCache,
         actionCache: [],
+        cacheSummary: summarizeCacheTelemetry(cacheEvents),
         trace,
         summary: {
           statesDiscovered: 0,
           transitionsDiscovered: 0,
           actionsCached: 0,
+          observeCacheEntries: observeCache.length,
           historyEntries: 0
         }
       };

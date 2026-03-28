@@ -216,6 +216,40 @@ export interface OperationTrace {
   details?: Record<string, unknown>;
 }
 
+export type CacheMode = "agent_native" | "act_native" | "observe_manual";
+
+export type CacheStatus = "hit" | "miss" | "refreshed_after_failure";
+
+export interface ExecutionCacheConfig {
+  rootDir: string;
+  namespace: string;
+  cacheDir: string;
+  configSignature: string;
+}
+
+export interface CacheTelemetry {
+  rootDir: string;
+  namespace: string;
+  configSignature: string;
+  mode: CacheMode;
+  status: CacheStatus;
+  aiInvoked: boolean;
+  warnings: string[];
+}
+
+export interface CacheUsageSummary {
+  rootDir: string;
+  namespace: string;
+  configSignature: string;
+  total: number;
+  hits: number;
+  misses: number;
+  refreshedAfterFailure: number;
+  aiInvocations: number;
+  warnings: string[];
+  modes: CacheMode[];
+}
+
 export interface StagehandHistoryEntry {
   method: string;
   parameters?: Record<string, unknown>;
@@ -246,6 +280,20 @@ export interface ActionCacheEntry {
   executionCount: number;
 }
 
+export interface ObserveCacheEntry {
+  entryId: string;
+  key: string;
+  instruction: string;
+  stateId: string;
+  url: string;
+  domHash: string;
+  visualHash: string;
+  actions: ObservedAction[];
+  hitCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ExplorationState {
   id: string;
   url: string;
@@ -269,6 +317,7 @@ export interface ExplorationSummary {
   statesDiscovered: number;
   transitionsDiscovered: number;
   actionsCached: number;
+  observeCacheEntries: number;
   historyEntries: number;
 }
 
@@ -293,7 +342,9 @@ export interface ExplorationArtifact {
   history: StagehandHistoryEntry[];
   pages: ExplorationState[];
   coverageGraph: CoverageGraphSnapshot;
+  observeCache: ObserveCacheEntry[];
   actionCache: ActionCacheEntry[];
+  cacheSummary?: CacheUsageSummary;
   trace: OperationTrace[];
   summary: ExplorationSummary;
 }
@@ -311,6 +362,8 @@ export interface TaskRunResult {
   domSnapshot?: string;
   trace: OperationTrace[];
   historyEntries?: StagehandHistoryEntry[];
+  cache?: CacheTelemetry;
+  // Deprecated: prompt-time cache hints have been replaced by cache-first execution telemetry.
   cacheHints?: ActionCacheEntry[];
   error?: string;
 }
@@ -351,7 +404,9 @@ export interface RunTaskInput {
   trial: number;
   aut: AutConfig;
   runConfig: StagehandRunConfig;
+  cacheConfig: ExecutionCacheConfig;
   systemPrompt?: string;
+  // Deprecated: prompt-time cache hints have been replaced by cache-first execution telemetry.
   cacheHints?: ActionCacheEntry[];
 }
 
@@ -365,6 +420,7 @@ export interface AutomationRunner {
     prompt: string;
     aut: AutConfig;
     runConfig: StagehandRunConfig;
+    cacheConfig: ExecutionCacheConfig;
     workspacePath: string;
   }): Promise<ExplorationArtifact>;
 }

@@ -67,7 +67,8 @@ export const toolContracts: ToolContract[] = [
   },
   {
     name: "bench.run_guided",
-    description: "Run scenario-backed guided execution with optional exploration cache reuse from a prior exploration run.",
+    description:
+      "Run scenario-backed guided execution with Stagehand cache-first replay; explorationRunId is optional linkage to a prior exploration artifact for compatibility reporting only.",
     inputSchema: {
       targetId: z.string(),
       scenarioIds: z.array(z.string()).min(1),

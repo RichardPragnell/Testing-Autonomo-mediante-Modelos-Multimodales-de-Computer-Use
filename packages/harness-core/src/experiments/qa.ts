@@ -321,6 +321,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
           capabilityRuns,
           trials: spec.trials
         }),
+        cacheSummary: summarizeTaskRuns(taskRuns).cacheSummary,
         taskRuns,
         capabilityRuns
       });
