@@ -57,12 +57,12 @@ export default function App() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell" data-bench="todo-app">
       <section className="hero-card">
         <p className="eyebrow">Benchmark Target</p>
-        <h1>Todo React Bench</h1>
+        <h1>Todo Bench</h1>
         <p className="lead">
-          Small React app for local web QA runs, prompt-guided exploration, and future bug-pack expansion.
+          Small todo app for local web QA runs, prompt-guided exploration, and bug-pack parity across frameworks.
         </p>
         <div className="summary-grid">
           <article className="summary-card">
@@ -87,6 +87,7 @@ export default function App() {
               <button
                 key={filter.key}
                 type="button"
+                data-filter={filter.key}
                 className={filter.key === filterKey ? "filter-chip is-active" : "filter-chip"}
                 onClick={() => setFilterKey(filter.key)}
               >
@@ -96,31 +97,33 @@ export default function App() {
           </div>
         </div>
 
-        <form className="composer" onSubmit={handleSubmit}>
+        <form className="composer" data-bench="composer" onSubmit={handleSubmit}>
           <label className="composer-field">
             <span className="sr-only">New task</span>
             <input
               type="text"
+              data-bench="new-task-input"
               name="todoText"
               value={draft}
               placeholder="Add a task for the benchmark run"
               onChange={(event) => setDraft(event.target.value)}
             />
           </label>
-          <button type="submit" className="primary-button">
+          <button type="submit" className="primary-button" data-action="add">
             Add task
           </button>
         </form>
 
-        <ul className="todo-list" aria-label="Todo items">
+        <ul className="todo-list" aria-label="Todo items" data-bench="todo-list">
           {visibleTodos.map((todo) => (
-            <li key={todo.id} className={todo.done ? "todo-item is-complete" : "todo-item"}>
+            <li key={todo.id} data-todo-id={todo.id} className={todo.done ? "todo-item is-complete" : "todo-item"}>
               {editingId === todo.id ? (
                 <>
                   <label className="todo-editor">
                     <span className="sr-only">Edit task</span>
                     <input
                       type="text"
+                      data-bench="edit-task-input"
                       name={`edit-${todo.id}`}
                       value={editingDraft}
                       onChange={(event) => setEditingDraft(event.target.value)}
@@ -128,10 +131,20 @@ export default function App() {
                     />
                   </label>
                   <div className="todo-actions">
-                    <button type="button" className="primary-button action-button" onClick={handleSaveEdit}>
+                    <button
+                      type="button"
+                      className="primary-button action-button"
+                      data-action="save"
+                      onClick={handleSaveEdit}
+                    >
                       Save
                     </button>
-                    <button type="button" className="ghost-button action-button" onClick={handleCancelEdit}>
+                    <button
+                      type="button"
+                      className="ghost-button action-button"
+                      data-action="cancel"
+                      onClick={handleCancelEdit}
+                    >
                       Cancel
                     </button>
                   </div>
@@ -141,18 +154,25 @@ export default function App() {
                   <label className="todo-main">
                     <input
                       type="checkbox"
+                      data-action="toggle"
                       checked={todo.done}
                       onChange={() => setTodos((current) => toggleTodo(current, todo.id))}
                     />
                     <span>{todo.text}</span>
                   </label>
                   <div className="todo-actions">
-                    <button type="button" className="ghost-button action-button" onClick={() => handleStartEdit(todo)}>
+                    <button
+                      type="button"
+                      className="ghost-button action-button"
+                      data-action="edit"
+                      onClick={() => handleStartEdit(todo)}
+                    >
                       Edit
                     </button>
                     <button
                       type="button"
                       className="ghost-button action-button"
+                      data-action="remove"
                       onClick={() => setTodos((current) => removeTodo(current, todo.id))}
                     >
                       Remove

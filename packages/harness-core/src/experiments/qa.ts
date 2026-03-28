@@ -11,7 +11,8 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, resolveExperimentRoot, round, summarizeTaskRuns } from "./common.js";
-import { renderExperimentDashboard } from "./report-html.js";
+import { screenshotDataUrl, selectQaBaselineRun, selectQaRepresentativeRun } from "./report-figures.js";
+import { renderPaperReport } from "./report-html.js";
 import { computeQaScore } from "./scoring.js";
 import type {
   CompareResult,
@@ -96,62 +97,112 @@ function buildReport(artifact: QaRunArtifact): QaReport {
 }
 
 function buildHtml(report: QaReport): string {
-  return renderExperimentDashboard({
-    title: `${report.appId} QA Benchmark`,
+  const orderedSummaries = [...report.modelSummaries].sort((left, right) => {
+    const leftRank = report.leaderboard.find((entry) => entry.modelId === left.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = report.leaderboard.find((entry) => entry.modelId === right.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+  const baselineRun = selectQaBaselineRun(report);
+  const topModel = report.leaderboard[0];
+
+  return renderPaperReport({
+    title: `${report.appId} Guided Mode Report`,
     subtitle: `Guided scenario execution across ${report.leaderboard.length} model(s).`,
-    scoreBars: report.leaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.score,
-      max: 100,
-      hint: `${(entry.capabilityPassRate * 100).toFixed(1)}% capability pass`
-    })),
-    secondaryCharts: [
+    abstract: topModel
+      ? `${topModel.modelId} ranked first in guided mode with a score of ${topModel.score.toFixed(3)}, combining ${(topModel.capabilityPassRate * 100).toFixed(1)}% capability pass and ${(topModel.fullScenarioCompletionRate * 100).toFixed(1)}% full-scenario completion.`
+      : "Guided mode summarizes prompt-following performance across the configured benchmark scenarios.",
+    meta: [
+      { label: "Run ID", value: report.runId },
+      { label: "App", value: report.appId },
+      { label: "Prompt", value: report.spec.promptId },
+      { label: "Trials", value: String(report.spec.trials) },
+      { label: "Models", value: String(report.leaderboard.length) },
+      { label: "Generated", value: report.generatedAt }
+    ],
+    sections: [
       {
-        title: "Capability Pass Rate",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.capabilityPassRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Full Scenario Completion",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.fullScenarioCompletionRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Average Latency",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.avgLatencyMs
-        })),
-        formatter: (value) => `${value.toFixed(0)} ms`
-      },
-      {
-        title: "Average Cost",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.avgCostUsd
-        })),
-        formatter: (value) => `$${value.toFixed(4)}`
+        title: "Experiment Setup",
+        body: [
+          "Guided mode evaluates prompt-following behavior on the benchmark task suite using repeated scenario execution against the local test application."
+        ],
+        facts: [
+          { label: "Capabilities", value: String(report.spec.capabilityIds.length) },
+          { label: "Tasks", value: String(report.spec.taskIds.length) },
+          { label: "Timeout", value: `${report.spec.runtime.timeoutMs} ms` },
+          { label: "Viewport", value: `${report.spec.runtime.viewport.width} × ${report.spec.runtime.viewport.height}` }
+        ]
       }
     ],
-    leaderboardHeaders: ["Rank", "Model", "Score", "Capability", "Scenario", "Stability", "Latency", "Cost"],
-    leaderboardRows: report.leaderboard.map((entry) => [
-      entry.rank,
-      entry.modelId,
-      entry.score.toFixed(3),
-      `${(entry.capabilityPassRate * 100).toFixed(1)}%`,
-      `${(entry.fullScenarioCompletionRate * 100).toFixed(1)}%`,
-      entry.stability.toFixed(3),
-      `${entry.avgLatencyMs.toFixed(0)} ms`,
-      `$${entry.avgCostUsd.toFixed(4)}`
-    ])
+    figure: {
+      title: "Unified Guided Figure",
+      caption: "Baseline application state plus one representative guided result per model.",
+      panels: [
+        {
+          label: "A",
+          title: "Test App Baseline",
+          subtitle: baselineRun?.taskId ?? "No baseline screenshot",
+          imageDataUrl: screenshotDataUrl(baselineRun?.screenshotBase64),
+          imageAlt: "Baseline benchmark application screenshot",
+          metrics: baselineRun
+            ? [
+                { label: "Source Task", value: baselineRun.taskId },
+                { label: "Outcome", value: baselineRun.success ? "Passed" : "Observed" }
+              ]
+            : [],
+          caption: baselineRun
+            ? "Baseline AUT state selected from the first available successful smoke validation."
+            : "No guided smoke screenshot was available in this run."
+        },
+        ...orderedSummaries.map((summary, index) => {
+          const representativeRun = selectQaRepresentativeRun(summary);
+          return {
+            label: String.fromCharCode(66 + index),
+            title: summary.model.id,
+            subtitle: representativeRun?.taskId ?? "No representative guided screenshot",
+            imageDataUrl: screenshotDataUrl(representativeRun?.screenshotBase64),
+            imageAlt: `${summary.model.id} guided result screenshot`,
+            metrics: [
+              { label: "Score", value: summary.metrics.score.toFixed(3) },
+              { label: "Capability Pass", value: `${(summary.metrics.capabilityPassRate * 100).toFixed(1)}%` },
+              { label: "Scenario Completion", value: `${(summary.metrics.fullScenarioCompletionRate * 100).toFixed(1)}%` },
+              { label: "Latency", value: `${summary.metrics.avgLatencyMs.toFixed(0)} ms` },
+              { label: "Cost", value: `$${summary.metrics.avgCostUsd.toFixed(4)}` }
+            ],
+            caption: representativeRun
+              ? `Representative guided result selected from ${representativeRun.taskId}.`
+              : "No successful guided screenshot was available for this model."
+          };
+        })
+      ]
+    },
+    tables: [
+      {
+        title: "Quantitative Results",
+        columns: ["Rank", "Model", "Score", "Capability", "Scenario", "Stability", "Latency", "Cost"],
+        rows: report.leaderboard.map((entry) => [
+          String(entry.rank),
+          entry.modelId,
+          entry.score.toFixed(3),
+          `${(entry.capabilityPassRate * 100).toFixed(1)}%`,
+          `${(entry.fullScenarioCompletionRate * 100).toFixed(1)}%`,
+          entry.stability.toFixed(3),
+          `${entry.avgLatencyMs.toFixed(0)} ms`,
+          `$${entry.avgCostUsd.toFixed(4)}`
+        ])
+      }
+    ],
+    appendix: orderedSummaries.map((summary) => ({
+      title: summary.model.id,
+      body: [
+        `Task pass rate was ${(summary.metrics.taskPassRate * 100).toFixed(1)}% across ${summary.metrics.executedTasks} executed tasks.`
+      ],
+      facts: [
+        { label: "Executed Tasks", value: String(summary.metrics.executedTasks) },
+        { label: "Skipped Tasks", value: String(summary.metrics.skippedTasks) },
+        { label: "Task Pass", value: `${(summary.metrics.taskPassRate * 100).toFixed(1)}%` },
+        { label: "Stability", value: summary.metrics.stability.toFixed(3) }
+      ]
+    }))
   });
 }
 
@@ -368,18 +419,49 @@ export async function compareQaRuns(runIds: string[], resultsDir = "results"): P
     }))
     .sort((left, right) => right.avgScore - left.avgScore);
 
-  const html = renderExperimentDashboard({
-    title: "QA Benchmark Comparison",
-    subtitle: `Aggregate comparison across ${reports.length} QA run(s).`,
-    scoreBars: aggregateLeaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.avgScore,
-      max: 100,
-      hint: `${entry.runs} run(s)`
-    })),
-    secondaryCharts: [],
-    leaderboardHeaders: ["Model", "Average Score", "Runs"],
-    leaderboardRows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), entry.runs])
+  const html = renderPaperReport({
+    title: "Guided Mode Comparison",
+    subtitle: `Aggregate comparison across ${reports.length} guided-mode run(s).`,
+    abstract:
+      aggregateLeaderboard[0]
+        ? `${aggregateLeaderboard[0].modelId} achieved the highest mean guided score across ${reports.length} run(s), with an average score of ${aggregateLeaderboard[0].avgScore.toFixed(3)}.`
+        : "Aggregate guided-mode comparison across benchmark runs.",
+    meta: [
+      { label: "Runs Compared", value: String(reports.length) },
+      { label: "Models Compared", value: String(aggregateLeaderboard.length) }
+    ],
+    sections: [
+      {
+        title: "Experiment Setup",
+        body: ["This aggregate page summarizes average guided-mode scores across previously generated run reports."]
+      }
+    ],
+    figure: {
+      title: "Aggregate Score Figure",
+      caption: "Average guided-mode score per model across the selected run set.",
+      panels: aggregateLeaderboard.map((entry, index) => ({
+        label: String.fromCharCode(65 + index),
+        title: entry.modelId,
+        metrics: [
+          { label: "Average Score", value: entry.avgScore.toFixed(3) },
+          { label: "Runs", value: String(entry.runs) }
+        ],
+        caption: "Scorecard summary for the aggregate comparison."
+      }))
+    },
+    tables: [
+      {
+        title: "Aggregate Results Table",
+        columns: ["Model", "Average Score", "Runs"],
+        rows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), String(entry.runs)])
+      }
+    ],
+    appendix: [
+      {
+        title: "Included Run IDs",
+        badges: reports.map((report) => report.runId)
+      }
+    ]
   });
 
   const htmlPath = join(reportsRoot, "reports", `compare-${Date.now()}.html`);

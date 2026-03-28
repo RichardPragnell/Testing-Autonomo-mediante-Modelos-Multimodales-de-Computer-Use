@@ -1,5 +1,5 @@
 export const initialTodos = [
-  { id: "todo-1", text: "Plan React todo benchmark", done: false },
+  { id: "todo-1", text: "Plan todo benchmark", done: false },
   { id: "todo-2", text: "Draft Stagehand checklist", done: false }
 ];
 

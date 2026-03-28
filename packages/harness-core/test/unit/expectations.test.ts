@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { evaluateExpectation } from "../../src/runner/expectations.js";
 
-function createMockPage(bodyText: string, url = "http://127.0.0.1:3101", title = "Todo React Bench") {
+function createMockPage(bodyText: string, url = "http://127.0.0.1:3101", title = "Todo Bench") {
   return {
     url: () => url,
     title: async () => title,
@@ -12,7 +12,7 @@ function createMockPage(bodyText: string, url = "http://127.0.0.1:3101", title =
 describe("evaluateExpectation", () => {
   it("passes when text_not_visible is absent", async () => {
     const result = await evaluateExpectation(
-      createMockPage("Todo React Bench\nPlan React todo benchmark"),
+      createMockPage("Todo Bench\nPlan todo benchmark"),
       {
         type: "text_not_visible",
         value: "Remove benchmark draft"
@@ -24,7 +24,7 @@ describe("evaluateExpectation", () => {
 
   it("fails when text_not_visible is still present", async () => {
     const result = await evaluateExpectation(
-      createMockPage("Todo React Bench\nRemove benchmark draft"),
+      createMockPage("Todo Bench\nRemove benchmark draft"),
       {
         type: "text_not_visible",
         value: "Remove benchmark draft"

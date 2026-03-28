@@ -362,8 +362,14 @@ describe("three experiment flows", () => {
     expect(result.report.kind).toBe("qa");
     expect(result.report.leaderboard).toHaveLength(2);
     await expect(access(result.htmlPath)).resolves.toBeUndefined();
+    const html = await readFile(result.htmlPath, "utf8");
+    expect(html).toContain("Abstract");
+    expect(html).toContain("Experiment Setup");
+    expect(html).toContain("Unified Guided Figure");
     const compare = await compareQaRuns([result.artifact.runId], dir);
     expect(compare.aggregateLeaderboard).toHaveLength(2);
+    const compareHtml = await readFile(compare.htmlPath, "utf8");
+    expect(compareHtml).toContain("Included Run IDs");
   });
 
   it("runs the exploration experiment and scores coverage", async () => {
@@ -382,6 +388,9 @@ describe("three experiment flows", () => {
     expect(result.report.leaderboard[0]?.capabilityDiscoveryRate).toBeGreaterThan(0);
     expect(result.report.leaderboard[0]?.actionDiversity).toBeGreaterThan(0);
     await expect(access(result.htmlPath)).resolves.toBeUndefined();
+    const html = await readFile(result.htmlPath, "utf8");
+    expect(html).toContain("Exploration Mode Report");
+    expect(html).toContain("Unified Exploration Figure");
   });
 
   it(
@@ -403,6 +412,10 @@ describe("three experiment flows", () => {
       expect(result.report.modelSummaries[0]?.caseResults.some((item) => item.patchGenerated)).toBe(true);
       expect(result.report.modelSummaries[0]?.caseResults.some((item) => item.fixed)).toBe(true);
       await expect(access(result.htmlPath)).resolves.toBeUndefined();
+      const html = await readFile(result.htmlPath, "utf8");
+      expect(html).toContain("Self-Heal Report");
+      expect(html).toContain("Unified Self-Heal Figure");
+      expect(html).toContain("Appendix");
     },
     60_000
   );

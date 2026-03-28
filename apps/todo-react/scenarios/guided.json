@@ -1,6 +1,6 @@
 {
   "scenarioId": "guided",
-  "title": "Todo React guided interactions",
+  "title": "Todo Bench guided interactions",
   "source": "generated",
   "tasks": [
     {
@@ -24,15 +24,15 @@
       "instruction": "Switch to the Active filter and verify the completed task Draft Stagehand checklist is no longer visible.",
       "expected": {
         "type": "text_visible",
-        "value": "Plan React todo benchmark"
+        "value": "Plan todo benchmark"
       }
     },
     {
       "id": "guided-edit-task",
-      "instruction": "Edit the existing task Plan React todo benchmark so it reads Plan React todo benchmark outline and verify the updated text is visible.",
+      "instruction": "Edit the existing task Plan todo benchmark so it reads Plan todo benchmark outline and verify the updated text is visible.",
       "expected": {
         "type": "text_visible",
-        "value": "Plan React todo benchmark outline"
+        "value": "Plan todo benchmark outline"
       }
     },
     {

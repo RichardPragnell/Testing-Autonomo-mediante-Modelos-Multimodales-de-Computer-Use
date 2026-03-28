@@ -7,7 +7,7 @@ test("beginTodoEdit seeds editing state from the selected todo", () => {
   const next = beginTodoEdit(initialTodos[0]);
 
   assert.equal(next.editingId, "todo-1");
-  assert.equal(next.draft, "Plan React todo benchmark");
+  assert.equal(next.draft, "Plan todo benchmark");
 });
 
 test("cancelTodoEdit clears the editing state", () => {
@@ -18,9 +18,9 @@ test("cancelTodoEdit clears the editing state", () => {
 });
 
 test("commitTodoEdit saves the text and clears editing state", () => {
-  const next = commitTodoEdit(initialTodos, "todo-1", "Plan React todo benchmark outline");
+  const next = commitTodoEdit(initialTodos, "todo-1", "Plan todo benchmark outline");
 
-  assert.equal(next.todos[0]?.text, "Plan React todo benchmark outline");
+  assert.equal(next.todos[0]?.text, "Plan todo benchmark outline");
   assert.equal(next.editingId, null);
   assert.equal(next.draft, "");
 });

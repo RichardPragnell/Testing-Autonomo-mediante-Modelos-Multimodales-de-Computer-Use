@@ -1,14 +1,14 @@
 {
   "scenarioId": "smoke",
-  "title": "Todo React smoke flow",
+  "title": "Todo Bench smoke flow",
   "source": "synthetic",
   "tasks": [
     {
       "id": "smoke-home-title",
-      "instruction": "Open the app and verify the page title Todo React Bench is visible.",
+      "instruction": "Open the app and verify the page title Todo Bench is visible.",
       "expected": {
         "type": "text_visible",
-        "value": "Todo React Bench"
+        "value": "Todo Bench"
       }
     },
     {

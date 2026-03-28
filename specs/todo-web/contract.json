@@ -1,0 +1,385 @@
+{
+  "specId": "todo-web-v1",
+  "version": 1,
+  "displayName": "Todo Bench",
+  "purpose": "Canonical functional contract for benchmark todo apps implemented in multiple web frameworks.",
+  "implementationConstraints": [
+    "Serve as a single-page local web app with no backend dependency.",
+    "Keep state in memory only so every page reload resets to the same seeded todos.",
+    "Keep user-visible copy, seeded data, scenario task ids, and bug pack ids identical across framework ports.",
+    "Allow implementation-specific component structure and styling, but preserve the accessible labels, button text, and flows defined here."
+  ],
+  "ui": {
+    "documentTitle": "Todo Bench",
+    "pageHeading": "Todo Bench",
+    "heroEyebrow": "Benchmark Target",
+    "heroLead": "Small todo app for local web QA runs, prompt-guided exploration, and bug-pack parity across frameworks.",
+    "summaryCards": [
+      {
+        "label": "Remaining",
+        "template": "{remaining} tasks remaining"
+      },
+      {
+        "label": "Progress",
+        "template": "{completed} of {total} tasks done"
+      }
+    ],
+    "boardEyebrow": "Todo Flow",
+    "boardHeading": "Task board",
+    "filtersAriaLabel": "Todo filters",
+    "filters": [
+      {
+        "key": "all",
+        "label": "All"
+      },
+      {
+        "key": "active",
+        "label": "Active"
+      },
+      {
+        "key": "completed",
+        "label": "Completed"
+      }
+    ],
+    "newTaskLabel": "New task",
+    "newTaskPlaceholder": "Add a task for the benchmark run",
+    "newTaskButton": "Add task",
+    "editTaskLabel": "Edit task",
+    "itemActions": {
+      "edit": "Edit",
+      "remove": "Remove",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "listAriaLabel": "Todo items"
+  },
+  "seed": {
+    "entity": "todo",
+    "fields": ["id", "text", "done"],
+    "initialTodos": [
+      {
+        "id": "todo-1",
+        "text": "Plan todo benchmark",
+        "done": false
+      },
+      {
+        "id": "todo-2",
+        "text": "Draft Stagehand checklist",
+        "done": false
+      }
+    ]
+  },
+  "behavior": {
+    "summary": [
+      "Remaining count equals total todos minus completed todos.",
+      "Progress text follows the template '{completed} of {total} tasks done'.",
+      "Summary reflects the full todo list, not just the currently filtered subset."
+    ],
+    "addTask": [
+      "Submitting a non-empty draft trims surrounding whitespace, appends one new todo, and clears the composer input.",
+      "Submitting an empty or whitespace-only draft leaves the list unchanged."
+    ],
+    "toggleTask": [
+      "Toggling a todo inverts its done state.",
+      "Completion updates both summary cards and changes which filters include the item."
+    ],
+    "filtering": [
+      "All shows every todo.",
+      "Active shows only todos with done=false.",
+      "Completed shows only todos with done=true."
+    ],
+    "editTask": [
+      "Starting edit mode copies the selected todo text into the edit input.",
+      "Saving an edit trims surrounding whitespace and persists the updated text if the result is non-empty.",
+      "Cancelling an edit discards the draft and exits edit mode.",
+      "Pressing Enter while editing saves the draft.",
+      "Pressing Escape while editing cancels the draft."
+    ],
+    "removeTask": [
+      "Removing a todo deletes it from the in-memory list immediately."
+    ],
+    "nonFeatures": [
+      "No persistence across reloads.",
+      "No bulk actions, ordering, due dates, or remote data."
+    ]
+  },
+  "automationHooks": {
+    "requiredAttributes": [
+      {
+        "element": "app root",
+        "attribute": "data-bench",
+        "value": "todo-app"
+      },
+      {
+        "element": "composer form",
+        "attribute": "data-bench",
+        "value": "composer"
+      },
+      {
+        "element": "new task input",
+        "attribute": "data-bench",
+        "value": "new-task-input"
+      },
+      {
+        "element": "todo list",
+        "attribute": "data-bench",
+        "value": "todo-list"
+      },
+      {
+        "element": "filter buttons",
+        "attribute": "data-filter",
+        "valueSet": ["all", "active", "completed"]
+      },
+      {
+        "element": "todo rows",
+        "attribute": "data-todo-id",
+        "dynamic": true
+      },
+      {
+        "element": "action buttons and checkbox",
+        "attribute": "data-action",
+        "valueSet": ["add", "toggle", "edit", "remove", "save", "cancel"]
+      }
+    ]
+  },
+  "scenarios": {
+    "smoke": {
+      "scenarioId": "smoke",
+      "title": "Todo Bench smoke flow",
+      "source": "synthetic",
+      "tasks": [
+        {
+          "id": "smoke-home-title",
+          "instruction": "Open the app and verify the page title Todo Bench is visible.",
+          "expected": {
+            "type": "text_visible",
+            "value": "Todo Bench"
+          }
+        },
+        {
+          "id": "smoke-default-count",
+          "instruction": "Verify the summary shows 2 tasks remaining when the app first loads.",
+          "expected": {
+            "type": "text_visible",
+            "value": "2 tasks remaining"
+          }
+        }
+      ]
+    },
+    "guided": {
+      "scenarioId": "guided",
+      "title": "Todo Bench guided interactions",
+      "source": "generated",
+      "tasks": [
+        {
+          "id": "guided-add-task",
+          "instruction": "Add a new task called Review benchmark notes and verify it appears in the task list.",
+          "expected": {
+            "type": "text_visible",
+            "value": "Review benchmark notes"
+          }
+        },
+        {
+          "id": "guided-complete-task",
+          "instruction": "Mark the task Draft Stagehand checklist as completed and verify the summary shows 1 of 2 tasks done.",
+          "expected": {
+            "type": "text_visible",
+            "value": "1 of 2 tasks done"
+          }
+        },
+        {
+          "id": "guided-filter-active",
+          "instruction": "Switch to the Active filter and verify the completed task Draft Stagehand checklist is no longer visible.",
+          "expected": {
+            "type": "text_visible",
+            "value": "Plan todo benchmark"
+          }
+        },
+        {
+          "id": "guided-edit-task",
+          "instruction": "Edit the existing task Plan todo benchmark so it reads Plan todo benchmark outline and verify the updated text is visible.",
+          "expected": {
+            "type": "text_visible",
+            "value": "Plan todo benchmark outline"
+          }
+        },
+        {
+          "id": "guided-create-delete-task",
+          "instruction": "Create a new task called Remove benchmark draft, delete it, and verify it is no longer visible in the task list.",
+          "expected": {
+            "type": "text_not_visible",
+            "value": "Remove benchmark draft"
+          }
+        }
+      ]
+    }
+  },
+  "benchmark": {
+    "capabilities": [
+      {
+        "capabilityId": "smoke-load",
+        "title": "Load the application",
+        "taskIds": ["smoke-home-title", "smoke-default-count"]
+      },
+      {
+        "capabilityId": "add-task",
+        "title": "Add a new task",
+        "taskIds": ["guided-add-task"]
+      },
+      {
+        "capabilityId": "complete-task",
+        "title": "Complete an existing task",
+        "taskIds": ["guided-complete-task"]
+      },
+      {
+        "capabilityId": "filter-active",
+        "title": "Filter active tasks",
+        "taskIds": ["guided-filter-active"]
+      },
+      {
+        "capabilityId": "edit-task",
+        "title": "Edit an existing task",
+        "taskIds": ["guided-edit-task"]
+      },
+      {
+        "capabilityId": "create-delete-task",
+        "title": "Create and delete a task",
+        "taskIds": ["guided-create-delete-task"]
+      }
+    ],
+    "qa": {
+      "capabilityIds": [
+        "smoke-load",
+        "add-task",
+        "complete-task",
+        "filter-active",
+        "edit-task",
+        "create-delete-task"
+      ]
+    },
+    "explore": {
+      "capabilityIds": [
+        "smoke-load",
+        "add-task",
+        "complete-task",
+        "filter-active",
+        "edit-task",
+        "create-delete-task"
+      ],
+      "probeTaskIds": [
+        "smoke-home-title",
+        "smoke-default-count",
+        "guided-add-task",
+        "guided-complete-task",
+        "guided-filter-active",
+        "guided-edit-task",
+        "guided-create-delete-task"
+      ],
+      "heuristicTargets": {
+        "minStates": 4,
+        "minTransitions": 3,
+        "actionKinds": ["navigate", "add", "toggle", "filter", "edit", "delete"]
+      },
+      "canonicalStates": [
+        "Initial loaded board with the seeded todos visible.",
+        "A state where one todo is completed and the summary reflects progress.",
+        "A state where the Active filter is selected.",
+        "A state where one todo is in inline edit mode."
+      ]
+    },
+    "heal": {
+      "caseIds": [
+        "heal-new-task-label-lost",
+        "heal-toggle-completion-noop",
+        "heal-edit-task-save-noop"
+      ],
+      "cases": [
+        {
+          "caseId": "heal-new-task-label-lost",
+          "title": "Repair created task labels",
+          "bugId": "new-task-label-lost",
+          "reproductionTaskIds": ["guided-add-task"],
+          "regressionTaskIds": [
+            "smoke-home-title",
+            "smoke-default-count",
+            "guided-complete-task",
+            "guided-filter-active",
+            "guided-edit-task",
+            "guided-create-delete-task"
+          ],
+          "goldTouchedFiles": ["src/todo-store.js"]
+        },
+        {
+          "caseId": "heal-toggle-completion-noop",
+          "title": "Repair completion toggling",
+          "bugId": "toggle-completion-noop",
+          "reproductionTaskIds": ["guided-complete-task", "guided-filter-active"],
+          "regressionTaskIds": [
+            "smoke-home-title",
+            "smoke-default-count",
+            "guided-add-task",
+            "guided-edit-task",
+            "guided-create-delete-task"
+          ],
+          "goldTouchedFiles": ["src/todo-store.js"]
+        },
+        {
+          "caseId": "heal-edit-task-save-noop",
+          "title": "Repair task editing persistence",
+          "bugId": "edit-task-save-noop",
+          "reproductionTaskIds": ["guided-edit-task"],
+          "regressionTaskIds": [
+            "smoke-home-title",
+            "smoke-default-count",
+            "guided-add-task",
+            "guided-complete-task",
+            "guided-filter-active",
+            "guided-create-delete-task"
+          ],
+          "goldTouchedFiles": ["src/todo-store.js"]
+        }
+      ]
+    }
+  },
+  "bugPacks": [
+    {
+      "bugId": "new-task-label-lost",
+      "title": "Created todos lose the user-provided label",
+      "description": "New tasks are created with a fixed generic label instead of the text entered in the composer.",
+      "category": "assertion",
+      "severity": "medium",
+      "patchPath": "patch.diff",
+      "expectedFailureTaskIds": ["guided-add-task"],
+      "parityRules": [
+        "Break only task creation text persistence.",
+        "Allow the add flow to continue creating a new todo row so the failure stays observable at the assertion layer."
+      ]
+    },
+    {
+      "bugId": "toggle-completion-noop",
+      "title": "Completion toggle does not update todo state",
+      "description": "Clicking the checkbox leaves todo completion unchanged, so progress and active filtering remain incorrect.",
+      "category": "state",
+      "severity": "high",
+      "patchPath": "patch.diff",
+      "expectedFailureTaskIds": ["guided-complete-task", "guided-filter-active"],
+      "parityRules": [
+        "Break only the completion state transition.",
+        "Keep the checkbox/action visible so the runner can reproduce the failure through the normal UI."
+      ]
+    },
+    {
+      "bugId": "edit-task-save-noop",
+      "title": "Editing a todo does not persist the updated text",
+      "description": "Saving an edited task leaves the original label unchanged, so the updated text never appears in the list.",
+      "category": "state",
+      "severity": "medium",
+      "patchPath": "patch.diff",
+      "expectedFailureTaskIds": ["guided-edit-task"],
+      "parityRules": [
+        "Break only edit persistence after Save or Enter.",
+        "Keep edit mode, save controls, and non-edit flows operational."
+      ]
+    }
+  ]
+}

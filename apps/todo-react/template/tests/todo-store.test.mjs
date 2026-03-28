@@ -21,13 +21,13 @@ test("filterTodos returns only active items", () => {
   const active = filterTodos(toggled, "active");
 
   assert.equal(active.length, 1);
-  assert.equal(active[0]?.text, "Plan React todo benchmark");
+  assert.equal(active[0]?.text, "Plan todo benchmark");
 });
 
 test("updateTodoText persists trimmed edits", () => {
-  const updated = updateTodoText(initialTodos, "todo-1", "  Plan React todo benchmark outline  ");
+  const updated = updateTodoText(initialTodos, "todo-1", "  Plan todo benchmark outline  ");
 
-  assert.equal(updated[0]?.text, "Plan React todo benchmark outline");
+  assert.equal(updated[0]?.text, "Plan todo benchmark outline");
 });
 
 test("removeTodo removes the selected task", () => {

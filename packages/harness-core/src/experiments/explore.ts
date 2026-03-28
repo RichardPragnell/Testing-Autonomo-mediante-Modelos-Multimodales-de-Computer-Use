@@ -15,7 +15,13 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, resolveExperimentRoot, round, summarizeTaskRuns, unique } from "./common.js";
-import { renderExperimentDashboard } from "./report-html.js";
+import {
+  screenshotDataUrl,
+  selectExploreBaselineRun,
+  selectExploreBestTrial,
+  selectExploreRepresentativeProbeRun
+} from "./report-figures.js";
+import { renderPaperReport } from "./report-html.js";
 import { computeExploreScore } from "./scoring.js";
 import type {
   CompareResult,
@@ -134,64 +140,117 @@ function buildReport(artifact: ExploreRunArtifact): ExploreReport {
 }
 
 function buildHtml(report: ExploreReport): string {
-  return renderExperimentDashboard({
-    title: `${report.appId} Exploration Benchmark`,
+  const orderedSummaries = [...report.modelSummaries].sort((left, right) => {
+    const leftRank = report.leaderboard.find((entry) => entry.modelId === left.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = report.leaderboard.find((entry) => entry.modelId === right.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+  const baselineRun = selectExploreBaselineRun(report);
+  const topModel = report.leaderboard[0];
+
+  return renderPaperReport({
+    title: `${report.appId} Exploration Mode Report`,
     subtitle: `Autonomous exploration coverage across ${report.leaderboard.length} model(s).`,
-    scoreBars: report.leaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.score,
-      max: 100,
-      hint: `${(entry.capabilityDiscoveryRate * 100).toFixed(1)}% capability discovery`
-    })),
-    secondaryCharts: [
+    abstract: topModel
+      ? `${topModel.modelId} ranked first in exploration mode with a score of ${topModel.score.toFixed(3)}, discovering ${(topModel.capabilityDiscoveryRate * 100).toFixed(1)}% of benchmark capabilities with ${(topModel.actionDiversity * 100).toFixed(1)}% action diversity.`
+      : "Exploration mode summarizes autonomous capability discovery and probe replay coverage.",
+    meta: [
+      { label: "Run ID", value: report.runId },
+      { label: "App", value: report.appId },
+      { label: "Prompt", value: report.spec.promptId },
+      { label: "Trials", value: String(report.spec.trials) },
+      { label: "Models", value: String(report.leaderboard.length) },
+      { label: "Generated", value: report.generatedAt }
+    ],
+    sections: [
       {
-        title: "Capability Discovery",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.capabilityDiscoveryRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Probe Replay",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.probeReplayPassRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "State Coverage",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.stateCoverage * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Action Diversity",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.actionDiversity * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
+        title: "Experiment Setup",
+        body: [
+          "Exploration mode measures whether models discover useful application affordances before being asked to replay benchmark probes."
+        ],
+        facts: [
+          { label: "Capabilities", value: String(report.spec.capabilityIds.length) },
+          { label: "Probe Tasks", value: String(report.spec.probeTaskIds.length) },
+          { label: "Min States", value: String(report.spec.heuristicTargets.minStates) },
+          { label: "Min Transitions", value: String(report.spec.heuristicTargets.minTransitions) }
+        ]
       }
     ],
-    leaderboardHeaders: ["Rank", "Model", "Score", "Discovery", "Probe Replay", "States", "Transitions", "Actions"],
-    leaderboardRows: report.leaderboard.map((entry) => [
-      entry.rank,
-      entry.modelId,
-      entry.score.toFixed(3),
-      `${(entry.capabilityDiscoveryRate * 100).toFixed(1)}%`,
-      `${(entry.probeReplayPassRate * 100).toFixed(1)}%`,
-      `${(entry.stateCoverage * 100).toFixed(1)}%`,
-      `${(entry.transitionCoverage * 100).toFixed(1)}%`,
-      `${(entry.actionDiversity * 100).toFixed(1)}%`
-    ])
+    figure: {
+      title: "Unified Exploration Figure",
+      caption: "Baseline application state plus one representative exploration-result panel per model.",
+      panels: [
+        {
+          label: "A",
+          title: "Test App Baseline",
+          subtitle: baselineRun?.taskId ?? "No baseline probe screenshot",
+          imageDataUrl: screenshotDataUrl(baselineRun?.screenshotBase64),
+          imageAlt: "Baseline exploration application screenshot",
+          metrics: baselineRun
+            ? [
+                { label: "Source Task", value: baselineRun.taskId },
+                { label: "Outcome", value: baselineRun.success ? "Passed" : "Observed" }
+              ]
+            : [],
+          caption: baselineRun
+            ? "Baseline AUT state selected from the first available successful smoke probe."
+            : "No exploration smoke screenshot was available in this run."
+        },
+        ...orderedSummaries.map((summary, index) => {
+          const bestTrial = selectExploreBestTrial(summary);
+          const representativeProbe = selectExploreRepresentativeProbeRun(summary);
+          return {
+            label: String.fromCharCode(66 + index),
+            title: summary.model.id,
+            subtitle: representativeProbe?.taskId ?? "No representative exploration screenshot",
+            imageDataUrl: screenshotDataUrl(representativeProbe?.taskRun.screenshotBase64),
+            imageAlt: `${summary.model.id} exploration result screenshot`,
+            metrics: [
+              { label: "Score", value: summary.metrics.score.toFixed(3) },
+              { label: "Discovery", value: `${(summary.metrics.capabilityDiscoveryRate * 100).toFixed(1)}%` },
+              { label: "Probe Replay", value: `${(summary.metrics.probeReplayPassRate * 100).toFixed(1)}%` },
+              { label: "States", value: String(bestTrial?.statesDiscovered ?? 0) },
+              { label: "Transitions", value: String(bestTrial?.transitionsDiscovered ?? 0) },
+              { label: "Action Diversity", value: `${(summary.metrics.actionDiversity * 100).toFixed(1)}%` }
+            ],
+            caption: representativeProbe
+              ? `Representative exploration panel chosen from trial ${bestTrial?.trial ?? representativeProbe.trial}, probe ${representativeProbe.taskId}.`
+              : "No successful probe screenshot was available for this model."
+          };
+        })
+      ]
+    },
+    tables: [
+      {
+        title: "Quantitative Results",
+        columns: ["Rank", "Model", "Score", "Discovery", "Probe Replay", "States", "Transitions", "Actions"],
+        rows: report.leaderboard.map((entry) => [
+          String(entry.rank),
+          entry.modelId,
+          entry.score.toFixed(3),
+          `${(entry.capabilityDiscoveryRate * 100).toFixed(1)}%`,
+          `${(entry.probeReplayPassRate * 100).toFixed(1)}%`,
+          `${(entry.stateCoverage * 100).toFixed(1)}%`,
+          `${(entry.transitionCoverage * 100).toFixed(1)}%`,
+          `${(entry.actionDiversity * 100).toFixed(1)}%`
+        ])
+      }
+    ],
+    appendix: orderedSummaries.map((summary) => {
+      const bestTrial = selectExploreBestTrial(summary);
+      return {
+        title: summary.model.id,
+        body: [
+          `Best exploration trial discovered ${bestTrial?.statesDiscovered ?? 0} states and ${bestTrial?.transitionsDiscovered ?? 0} transitions.`
+        ],
+        facts: [
+          { label: "Best Trial", value: String(bestTrial?.trial ?? 0) },
+          { label: "Actions Cached", value: String(bestTrial?.actionsCached ?? 0) },
+          { label: "Action Kinds", value: (bestTrial?.actionKinds ?? []).join(", ") || "none" },
+          { label: "Average Latency", value: `${summary.metrics.avgLatencyMs.toFixed(0)} ms` }
+        ]
+      };
+    })
   });
 }
 
@@ -479,18 +538,49 @@ export async function compareExploreRuns(runIds: string[], resultsDir = "results
     }))
     .sort((left, right) => right.avgScore - left.avgScore);
 
-  const html = renderExperimentDashboard({
-    title: "Exploration Benchmark Comparison",
-    subtitle: `Aggregate comparison across ${reports.length} exploration run(s).`,
-    scoreBars: aggregateLeaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.avgScore,
-      max: 100,
-      hint: `${entry.runs} run(s)`
-    })),
-    secondaryCharts: [],
-    leaderboardHeaders: ["Model", "Average Score", "Runs"],
-    leaderboardRows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), entry.runs])
+  const html = renderPaperReport({
+    title: "Exploration Mode Comparison",
+    subtitle: `Aggregate comparison across ${reports.length} exploration-mode run(s).`,
+    abstract:
+      aggregateLeaderboard[0]
+        ? `${aggregateLeaderboard[0].modelId} achieved the highest mean exploration score across ${reports.length} run(s), with an average score of ${aggregateLeaderboard[0].avgScore.toFixed(3)}.`
+        : "Aggregate exploration-mode comparison across benchmark runs.",
+    meta: [
+      { label: "Runs Compared", value: String(reports.length) },
+      { label: "Models Compared", value: String(aggregateLeaderboard.length) }
+    ],
+    sections: [
+      {
+        title: "Experiment Setup",
+        body: ["This aggregate page summarizes average exploration-mode scores across previously generated run reports."]
+      }
+    ],
+    figure: {
+      title: "Aggregate Score Figure",
+      caption: "Average exploration-mode score per model across the selected run set.",
+      panels: aggregateLeaderboard.map((entry, index) => ({
+        label: String.fromCharCode(65 + index),
+        title: entry.modelId,
+        metrics: [
+          { label: "Average Score", value: entry.avgScore.toFixed(3) },
+          { label: "Runs", value: String(entry.runs) }
+        ],
+        caption: "Scorecard summary for the aggregate comparison."
+      }))
+    },
+    tables: [
+      {
+        title: "Aggregate Results Table",
+        columns: ["Model", "Average Score", "Runs"],
+        rows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), String(entry.runs)])
+      }
+    ],
+    appendix: [
+      {
+        title: "Included Run IDs",
+        badges: reports.map((report) => report.runId)
+      }
+    ]
   });
 
   const htmlPath = join(reportsRoot, "reports", `compare-${Date.now()}.html`);

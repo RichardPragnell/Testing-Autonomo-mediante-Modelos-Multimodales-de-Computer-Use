@@ -48,9 +48,9 @@ This gives you the clean app template from `apps/todo-react/template`, with no b
 
 ## 4. Benchmark Manifest
 
-Each app now has one source-of-truth benchmark manifest at `apps/<app>/benchmark.json`.
+The canonical benchmark behavior now lives at `specs/todo-web/contract.json`.
 
-For `todo-react`, that manifest defines:
+For `todo-react`, `apps/todo-react/benchmark.json` binds that contract into the harness and defines:
 
 - guided QA capabilities and task ids
 - exploration coverage targets and heuristic thresholds

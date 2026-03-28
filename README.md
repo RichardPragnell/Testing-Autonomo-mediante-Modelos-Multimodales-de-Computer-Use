@@ -14,7 +14,7 @@ The repository is organized around four concepts:
 - `experiments/`: model registry, prompts, and benchmark definitions
 - `results/`: generated workspaces, JSON reports, HTML dashboards, and sample fixtures
 
-The current benchmark target is `apps/todo-react`. Its source of truth is `apps/todo-react/benchmark.json`, which defines the guided QA capabilities, exploration rubric, and heal cases in one place.
+The current reference implementation is `apps/todo-react`. The framework-agnostic source of truth is `specs/todo-web/contract.json`; each app-level `benchmark.json` remains the harness binding for one implementation.
 
 ## Quick Start
 

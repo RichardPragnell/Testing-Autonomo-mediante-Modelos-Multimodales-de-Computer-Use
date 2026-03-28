@@ -15,7 +15,8 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, readCandidateFileSnippets, resolveExperimentRoot, round } from "./common.js";
-import { renderExperimentDashboard } from "./report-html.js";
+import { buildHealModelScorecard, screenshotDataUrl, selectHealBaselineRun } from "./report-figures.js";
+import { renderPaperReport } from "./report-html.js";
 import { computeHealScore } from "./scoring.js";
 import type {
   CompareResult,
@@ -105,65 +106,121 @@ function buildReport(artifact: HealRunArtifact): HealReport {
 }
 
 function buildHtml(report: HealReport): string {
-  return renderExperimentDashboard({
-    title: `${report.appId} Self-Heal Benchmark`,
+  const orderedSummaries = [...report.modelSummaries].sort((left, right) => {
+    const leftRank = report.leaderboard.find((entry) => entry.modelId === left.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    const rightRank = report.leaderboard.find((entry) => entry.modelId === right.model.id)?.rank ?? Number.MAX_SAFE_INTEGER;
+    return leftRank - rightRank;
+  });
+  const baselineRun = selectHealBaselineRun(report);
+  const topModel = report.leaderboard[0];
+
+  return renderPaperReport({
+    title: `${report.appId} Self-Heal Report`,
     subtitle: `Repair quality across ${report.leaderboard.length} model(s).`,
-    scoreBars: report.leaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.score,
-      max: 100,
-      hint: `${(entry.fixRate * 100).toFixed(1)}% full fix rate`
-    })),
-    secondaryCharts: [
+    abstract: topModel
+      ? `${topModel.modelId} ranked first in self-heal mode with a score of ${topModel.score.toFixed(3)}, achieving ${(topModel.fixRate * 100).toFixed(1)}% fix rate and ${(topModel.validationPassRate * 100).toFixed(1)}% validation pass rate.`
+      : "Self-heal mode summarizes diagnosis, patching, and validation quality across seeded bug cases.",
+    meta: [
+      { label: "Run ID", value: report.runId },
+      { label: "App", value: report.appId },
+      { label: "Prompt", value: report.spec.promptId },
+      { label: "Trials", value: String(report.spec.trials) },
+      { label: "Models", value: String(report.leaderboard.length) },
+      { label: "Generated", value: report.generatedAt }
+    ],
+    sections: [
       {
-        title: "Fix Rate",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.fixRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Localization Accuracy",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.localizationAccuracy * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Validation Pass Rate",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.validationPassRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
-      },
-      {
-        title: "Regression-Free Rate",
-        items: report.leaderboard.map((entry) => ({
-          label: entry.modelId,
-          value: entry.regressionFreeRate * 100,
-          max: 100
-        })),
-        formatter: (value) => `${value.toFixed(1)}%`
+        title: "Experiment Setup",
+        body: [
+          "Self-heal mode measures diagnosis, patch generation, patch application, and regression-safe validation across the seeded benchmark bugs."
+        ],
+        facts: [
+          { label: "Cases", value: String(report.spec.caseIds.length) },
+          { label: "Timeout", value: `${report.spec.runtime.timeoutMs} ms` },
+          { label: "Viewport", value: `${report.spec.runtime.viewport.width} × ${report.spec.runtime.viewport.height}` },
+          { label: "Retry Count", value: String(report.spec.runtime.retryCount) }
+        ]
       }
     ],
-    leaderboardHeaders: ["Rank", "Model", "Score", "Fix", "Localize", "Validate", "Regression", "Latency", "Cost"],
-    leaderboardRows: report.leaderboard.map((entry) => [
-      entry.rank,
-      entry.modelId,
-      entry.score.toFixed(3),
-      `${(entry.fixRate * 100).toFixed(1)}%`,
-      `${(entry.localizationAccuracy * 100).toFixed(1)}%`,
-      `${(entry.validationPassRate * 100).toFixed(1)}%`,
-      `${(entry.regressionFreeRate * 100).toFixed(1)}%`,
-      `${entry.avgLatencyMs.toFixed(0)} ms`,
-      `$${entry.avgCostUsd.toFixed(4)}`
-    ])
+    figure: {
+      title: "Unified Self-Heal Figure",
+      caption: "Baseline application state plus one heal summary scorecard per model.",
+      panels: [
+        {
+          label: "A",
+          title: "Test App Baseline",
+          subtitle: baselineRun?.taskId ?? "No baseline reproduction screenshot",
+          imageDataUrl: screenshotDataUrl(baselineRun?.screenshotBase64),
+          imageAlt: "Baseline self-heal application screenshot",
+          metrics: baselineRun
+            ? [
+                { label: "Source Task", value: baselineRun.taskId },
+                { label: "Outcome", value: baselineRun.success ? "Passed" : "Observed" }
+              ]
+            : [],
+          caption: baselineRun
+            ? "Baseline application state selected from the first available reproduction or smoke screenshot."
+            : "No self-heal reproduction screenshot was available in this run."
+        },
+        ...orderedSummaries.map((summary, index) => {
+          const scorecard = buildHealModelScorecard(summary);
+          return {
+            label: String.fromCharCode(66 + index),
+            title: summary.model.id,
+            subtitle: "Model repair summary",
+            metrics: [
+              { label: "Score", value: summary.metrics.score.toFixed(3) },
+              { label: "Fix Rate", value: `${(summary.metrics.fixRate * 100).toFixed(1)}%` },
+              { label: "Localization", value: `${(summary.metrics.localizationAccuracy * 100).toFixed(1)}%` },
+              { label: "Validation", value: `${(summary.metrics.validationPassRate * 100).toFixed(1)}%` },
+              { label: "Regression-Free", value: `${(summary.metrics.regressionFreeRate * 100).toFixed(1)}%` },
+              { label: "Latency", value: `${summary.metrics.avgLatencyMs.toFixed(0)} ms` },
+              { label: "Cost", value: `$${summary.metrics.avgCostUsd.toFixed(4)}` }
+            ],
+            badges: [...scorecard.badges, ...scorecard.caseBadges],
+            caption: "Overall repair scorecard with compact per-case status badges."
+          };
+        })
+      ]
+    },
+    tables: [
+      {
+        title: "Quantitative Results",
+        columns: ["Rank", "Model", "Score", "Fix", "Localize", "Validate", "Regression", "Latency", "Cost"],
+        rows: report.leaderboard.map((entry) => [
+          String(entry.rank),
+          entry.modelId,
+          entry.score.toFixed(3),
+          `${(entry.fixRate * 100).toFixed(1)}%`,
+          `${(entry.localizationAccuracy * 100).toFixed(1)}%`,
+          `${(entry.validationPassRate * 100).toFixed(1)}%`,
+          `${(entry.regressionFreeRate * 100).toFixed(1)}%`,
+          `${entry.avgLatencyMs.toFixed(0)} ms`,
+          `$${entry.avgCostUsd.toFixed(4)}`
+        ])
+      }
+    ],
+    appendix: orderedSummaries.flatMap((summary) =>
+      summary.caseResults.map((caseResult) => ({
+        title: `${summary.model.id} · ${caseResult.title}`,
+        body: [
+          caseResult.diagnosis?.summary ?? caseResult.note,
+          `Patch ${caseResult.patchApplied ? "applied" : "did not apply"} and validation ${caseResult.validationPassed ? "passed" : "failed"}.`
+        ],
+        facts: [
+          { label: "Trial", value: String(caseResult.trial) },
+          { label: "Fix Rate", value: `${(caseResult.failingTaskFixRate * 100).toFixed(1)}%` },
+          { label: "Regression-Free", value: `${(caseResult.regressionFreeRate * 100).toFixed(1)}%` },
+          { label: "Localization", value: caseResult.localizationScore.toFixed(3) }
+        ],
+        badges: [
+          caseResult.patchGenerated ? "Patch generated" : "No patch",
+          caseResult.patchApplied ? "Patch applied" : "Patch not applied",
+          caseResult.validationPassed ? "Validation passed" : "Validation failed",
+          caseResult.fixed ? "Case fixed" : "Case not fixed"
+        ]
+      }))
+    )
   });
 }
 
@@ -587,18 +644,49 @@ export async function compareHealRuns(runIds: string[], resultsDir = "results"):
     }))
     .sort((left, right) => right.avgScore - left.avgScore);
 
-  const html = renderExperimentDashboard({
-    title: "Self-Heal Benchmark Comparison",
+  const html = renderPaperReport({
+    title: "Self-Heal Comparison",
     subtitle: `Aggregate comparison across ${reports.length} self-heal run(s).`,
-    scoreBars: aggregateLeaderboard.map((entry) => ({
-      label: entry.modelId,
-      value: entry.avgScore,
-      max: 100,
-      hint: `${entry.runs} run(s)`
-    })),
-    secondaryCharts: [],
-    leaderboardHeaders: ["Model", "Average Score", "Runs"],
-    leaderboardRows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), entry.runs])
+    abstract:
+      aggregateLeaderboard[0]
+        ? `${aggregateLeaderboard[0].modelId} achieved the highest mean self-heal score across ${reports.length} run(s), with an average score of ${aggregateLeaderboard[0].avgScore.toFixed(3)}.`
+        : "Aggregate self-heal comparison across benchmark runs.",
+    meta: [
+      { label: "Runs Compared", value: String(reports.length) },
+      { label: "Models Compared", value: String(aggregateLeaderboard.length) }
+    ],
+    sections: [
+      {
+        title: "Experiment Setup",
+        body: ["This aggregate page summarizes average self-heal scores across previously generated run reports."]
+      }
+    ],
+    figure: {
+      title: "Aggregate Score Figure",
+      caption: "Average self-heal score per model across the selected run set.",
+      panels: aggregateLeaderboard.map((entry, index) => ({
+        label: String.fromCharCode(65 + index),
+        title: entry.modelId,
+        metrics: [
+          { label: "Average Score", value: entry.avgScore.toFixed(3) },
+          { label: "Runs", value: String(entry.runs) }
+        ],
+        caption: "Scorecard summary for the aggregate comparison."
+      }))
+    },
+    tables: [
+      {
+        title: "Aggregate Results Table",
+        columns: ["Model", "Average Score", "Runs"],
+        rows: aggregateLeaderboard.map((entry) => [entry.modelId, entry.avgScore.toFixed(3), String(entry.runs)])
+      }
+    ],
+    appendix: [
+      {
+        title: "Included Run IDs",
+        badges: reports.map((report) => report.runId)
+      }
+    ]
   });
 
   const htmlPath = join(reportsRoot, "reports", `compare-${Date.now()}.html`);

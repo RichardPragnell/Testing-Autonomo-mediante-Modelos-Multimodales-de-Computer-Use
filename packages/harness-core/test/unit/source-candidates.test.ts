@@ -121,7 +121,7 @@ describe("buildSourceCandidates", () => {
         latencyMs: 1000,
         costUsd: 0,
         urlAfter: "http://127.0.0.1:3101",
-        domSnapshot: "<html><body><span>Plan React todo benchmark</span></body></html>",
+        domSnapshot: "<html><body><span>Plan todo benchmark</span></body></html>",
         trace: [
           {
             timestamp: "2026-03-08T00:00:00.000Z",
@@ -129,10 +129,10 @@ describe("buildSourceCandidates", () => {
             details: { instruction: task!.instruction }
           }
         ],
-        error: "expected Plan React todo benchmark outline"
+        error: "expected Plan todo benchmark outline"
       },
       category: "state",
-      message: "expected Plan React todo benchmark outline"
+      message: "expected Plan todo benchmark outline"
     });
 
     expect(candidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
