@@ -36,7 +36,6 @@ export interface PlanEvent {
 export interface ModelConfig {
   id: string;
   provider: string;
-  envKey: string;
   enabled: boolean;
 }
 
@@ -48,6 +47,66 @@ export interface ModelAvailability extends ModelConfig {
 export interface ModelRegistry {
   defaultModel: string;
   models: ModelConfig[];
+}
+
+export type AiCostSource = "exact" | "estimated" | "unavailable";
+
+export type AiLookupStatus =
+  | "resolved"
+  | "missing_generation_id"
+  | "lookup_failed"
+  | "estimated"
+  | "not_requested";
+
+export type AiUsagePhase =
+  | "guided_task"
+  | "exploration"
+  | "probe_replay"
+  | "reproduction"
+  | "repair"
+  | "post_patch_replay";
+
+export type AiOperation =
+  | "act"
+  | "observe"
+  | "extract"
+  | "metadata"
+  | "agent"
+  | "unknown";
+
+export interface AiUsageRecord {
+  phase: AiUsagePhase;
+  operation: AiOperation;
+  requestedModelId: string;
+  requestedProvider: string;
+  servedModelId?: string;
+  servedProvider?: string;
+  generationId?: string;
+  lookupStatus: AiLookupStatus;
+  costSource: AiCostSource;
+  costUsd?: number;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+  totalTokens: number;
+  timestamp: string;
+  error?: string;
+}
+
+export interface AiUsageSummary {
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cachedInputTokens: number;
+  totalTokens: number;
+  costUsd?: number;
+  resolvedCostUsd?: number;
+  costSource: AiCostSource;
+  callCount?: number;
+  unavailableCalls?: number;
 }
 
 export type TaskExpectationType = "contains" | "url_contains" | "text_visible" | "text_not_visible";
@@ -345,6 +404,8 @@ export interface ExplorationArtifact {
   observeCache: ObserveCacheEntry[];
   actionCache: ActionCacheEntry[];
   cacheSummary?: CacheUsageSummary;
+  usageSummary?: AiUsageSummary;
+  aiCalls?: AiUsageRecord[];
   trace: OperationTrace[];
   summary: ExplorationSummary;
 }
@@ -357,6 +418,8 @@ export interface TaskRunResult {
   message: string;
   latencyMs: number;
   costUsd: number;
+  usageSummary?: AiUsageSummary;
+  aiCalls?: AiUsageRecord[];
   urlAfter?: string;
   screenshotBase64?: string;
   domSnapshot?: string;
@@ -405,6 +468,7 @@ export interface RunTaskInput {
   aut: AutConfig;
   runConfig: StagehandRunConfig;
   cacheConfig: ExecutionCacheConfig;
+  usagePhase?: AiUsagePhase;
   systemPrompt?: string;
   // Deprecated: prompt-time cache hints have been replaced by cache-first execution telemetry.
   cacheHints?: ActionCacheEntry[];

@@ -132,7 +132,6 @@
       "model": {
         "id": "google/gemini-2.5-flash",
         "provider": "google",
-        "envKey": "GEMINI_API_KEY",
         "enabled": true,
         "available": true
       },
@@ -1062,7 +1061,6 @@
       "model": {
         "id": "google/gemini-2.5-pro",
         "provider": "google",
-        "envKey": "GEMINI_API_KEY",
         "enabled": true,
         "available": true
       },
@@ -2392,10 +2390,9 @@
       "model": {
         "id": "openai/gpt-4o",
         "provider": "openai",
-        "envKey": "OPENAI_API_KEY",
         "enabled": true,
         "available": false,
-        "reason": "missing required env key OPENAI_API_KEY"
+        "reason": "missing required env key AI_GATEWAY_API_KEY"
       },
       "metrics": {
         "modelId": "openai/gpt-4o",
@@ -2414,10 +2411,9 @@
       "model": {
         "id": "openai/gpt-4o-mini",
         "provider": "openai",
-        "envKey": "OPENAI_API_KEY",
         "enabled": true,
         "available": false,
-        "reason": "missing required env key OPENAI_API_KEY"
+        "reason": "missing required env key AI_GATEWAY_API_KEY"
       },
       "metrics": {
         "modelId": "openai/gpt-4o-mini",
@@ -2436,10 +2432,9 @@
       "model": {
         "id": "anthropic/claude-3-7-sonnet-latest",
         "provider": "anthropic",
-        "envKey": "ANTHROPIC_API_KEY",
         "enabled": true,
         "available": false,
-        "reason": "missing required env key ANTHROPIC_API_KEY"
+        "reason": "missing required env key AI_GATEWAY_API_KEY"
       },
       "metrics": {
         "modelId": "anthropic/claude-3-7-sonnet-latest",
@@ -2458,10 +2453,9 @@
       "model": {
         "id": "anthropic/claude-3-5-haiku-latest",
         "provider": "anthropic",
-        "envKey": "ANTHROPIC_API_KEY",
         "enabled": true,
         "available": false,
-        "reason": "missing required env key ANTHROPIC_API_KEY"
+        "reason": "missing required env key AI_GATEWAY_API_KEY"
       },
       "metrics": {
         "modelId": "anthropic/claude-3-5-haiku-latest",
@@ -2478,3 +2472,4 @@
     }
   ]
 }
+

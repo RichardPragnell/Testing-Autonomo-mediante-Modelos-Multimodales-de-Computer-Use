@@ -16,6 +16,21 @@ The repository is organized around four concepts:
 
 The current reference implementation is `apps/todo-react`. The framework-agnostic source of truth is `specs/todo-web/contract.json`; each app-level `benchmark.json` remains the harness binding for one implementation.
 
+## Exact Cost Tracking
+
+Benchmark runs now support exact AI cost accounting through Vercel AI Gateway.
+
+- Set `AI_GATEWAY_API_KEY` to route guided, exploration, and self-heal model calls through Gateway while keeping the existing model ids from `experiments/models/registry.yaml`
+- `AI_GATEWAY_BASE_URL` is optional and defaults to Vercel's hosted Gateway endpoint
+- Gateway is now the only supported real-model path for benchmark execution
+- If a Gateway generation lookup fails, the run marks cost as unavailable instead of silently pretending it is exact
+
+Generated reports now include a dedicated cost graph plus an audit table for each experiment family:
+
+- Guided QA: per-model exact cost bar chart plus per-task cost rows
+- Autonomous exploration: stacked per-model chart split into exploration and probe replay cost
+- Self-heal: stacked per-model chart split into reproduction, repair, and post-patch replay cost
+
 ## Quick Start
 
 ```bash
@@ -59,8 +74,10 @@ The CLI now stays intentionally narrow: it only starts runs. Inspect the generat
 
 - Local configuration template: `.env.example`
 - The CLI and benchmark app server auto-load `.env` from the repository root when present
+- Exact cost tracking and model access both require `AI_GATEWAY_API_KEY`
 - Guided QA stays scenario-driven: each task is a high-level user intent plus an explicit expected outcome
 - Autonomous exploration records discovered states, transitions, and reusable actions before scoring coverage
 - Self-heal benchmarks diagnose seeded bugs, propose patches, validate them in an isolated worktree, and record repair outcomes
 - Generated outputs are written under `results/qa`, `results/explore`, and `results/heal`
 - JSON summaries live under `results/<experiment>/reports` and full run artifacts live under `results/<experiment>/runs`
+- Report JSON now persists the rendered cost graph data, and run artifacts include normalized `usageSummary` / `aiCalls` records for exact-cost auditability

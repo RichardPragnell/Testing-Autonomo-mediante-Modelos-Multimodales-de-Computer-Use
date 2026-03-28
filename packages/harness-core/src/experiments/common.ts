@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { sumAiUsageSummaries } from "../ai/usage.js";
 import type { ResolvedBenchmarkSuite, TaskRunResult } from "../types.js";
-import type { AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
+import type { AiUsagePhase, AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
 import { summarizeTaskRunCache } from "../cache/summary.js";
 import { loadPromptText } from "../config/prompt.js";
@@ -160,6 +161,7 @@ export async function executeGuidedTasks(input: {
   includeFindings?: boolean;
   includeBugHints?: boolean;
   taskIds?: string[];
+  usagePhase?: AiUsagePhase;
 }): Promise<{
   taskRuns: TaskRunResult[];
   findings: Finding[];
@@ -195,6 +197,7 @@ export async function executeGuidedTasks(input: {
         viewport: input.resolvedSuite.suite.viewport
       },
       cacheConfig,
+      usagePhase: input.usagePhase,
       systemPrompt: input.systemPrompt,
     });
     taskRuns.push(result);
@@ -247,15 +250,18 @@ export function summarizeTaskRuns(taskRuns: TaskRunResult[]): {
   avgLatencyMs: number;
   avgCostUsd: number;
   stability: number;
+  usageSummary: ReturnType<typeof sumAiUsageSummaries>;
   cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
 } {
   const successes = taskRuns.filter((run) => run.success).length;
   const taskPassRate = taskRuns.length ? successes / taskRuns.length : 0;
+  const usageSummary = sumAiUsageSummaries(taskRuns.map((run) => run.usageSummary));
   return {
     taskPassRate: round(taskPassRate),
     avgLatencyMs: round(avg(taskRuns.map((run) => run.latencyMs)), 3),
-    avgCostUsd: round(avg(taskRuns.map((run) => run.costUsd))),
+    avgCostUsd: round(avg(taskRuns.map((run) => run.usageSummary?.costUsd ?? run.costUsd))),
     stability: computeBinaryStability(groupTaskOutcomesByTask(taskRuns)),
+    usageSummary,
     cacheSummary: summarizeTaskRunCache(taskRuns)
   };
 }

@@ -2,7 +2,7 @@ import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compareQaRuns, runExploreExperiment, runHealExperiment, runQaExperiment } from "../../src/index.js";
 import { MockAutomationRunner } from "../../src/runner/mock-runner.js";
 import { MockRepairModelClient } from "../../src/self-heal/model-client.js";
@@ -10,6 +10,11 @@ import { nowIso } from "../../src/utils/time.js";
 import type { AutomationRunner, ExplorationArtifact, RunTaskInput, TaskRunResult } from "../../src/types.js";
 
 const tempDirs: string[] = [];
+const originalGatewayKey = process.env.AI_GATEWAY_API_KEY;
+
+beforeEach(() => {
+  process.env.AI_GATEWAY_API_KEY = "test-ai-gateway-key";
+});
 
 afterEach(async () => {
   while (tempDirs.length) {
@@ -17,6 +22,12 @@ afterEach(async () => {
     if (dir) {
       await removeDirWithRetries(dir);
     }
+  }
+
+  if (originalGatewayKey === undefined) {
+    delete process.env.AI_GATEWAY_API_KEY;
+  } else {
+    process.env.AI_GATEWAY_API_KEY = originalGatewayKey;
   }
 });
 
@@ -50,6 +61,19 @@ class RichExploreRunner implements AutomationRunner {
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
     const success = input.task.id.startsWith("smoke") || input.cacheConfig.namespace.length > 0;
     const cacheStatus = input.trial > 1 ? "hit" : "miss";
+    const usageSummary = {
+      latencyMs: 120,
+      inputTokens: 300,
+      outputTokens: 90,
+      reasoningTokens: 0,
+      cachedInputTokens: cacheStatus === "hit" ? 40 : 0,
+      totalTokens: 390,
+      costUsd: 0.003,
+      resolvedCostUsd: 0.003,
+      costSource: "exact" as const,
+      callCount: 1,
+      unavailableCalls: 0
+    };
     return {
       taskId: input.task.id,
       trial: input.trial,
@@ -58,6 +82,28 @@ class RichExploreRunner implements AutomationRunner {
       message: success ? "probe replay succeeded" : "probe replay failed",
       latencyMs: 120,
       costUsd: 0.003,
+      usageSummary,
+      aiCalls: [
+        {
+          phase: input.usagePhase ?? "probe_replay",
+          operation: "agent",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `rich-probe-${input.task.id}-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: 0.003,
+          latencyMs: 120,
+          inputTokens: 300,
+          outputTokens: 90,
+          reasoningTokens: 0,
+          cachedInputTokens: usageSummary.cachedInputTokens,
+          totalTokens: 390,
+          timestamp: nowIso()
+        }
+      ],
       urlAfter: input.aut.url,
       trace: [
         {
@@ -266,6 +312,59 @@ class RichExploreRunner implements AutomationRunner {
         warnings: [],
         modes: ["observe_manual"]
       },
+      usageSummary: {
+        latencyMs: 880,
+        inputTokens: 1250,
+        outputTokens: 330,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 1580,
+        costUsd: 0.011,
+        resolvedCostUsd: 0.011,
+        costSource: "exact",
+        callCount: 2,
+        unavailableCalls: 0
+      },
+      aiCalls: [
+        {
+          phase: "exploration",
+          operation: "observe",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `rich-explore-observe-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: 0.006,
+          latencyMs: 440,
+          inputTokens: 700,
+          outputTokens: 170,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 870,
+          timestamp: nowIso()
+        },
+        {
+          phase: "exploration",
+          operation: "act",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `rich-explore-act-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: 0.005,
+          latencyMs: 440,
+          inputTokens: 550,
+          outputTokens: 160,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 710,
+          timestamp: nowIso()
+        }
+      ],
       trace: [
         {
           timestamp: nowIso(),
@@ -311,6 +410,20 @@ class BugAwareRunner implements AutomationRunner {
             ? !editBroken
             : true;
 
+    const usageSummary = {
+      latencyMs: 90,
+      inputTokens: 240,
+      outputTokens: 75,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      totalTokens: 315,
+      costUsd: 0.002,
+      resolvedCostUsd: 0.002,
+      costSource: "exact" as const,
+      callCount: 1,
+      unavailableCalls: 0
+    };
+
     return {
       taskId: input.task.id,
       trial: input.trial,
@@ -319,6 +432,28 @@ class BugAwareRunner implements AutomationRunner {
       message: success ? "task passed" : "task failed",
       latencyMs: 90,
       costUsd: 0.002,
+      usageSummary,
+      aiCalls: [
+        {
+          phase: input.usagePhase ?? "guided_task",
+          operation: "agent",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `bug-aware-${input.task.id}-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: 0.002,
+          latencyMs: 90,
+          inputTokens: 240,
+          outputTokens: 75,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 315,
+          timestamp: nowIso()
+        }
+      ],
       urlAfter: input.aut.url,
       domSnapshot: success ? "<html><body><h1>ok</h1></body></html>" : "<html><body><h1>Mismatch</h1></body></html>",
       trace: [

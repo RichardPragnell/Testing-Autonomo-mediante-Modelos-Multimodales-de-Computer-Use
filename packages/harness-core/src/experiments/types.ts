@@ -1,4 +1,7 @@
 import type {
+  AiCostSource,
+  AiUsageRecord,
+  AiUsageSummary,
   BenchmarkTask,
   CacheUsageSummary,
   Finding,
@@ -119,12 +122,29 @@ export interface HealExperimentSpec {
   resultsDir: string;
 }
 
-export interface RepairUsage {
-  latencyMs: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  costUsd: number;
+export type RepairUsage = AiUsageSummary;
+
+export interface CostGraphSeries {
+  key: string;
+  label: string;
+  color: string;
+}
+
+export interface CostGraphDatum {
+  modelId: string;
+  provider: string;
+  values: Record<string, number>;
+  totalUsd?: number;
+  costSource: AiCostSource;
+  note?: string;
+}
+
+export interface CostGraph {
+  title: string;
+  caption: string;
+  stacked: boolean;
+  series: CostGraphSeries[];
+  data: CostGraphDatum[];
 }
 
 export interface RepairDiagnosis {
@@ -200,6 +220,7 @@ export interface QaReport {
   spec: QaExperimentSpec;
   leaderboard: QaLeaderboardEntry[];
   modelSummaries: QaModelSummary[];
+  costGraph: CostGraph;
 }
 
 export interface ExploreCapabilityDiscovery {
@@ -226,6 +247,9 @@ export interface ExploreTrialArtifact {
   actionsCached: number;
   actionKinds: string[];
   cacheSummary?: CacheUsageSummary;
+  explorationUsage?: AiUsageSummary;
+  probeUsage?: AiUsageSummary;
+  totalUsage?: AiUsageSummary;
   capabilityDiscovery: ExploreCapabilityDiscovery[];
   probeRuns: ExploreProbeRun[];
 }
@@ -281,6 +305,7 @@ export interface ExploreReport {
   spec: ExploreExperimentSpec;
   leaderboard: ExploreLeaderboardEntry[];
   modelSummaries: ExploreModelSummary[];
+  costGraph: CostGraph;
 }
 
 export interface HealCaseTrialResult {
@@ -301,6 +326,9 @@ export interface HealCaseTrialResult {
   localizationScore: number;
   fixed: boolean;
   repairUsage: RepairUsage;
+  reproductionUsage?: AiUsageSummary;
+  postPatchUsage?: AiUsageSummary;
+  totalUsage?: AiUsageSummary;
   patchPath?: string;
   note: string;
   postPatchReproductionRuns: TaskRunResult[];
@@ -360,6 +388,7 @@ export interface HealReport {
   spec: HealExperimentSpec;
   leaderboard: HealLeaderboardEntry[];
   modelSummaries: HealModelSummary[];
+  costGraph: CostGraph;
 }
 
 export interface ExperimentRunPaths {

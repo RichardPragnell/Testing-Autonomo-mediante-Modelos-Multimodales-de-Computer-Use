@@ -1,5 +1,8 @@
+import { generateText } from "ai";
+import { buildGatewayUsageRecord, createGatewayLanguageModel, isGatewayCostTrackingEnabled } from "../ai/gateway.js";
+import { summarizeAiUsage } from "../ai/usage.js";
 import type { ModelAvailability } from "../types.js";
-import type { RepairModelResult, RepairPromptContext } from "../experiments/types.js";
+import type { RepairModelResult, RepairPromptContext, RepairUsage } from "../experiments/types.js";
 
 export interface RepairModelClient {
   repair(input: {
@@ -7,17 +10,6 @@ export interface RepairModelClient {
     systemPrompt: string;
     context: RepairPromptContext;
   }): Promise<RepairModelResult>;
-}
-
-interface ProviderResponse {
-  text: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-}
-
-function estimateCostUsd(totalTokens: number): number {
-  return Number((totalTokens * 0.000001).toFixed(6));
 }
 
 function extractJsonBlock(raw: string): string | undefined {
@@ -47,7 +39,7 @@ function extractPatch(raw: string): string | undefined {
   return hasMarkers ? `${candidate}\n` : undefined;
 }
 
-function parseRepairResult(raw: string, latencyMs: number, usage?: Partial<ProviderResponse>): RepairModelResult {
+function parseRepairResult(raw: string, usage: RepairUsage): RepairModelResult {
   const jsonCandidate = extractJsonBlock(raw);
   let diagnosisSummary = "No diagnosis summary returned.";
   let suspectedFiles: string[] = [];
@@ -75,10 +67,6 @@ function parseRepairResult(raw: string, latencyMs: number, usage?: Partial<Provi
     }
   }
 
-  const inputTokens = usage?.inputTokens ?? 0;
-  const outputTokens = usage?.outputTokens ?? 0;
-  const totalTokens = usage?.totalTokens ?? inputTokens + outputTokens;
-
   return {
     diagnosis: {
       summary: diagnosisSummary,
@@ -86,13 +74,7 @@ function parseRepairResult(raw: string, latencyMs: number, usage?: Partial<Provi
       notes
     },
     patch,
-    usage: {
-      latencyMs,
-      inputTokens,
-      outputTokens,
-      totalTokens,
-      costUsd: estimateCostUsd(totalTokens)
-    },
+    usage,
     rawResponse: raw
   };
 }
@@ -153,119 +135,77 @@ Candidate files:
 ${files || "(none)"}`;
 }
 
-async function readJsonResponse(response: Response): Promise<any> {
-  const raw = await response.text();
-  try {
-    return JSON.parse(raw);
-  } catch {
-    throw new Error(`provider returned non-JSON response: ${raw.slice(0, 400)}`);
-  }
-}
-
-async function runOpenAiLike(modelName: string, apiKey: string, systemPrompt: string, prompt: string): Promise<ProviderResponse> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: modelName,
-      temperature: 0.1,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt }
-      ]
-    })
-  });
-
-  const json = await readJsonResponse(response);
-  if (!response.ok) {
-    throw new Error(json.error?.message ?? `OpenAI request failed with status ${response.status}`);
-  }
+function buildEstimatedRepairUsage(latencyMs: number, usage: {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cachedInputTokens?: number;
+  totalTokens?: number;
+}): RepairUsage {
+  const inputTokens = usage.inputTokens ?? 0;
+  const outputTokens = usage.outputTokens ?? 0;
+  const reasoningTokens = usage.reasoningTokens ?? 0;
+  const cachedInputTokens = usage.cachedInputTokens ?? 0;
+  const totalTokens = usage.totalTokens ?? inputTokens + outputTokens + reasoningTokens;
+  const costUsd = Number((totalTokens * 0.000001).toFixed(6));
 
   return {
-    text: String(json.choices?.[0]?.message?.content ?? ""),
-    inputTokens: Number(json.usage?.prompt_tokens ?? 0),
-    outputTokens: Number(json.usage?.completion_tokens ?? 0),
-    totalTokens: Number(json.usage?.total_tokens ?? 0)
+    latencyMs,
+    inputTokens,
+    outputTokens,
+    reasoningTokens,
+    cachedInputTokens,
+    totalTokens,
+    costUsd,
+    resolvedCostUsd: costUsd,
+    costSource: "estimated",
+    callCount: totalTokens > 0 ? 1 : 0,
+    unavailableCalls: 0
   };
 }
 
-async function runAnthropic(modelName: string, apiKey: string, systemPrompt: string, prompt: string): Promise<ProviderResponse> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model: modelName,
-      max_tokens: 4096,
-      temperature: 0.1,
-      system: systemPrompt,
-      messages: [{ role: "user", content: prompt }]
-    })
-  });
-
-  const json = await readJsonResponse(response);
-  if (!response.ok) {
-    throw new Error(json.error?.message ?? `Anthropic request failed with status ${response.status}`);
+async function runGatewayRepairModel(input: {
+  model: ModelAvailability;
+  systemPrompt: string;
+  prompt: string;
+}): Promise<{ text: string; usage: RepairUsage }> {
+  if (!isGatewayCostTrackingEnabled()) {
+    throw new Error("AI_GATEWAY_API_KEY is required for repair model execution");
   }
 
-  const text = Array.isArray(json.content)
-    ? json.content.map((item: { text?: string }) => item.text ?? "").join("\n")
-    : "";
-
-  return {
-    text,
-    inputTokens: Number(json.usage?.input_tokens ?? 0),
-    outputTokens: Number(json.usage?.output_tokens ?? 0),
-    totalTokens: Number((json.usage?.input_tokens ?? 0) + (json.usage?.output_tokens ?? 0))
-  };
-}
-
-async function runGoogle(modelName: string, apiKey: string, systemPrompt: string, prompt: string): Promise<ProviderResponse> {
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelName)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: systemPrompt }]
-      },
-      contents: [
-        {
-          role: "user",
-          parts: [{ text: prompt }]
-        }
-      ],
-      generationConfig: {
-        temperature: 0.1
-      }
-    })
+  const startedAt = Date.now();
+  const result = await generateText({
+    model: createGatewayLanguageModel(input.model.id),
+    temperature: 0.1,
+    system: input.systemPrompt,
+    prompt: input.prompt
   });
 
-  const json = await readJsonResponse(response);
-  if (!response.ok) {
-    throw new Error(json.error?.message ?? `Google request failed with status ${response.status}`);
-  }
-
-  const text = Array.isArray(json.candidates)
-    ? json.candidates
-        .flatMap((candidate: { content?: { parts?: Array<{ text?: string }> } }) => candidate.content?.parts ?? [])
-        .map((part: { text?: string }) => part.text ?? "")
-        .join("\n")
-    : "";
+  const record = await buildGatewayUsageRecord({
+    result,
+    requestedModelId: input.model.id,
+    requestedProvider: input.model.provider,
+    phase: "repair",
+    operation: "agent",
+    startedAt
+  });
+  const usage = summarizeAiUsage([record]);
 
   return {
-    text,
-    inputTokens: Number(json.usageMetadata?.promptTokenCount ?? 0),
-    outputTokens: Number(json.usageMetadata?.candidatesTokenCount ?? 0),
-    totalTokens: Number(json.usageMetadata?.totalTokenCount ?? 0)
+    text: result.text,
+    usage: {
+      latencyMs: usage.latencyMs,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      reasoningTokens: usage.reasoningTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      totalTokens: usage.totalTokens,
+      costUsd: usage.costUsd,
+      resolvedCostUsd: usage.resolvedCostUsd,
+      costSource: usage.costSource,
+      callCount: usage.callCount,
+      unavailableCalls: usage.unavailableCalls
+    }
   };
 }
 
@@ -275,27 +215,13 @@ export class ProviderRepairModelClient implements RepairModelClient {
     systemPrompt: string;
     context: RepairPromptContext;
   }): Promise<RepairModelResult> {
-    const startedAt = Date.now();
     const prompt = formatRepairPrompt(input.context);
-    const apiKey = process.env[input.model.envKey];
-    if (!apiKey) {
-      throw new Error(`missing required env key ${input.model.envKey}`);
-    }
-
-    const [, modelName = input.model.id] = input.model.id.split("/", 2);
-    let providerResponse: ProviderResponse;
-
-    if (input.model.provider === "openai") {
-      providerResponse = await runOpenAiLike(modelName, apiKey, input.systemPrompt, prompt);
-    } else if (input.model.provider === "anthropic") {
-      providerResponse = await runAnthropic(modelName, apiKey, input.systemPrompt, prompt);
-    } else if (input.model.provider === "google") {
-      providerResponse = await runGoogle(modelName, apiKey, input.systemPrompt, prompt);
-    } else {
-      throw new Error(`unsupported repair model provider ${input.model.provider}`);
-    }
-
-    return parseRepairResult(providerResponse.text, Date.now() - startedAt, providerResponse);
+    const gatewayResponse = await runGatewayRepairModel({
+      model: input.model,
+      systemPrompt: input.systemPrompt,
+      prompt
+    });
+    return parseRepairResult(gatewayResponse.text, gatewayResponse.usage);
   }
 }
 
@@ -381,10 +307,10 @@ export class MockRepairModelClient implements RepairModelClient {
       null,
       2
     );
-    return parseRepairResult(rawResponse, Date.now() - startedAt, {
+    return parseRepairResult(rawResponse, buildEstimatedRepairUsage(Date.now() - startedAt, {
       inputTokens: 120,
       outputTokens: 240,
       totalTokens: 360
-    });
+    }));
   }
 }

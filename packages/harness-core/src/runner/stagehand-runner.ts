@@ -1,4 +1,6 @@
 import { summarizeCacheTelemetry } from "../cache/summary.js";
+import { isGatewayCostTrackingEnabled } from "../ai/gateway.js";
+import { emptyAiUsageSummary, summarizeAiUsage, sumAiUsageSummaries } from "../ai/usage.js";
 import { buildActionCacheEntries, markExecutedActions } from "../exploration/action-cache.js";
 import {
   findObserveCacheEntry,
@@ -11,6 +13,9 @@ import { CoverageGraph, fingerprintState } from "../graph/state-graph.js";
 import { evaluateExpectation } from "./expectations.js";
 import type {
   ActionCacheEntry,
+  AiUsagePhase,
+  AiUsageRecord,
+  AiUsageSummary,
   AutomationRunner,
   CacheMode,
   CacheStatus,
@@ -24,6 +29,7 @@ import type {
   TaskRunResult
 } from "../types.js";
 import { nowIso } from "../utils/time.js";
+import { StagehandGatewayTrackingClient } from "./stagehand-gateway-client.js";
 
 type StagehandExecutionResult = {
   metadata?: Record<string, unknown>;
@@ -35,16 +41,6 @@ type StagehandLogLine = {
   level?: number;
   timestamp?: string;
 };
-
-function estimateCostUsd(metrics: any): number {
-  if (!metrics) {
-    return 0;
-  }
-  const promptTokens = Number(metrics.totalPromptTokens ?? 0);
-  const completionTokens = Number(metrics.totalCompletionTokens ?? 0);
-  const totalTokens = promptTokens + completionTokens;
-  return Number((totalTokens * 0.000001).toFixed(6));
-}
 
 function estimateAiInvocation(metrics: any): boolean {
   if (!metrics) {
@@ -150,26 +146,77 @@ function createStagehandLogCollector(target: StagehandLogLine[]) {
   };
 }
 
+function buildUsageSummaryFromMetrics(input: {
+  metrics: any;
+}): AiUsageSummary {
+  const promptTokens = Number(input.metrics?.totalPromptTokens ?? 0);
+  const completionTokens = Number(input.metrics?.totalCompletionTokens ?? 0);
+  const reasoningTokens = Number(input.metrics?.totalReasoningTokens ?? 0);
+  const cachedInputTokens = Number(input.metrics?.totalCachedInputTokens ?? 0);
+  const totalTokens = promptTokens + completionTokens + reasoningTokens;
+
+  if (totalTokens === 0) {
+    return emptyAiUsageSummary("exact");
+  }
+
+  return {
+    latencyMs: Number(input.metrics?.totalInferenceTimeMs ?? 0),
+    inputTokens: promptTokens,
+    outputTokens: completionTokens,
+    reasoningTokens,
+    cachedInputTokens,
+    totalTokens,
+    costUsd: undefined,
+    resolvedCostUsd: 0,
+    costSource: "unavailable",
+    callCount: totalTokens > 0 ? 1 : 0,
+    unavailableCalls: totalTokens > 0 ? 1 : 0
+  };
+}
+
+function buildAttemptUsageSummary(input: {
+  aiCalls: AiUsageRecord[];
+  metrics: any;
+}): AiUsageSummary {
+  if (input.aiCalls.length > 0) {
+    return summarizeAiUsage(input.aiCalls);
+  }
+
+  if (!input.metrics) {
+    return emptyAiUsageSummary("exact");
+  }
+
+  return buildUsageSummaryFromMetrics({
+    metrics: input.metrics
+  });
+}
+
 function buildStagehandConfig(
   stagehandEnv: string,
   input: {
     model: RunTaskInput["model"];
     runConfig: RunTaskInput["runConfig"];
     cacheConfig: RunTaskInput["cacheConfig"];
+    usagePhase: AiUsagePhase;
+    usageSink: AiUsageRecord[];
     logger?: (line: any) => void;
   }
 ): any {
-  const apiKey = process.env[input.model.envKey];
+  if (!isGatewayCostTrackingEnabled()) {
+    throw new Error("AI_GATEWAY_API_KEY is required for Stagehand benchmark execution");
+  }
+
   const config: any = {
     env: stagehandEnv as any,
-    model: apiKey
-      ? {
-          modelName: input.model.id,
-          apiKey
-        }
-      : input.model.id,
+    model: input.model.id,
     cacheDir: input.cacheConfig.cacheDir,
-    selfHeal: true
+    selfHeal: true,
+    llmClient: new StagehandGatewayTrackingClient({
+      modelId: input.model.id,
+      provider: input.model.provider,
+      phase: input.usagePhase,
+      usageSink: input.usageSink
+    })
   };
 
   if (input.logger) {
@@ -400,10 +447,14 @@ export class StagehandAutomationRunner implements AutomationRunner {
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
     const started = Date.now();
     const trace: TaskRunResult["trace"] = [];
+    const usagePhase = input.usagePhase ?? "guided_task";
+    const allAiCalls: AiUsageRecord[] = [];
+    const usageSummaries: AiUsageSummary[] = [];
     let stagehand: any | undefined;
 
     for (let attempt = 0; attempt <= input.runConfig.retryCount; attempt += 1) {
       const stagehandLogs: StagehandLogLine[] = [];
+      const attemptAiCalls: AiUsageRecord[] = [];
       let history: StagehandHistoryEntry[] = [];
       try {
         const { Stagehand } = await import("@browserbasehq/stagehand");
@@ -412,6 +463,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
             model: input.model,
             runConfig: input.runConfig,
             cacheConfig: input.cacheConfig,
+            usagePhase,
+            usageSink: attemptAiCalls,
             logger: createStagehandLogCollector(stagehandLogs)
           })
         );
@@ -499,6 +552,13 @@ export class StagehandAutomationRunner implements AutomationRunner {
 
         appendCacheTrace(trace, cache);
         appendHistoryTrace(trace, history);
+        const attemptUsageSummary = buildAttemptUsageSummary({
+          aiCalls: attemptAiCalls,
+          metrics
+        });
+        allAiCalls.push(...attemptAiCalls);
+        usageSummaries.push(attemptUsageSummary);
+        const usageSummary = sumAiUsageSummaries(usageSummaries);
 
         await stagehand.close?.();
         return {
@@ -508,7 +568,9 @@ export class StagehandAutomationRunner implements AutomationRunner {
           success: assertion.success,
           message: assertion.message,
           latencyMs: Date.now() - started,
-          costUsd: estimateCostUsd(metrics),
+          costUsd: usageSummary.costUsd ?? 0,
+          usageSummary,
+          aiCalls: [...allAiCalls],
           urlAfter: assertion.urlAfter ?? pageSnapshot.url,
           screenshotBase64: pageSnapshot.screenshotBase64,
           domSnapshot: pageSnapshot.domSnapshot,
@@ -528,6 +590,12 @@ export class StagehandAutomationRunner implements AutomationRunner {
           logs: stagehandLogs
         });
         appendCacheTrace(trace, cache);
+        const attemptUsageSummary = buildAttemptUsageSummary({
+          aiCalls: attemptAiCalls,
+          metrics
+        });
+        allAiCalls.push(...attemptAiCalls);
+        usageSummaries.push(attemptUsageSummary);
 
         trace.push({
           timestamp: nowIso(),
@@ -539,6 +607,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
         });
         await stagehand?.close?.();
         if (attempt >= input.runConfig.retryCount) {
+          const usageSummary = sumAiUsageSummaries(usageSummaries);
           return {
             taskId: input.task.id,
             trial: input.trial,
@@ -546,7 +615,9 @@ export class StagehandAutomationRunner implements AutomationRunner {
             success: false,
             message: "task execution failed after retries",
             latencyMs: Date.now() - started,
-            costUsd: estimateCostUsd(metrics),
+            costUsd: usageSummary.costUsd ?? 0,
+            usageSummary,
+            aiCalls: [...allAiCalls],
             trace,
             historyEntries: history,
             cache,
@@ -565,6 +636,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
       message: "unexpected execution state",
       latencyMs: Date.now() - started,
       costUsd: 0,
+      usageSummary: sumAiUsageSummaries(usageSummaries),
+      aiCalls: [...allAiCalls],
       trace,
       cache: buildGuidedCacheTelemetry({
         cacheConfig: input.cacheConfig,
@@ -592,6 +665,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
     const pages = new Map<string, ExplorationArtifact["pages"][number]>();
     const executedActionIds = new Set<string>();
     const cacheEvents: CacheTelemetry[] = [];
+    const aiCalls: AiUsageRecord[] = [];
     let actionCache: ActionCacheEntry[] = [];
     let observeCache: ObserveCacheEntry[] = [];
     let stagehand: any | undefined;
@@ -605,7 +679,9 @@ export class StagehandAutomationRunner implements AutomationRunner {
         buildStagehandConfig(this.stagehandEnv, {
           model: input.model,
           runConfig: input.runConfig,
-          cacheConfig: input.cacheConfig
+          cacheConfig: input.cacheConfig,
+          usagePhase: "exploration",
+          usageSink: aiCalls
         })
       );
       await stagehand.init();
@@ -868,8 +944,13 @@ export class StagehandAutomationRunner implements AutomationRunner {
       }
 
       const history = await readStagehandHistory(stagehand);
+      const metrics = await readStagehandMetrics(stagehand);
       appendHistoryTrace(trace, history);
       const finishedAt = nowIso();
+      const usageSummary = buildAttemptUsageSummary({
+        aiCalls,
+        metrics
+      });
 
       await stagehand.close?.();
       return {
@@ -893,6 +974,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
         observeCache,
         actionCache,
         cacheSummary: summarizeCacheTelemetry(cacheEvents),
+        usageSummary,
+        aiCalls: [...aiCalls],
         trace,
         summary: {
           statesDiscovered: pages.size,
@@ -908,8 +991,13 @@ export class StagehandAutomationRunner implements AutomationRunner {
         action: "explore.error",
         details: { message: error instanceof Error ? error.message : String(error) }
       });
+      const metrics = await readStagehandMetrics(stagehand);
       await stagehand?.close?.();
       const finishedAt = nowIso();
+      const usageSummary = buildAttemptUsageSummary({
+        aiCalls,
+        metrics
+      });
       return {
         explorationRunId,
         targetId: input.targetId,
@@ -931,6 +1019,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
         observeCache,
         actionCache: [],
         cacheSummary: summarizeCacheTelemetry(cacheEvents),
+        usageSummary,
+        aiCalls: [...aiCalls],
         trace,
         summary: {
           statesDiscovered: 0,

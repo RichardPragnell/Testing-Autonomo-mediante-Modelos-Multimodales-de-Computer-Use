@@ -12,14 +12,12 @@ Use the docs this way:
 ## Runtime mode
 - `packages/harness-core/src/runner/stagehand-runner.ts` uses `env: "LOCAL"`.
 - Benchmark apps are started from the cloned workspace using the selected target manifest from `apps/<targetId>/target.json`.
-- Model access still comes from provider APIs such as OpenAI, Anthropic, or Google.
+- Model access goes through Vercel AI Gateway while preserving registry model ids such as `google/...`, `openai/...`, and `anthropic/...`.
 
-## Required model provider variables
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `GEMINI_API_KEY`
+## Required model variables
+- `AI_GATEWAY_API_KEY`
 
-Only the variables needed by the models enabled in `experiments/models/registry.yaml` must be present.
+`AI_GATEWAY_BASE_URL` is optional if you need a non-default Gateway endpoint.
 The repo auto-loads these values from a root `.env` file when present. Start from `.env.example`.
 
 ## Optional local browser variables

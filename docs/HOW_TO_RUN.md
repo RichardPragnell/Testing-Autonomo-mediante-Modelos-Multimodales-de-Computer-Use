@@ -6,10 +6,7 @@ This document is the operational runbook for the repository: install it, start t
 
 - Node.js 22 or newer
 - `pnpm` via `npx pnpm@9.12.3`
-- At least one model provider API key for real runs:
-  - `OPENAI_API_KEY`
-  - `ANTHROPIC_API_KEY`
-  - `GEMINI_API_KEY`
+- `AI_GATEWAY_API_KEY` for real benchmark runs
 
 Important:
 - Stagehand runs locally in this repo. The browser is local and the AUT is local.
@@ -135,7 +132,7 @@ Use those output paths directly. The CLI no longer provides separate `report` or
 
 Minimal practical loop:
 
-1. Export one provider API key.
+1. Export `AI_GATEWAY_API_KEY`.
 2. Run `bench qa todo-react`.
 3. Run `bench explore todo-react`.
 4. Run `bench heal todo-react`.
@@ -145,7 +142,7 @@ Minimal practical loop:
 ## 11. Troubleshooting
 
 If a run starts but does not execute model calls:
-- verify that at least one enabled model has its required API key set
+- verify that `AI_GATEWAY_API_KEY` is set
 
 If the AUT does not start:
 - verify that port `3101` is free

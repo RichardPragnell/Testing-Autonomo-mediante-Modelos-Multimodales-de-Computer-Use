@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { formatUsageCost, sumAiUsageSummaries } from "../ai/usage.js";
 import type { AutomationRunner, ModelAvailability, OperationTrace, TaskRunResult } from "../types.js";
 import { summarizeTaskRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
@@ -15,11 +16,13 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, readCandidateFileSnippets, resolveExperimentRoot, round } from "./common.js";
+import { renderCostGraphSvg } from "./cost-graph.js";
 import { buildHealModelScorecard, screenshotDataUrl, selectHealBaselineRun } from "./report-figures.js";
 import { renderPaperReport } from "./report-html.js";
 import { computeHealScore } from "./scoring.js";
 import type {
   CompareResult,
+  CostGraph,
   HealCaseTrialResult,
   HealExperimentSpec,
   HealLeaderboardEntry,
@@ -93,6 +96,37 @@ function buildLeaderboard(modelSummaries: HealModelSummary[]): HealLeaderboardEn
     }));
 }
 
+function buildHealCostGraph(modelSummaries: HealModelSummary[]): CostGraph {
+  return {
+    title: "Self-Heal Cost Breakdown",
+    caption: "Total self-heal benchmark cost per model, split across reproduction, repair, and post-patch replay.",
+    stacked: true,
+    series: [
+      { key: "reproduce", label: "Reproduce", color: "#b14f43" },
+      { key: "repair", label: "Repair", color: "#4d5b7c" },
+      { key: "postPatch", label: "Post-Patch Replay", color: "#80935b" }
+    ],
+    data: modelSummaries.map((summary) => {
+      const reproductionUsage = sumAiUsageSummaries(summary.caseResults.map((caseResult) => caseResult.reproductionUsage));
+      const repairUsage = sumAiUsageSummaries(summary.caseResults.map((caseResult) => caseResult.repairUsage));
+      const postPatchUsage = sumAiUsageSummaries(summary.caseResults.map((caseResult) => caseResult.postPatchUsage));
+      const totalUsage = sumAiUsageSummaries([reproductionUsage, repairUsage, postPatchUsage]);
+      return {
+        modelId: summary.model.id,
+        provider: summary.model.provider,
+        values: {
+          reproduce: reproductionUsage.costUsd ?? 0,
+          repair: repairUsage.costUsd ?? 0,
+          postPatch: postPatchUsage.costUsd ?? 0
+        },
+        totalUsd: totalUsage.costUsd,
+        costSource: totalUsage.costSource,
+        note: totalUsage.costSource === "unavailable" ? "One or more repair pipeline calls did not resolve an exact gateway cost." : undefined
+      };
+    })
+  };
+}
+
 function buildReport(artifact: HealRunArtifact): HealReport {
   return {
     kind: "heal",
@@ -101,7 +135,8 @@ function buildReport(artifact: HealRunArtifact): HealReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard: buildLeaderboard(artifact.modelSummaries),
-    modelSummaries: artifact.modelSummaries
+    modelSummaries: artifact.modelSummaries,
+    costGraph: buildHealCostGraph(artifact.modelSummaries)
   };
 }
 
@@ -183,6 +218,16 @@ function buildHtml(report: HealReport): string {
         })
       ]
     },
+    charts: [
+      {
+        title: report.costGraph.title,
+        caption: report.costGraph.caption,
+        svgMarkup: renderCostGraphSvg(report.costGraph),
+        note: report.costGraph.data.some((datum) => datum.costSource === "unavailable")
+          ? "Models marked unavailable encountered at least one reproduce, repair, or post-patch replay call without an exact gateway lookup."
+          : undefined
+      }
+    ],
     tables: [
       {
         title: "Quantitative Results",
@@ -198,6 +243,21 @@ function buildHtml(report: HealReport): string {
           `${entry.avgLatencyMs.toFixed(0)} ms`,
           `$${entry.avgCostUsd.toFixed(4)}`
         ])
+      },
+      {
+        title: "Self-Heal Cost Audit",
+        columns: ["Model", "Case", "Trial", "Reproduce", "Repair", "Post-Patch", "Total"],
+        rows: orderedSummaries.flatMap((summary) =>
+          summary.caseResults.map((caseResult) => [
+            summary.model.id,
+            caseResult.title,
+            String(caseResult.trial),
+            formatUsageCost(caseResult.reproductionUsage),
+            formatUsageCost(caseResult.repairUsage),
+            formatUsageCost(caseResult.postPatchUsage),
+            formatUsageCost(caseResult.totalUsage)
+          ])
+        )
       }
     ],
     appendix: orderedSummaries.flatMap((summary) =>
@@ -312,20 +372,8 @@ function computeModelMetrics(model: ModelAvailability, caseResults: HealCaseTria
     caseResults.reduce((sum, item) => sum + item.regressionFreeRate, 0) / caseResults.length
   );
   const fixRate = round(caseResults.filter((item) => item.fixed).length / caseResults.length);
-  const caseLatency = caseResults.map(
-    (item) =>
-      item.repairUsage.latencyMs +
-      item.reproductionRuns.reduce((sum, run) => sum + run.latencyMs, 0) +
-      item.postPatchReproductionRuns.reduce((sum, run) => sum + run.latencyMs, 0) +
-      item.postPatchRegressionRuns.reduce((sum, run) => sum + run.latencyMs, 0)
-  );
-  const caseCost = caseResults.map(
-    (item) =>
-      item.repairUsage.costUsd +
-      item.reproductionRuns.reduce((sum, run) => sum + run.costUsd, 0) +
-      item.postPatchReproductionRuns.reduce((sum, run) => sum + run.costUsd, 0) +
-      item.postPatchRegressionRuns.reduce((sum, run) => sum + run.costUsd, 0)
-  );
+  const caseLatency = caseResults.map((item) => item.totalUsage?.latencyMs ?? 0);
+  const caseCost = caseResults.map((item) => item.totalUsage?.costUsd ?? 0);
   const avgLatencyMs = round(caseLatency.reduce((sum, value) => sum + value, 0) / caseLatency.length, 3);
   const avgCostUsd = round(caseCost.reduce((sum, value) => sum + value, 0) / caseCost.length);
 
@@ -431,12 +479,18 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         let validationExitCode: number | undefined;
         let note = "repair not attempted";
         let diagnosis: HealCaseTrialResult["diagnosis"];
-        let repairUsage = {
+        let repairUsage: HealCaseTrialResult["repairUsage"] = {
           latencyMs: 0,
           inputTokens: 0,
           outputTokens: 0,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
           totalTokens: 0,
-          costUsd: 0
+          costUsd: 0,
+          resolvedCostUsd: 0,
+          costSource: "exact" as const,
+          callCount: 0,
+          unavailableCalls: 0
         };
         let patchPath: string | undefined;
         let postPatchReproductionRuns: TaskRunResult[] = [];
@@ -451,6 +505,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
             model,
             runner,
             trial,
+            usagePhase: "reproduction",
             systemPrompt: resolvedSuite.prompts.guided,
             includeFindings: true,
             includeBugHints: false,
@@ -513,6 +568,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
                       model,
                       runner,
                       trial,
+                      usagePhase: "post_patch_replay",
                       systemPrompt: resolvedSuite.prompts.guided,
                       taskIds: healCase.reproductionTaskIds
                     });
@@ -524,6 +580,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
                       model,
                       runner,
                       trial,
+                      usagePhase: "post_patch_replay",
                       systemPrompt: resolvedSuite.prompts.guided,
                       taskIds: healCase.regressionTaskIds
                     });
@@ -564,6 +621,11 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         const regressionFreeRate = rateFromRuns(postPatchRegressionRuns);
         const localization = localizationScore(suspectedFiles, healCase.goldTouchedFiles);
         const fixed = validationPassed && failingTaskFixRate === 1 && regressionFreeRate === 1;
+        const reproductionUsage = sumAiUsageSummaries(reproductionRuns.map((run) => run.usageSummary));
+        const postPatchUsage = sumAiUsageSummaries(
+          [...postPatchReproductionRuns, ...postPatchRegressionRuns].map((run) => run.usageSummary)
+        );
+        const totalUsage = sumAiUsageSummaries([reproductionUsage, repairUsage, postPatchUsage]);
 
         caseResults.push({
           caseId,
@@ -583,6 +645,9 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
           localizationScore: localization,
           fixed,
           repairUsage,
+          reproductionUsage,
+          postPatchUsage,
+          totalUsage,
           patchPath,
           note,
           postPatchReproductionRuns,

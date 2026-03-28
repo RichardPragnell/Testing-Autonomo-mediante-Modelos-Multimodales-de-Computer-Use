@@ -12,7 +12,6 @@ function createModel(id: string): ModelAvailability {
   return {
     id,
     provider: id.split("/")[0] ?? "test",
-    envKey: "TEST_API_KEY",
     enabled: true,
     available: true
   };
@@ -171,7 +170,19 @@ describe("report figure selectors", () => {
           regressionFreeRate: 1,
           localizationScore: 1,
           fixed: true,
-          repairUsage: { latencyMs: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2, costUsd: 0.01 },
+          repairUsage: {
+            latencyMs: 1,
+            inputTokens: 1,
+            outputTokens: 1,
+            reasoningTokens: 0,
+            cachedInputTokens: 0,
+            totalTokens: 2,
+            costUsd: 0.01,
+            resolvedCostUsd: 0.01,
+            costSource: "exact",
+            callCount: 1,
+            unavailableCalls: 0
+          },
           note: "fixed",
           postPatchReproductionRuns: [],
           postPatchRegressionRuns: []
@@ -191,7 +202,19 @@ describe("report figure selectors", () => {
           regressionFreeRate: 0,
           localizationScore: 1,
           fixed: false,
-          repairUsage: { latencyMs: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2, costUsd: 0.01 },
+          repairUsage: {
+            latencyMs: 1,
+            inputTokens: 1,
+            outputTokens: 1,
+            reasoningTokens: 0,
+            cachedInputTokens: 0,
+            totalTokens: 2,
+            costUsd: 0.01,
+            resolvedCostUsd: 0.01,
+            costSource: "exact",
+            callCount: 1,
+            unavailableCalls: 0
+          },
           note: "failed validation",
           postPatchReproductionRuns: [],
           postPatchRegressionRuns: []

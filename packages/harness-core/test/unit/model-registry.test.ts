@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("model registry", () => {
-  it("loads yaml and marks unavailable models when env key is missing", async () => {
+  it("loads yaml and requires AI_GATEWAY_API_KEY for model availability", async () => {
     const dir = await mkdtemp(join(tmpdir(), "registry-"));
     tempDirs.push(dir);
     const file = join(dir, "models.yaml");
@@ -27,22 +27,23 @@ describe("model registry", () => {
         "models:",
         "  - id: google/gemini-2.5-flash",
         "    provider: google",
-        "    env_key: GEMINI_API_KEY",
         "    enabled: true",
         "  - id: openai/gpt-4o",
         "    provider: openai",
-        "    env_key: OPENAI_API_KEY",
         "    enabled: true"
       ].join("\n"),
       "utf8"
     );
 
     const registry = await loadModelRegistry(file);
-    const availability = resolveModelAvailability(registry, undefined, { GEMINI_API_KEY: "x" });
+    const unavailable = resolveModelAvailability(registry, undefined, {});
+    const available = resolveModelAvailability(registry, undefined, { AI_GATEWAY_API_KEY: "x" });
 
-    expect(availability[0].available).toBe(true);
-    expect(availability[1].available).toBe(false);
-    expect(availability[1].reason).toContain("OPENAI_API_KEY");
+    expect(unavailable[0].available).toBe(false);
+    expect(unavailable[0].reason).toContain("AI_GATEWAY_API_KEY");
+    expect(unavailable[1].available).toBe(false);
+    expect(unavailable[1].reason).toContain("AI_GATEWAY_API_KEY");
+    expect(available[0].available).toBe(true);
+    expect(available[1].available).toBe(true);
   });
 });
-

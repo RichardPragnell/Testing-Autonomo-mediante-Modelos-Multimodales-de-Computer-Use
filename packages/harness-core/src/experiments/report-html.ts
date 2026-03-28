@@ -32,6 +32,13 @@ export interface PaperFigure {
   panels: PaperFigurePanel[];
 }
 
+export interface PaperChart {
+  title: string;
+  caption: string;
+  svgMarkup: string;
+  note?: string;
+}
+
 export interface PaperTable {
   title: string;
   columns: string[];
@@ -51,7 +58,9 @@ export interface PaperDocument {
   abstract: string;
   meta: PaperKeyValue[];
   sections?: PaperSection[];
+  figures?: PaperFigure[];
   figure?: PaperFigure;
+  charts?: PaperChart[];
   tables?: PaperTable[];
   appendix?: PaperAppendixEntry[];
 }
@@ -124,7 +133,7 @@ function renderBadges(badges: string[]): string {
   return `<div class="badges">${badges.map((badge) => `<span class="badge">${escapeHtml(badge)}</span>`).join("")}</div>`;
 }
 
-function renderFigure(figure: PaperFigure, sectionIndex: number): string {
+function renderFigure(figure: PaperFigure, sectionIndex: number, figureNumber: number): string {
   return `
     <section class="paper-section">
       <h2>${sectionIndex}. ${escapeHtml(figure.title)}</h2>
@@ -155,7 +164,20 @@ function renderFigure(figure: PaperFigure, sectionIndex: number): string {
             )
             .join("")}
         </div>
-        <figcaption>Figure 1. ${escapeHtml(figure.caption)}</figcaption>
+        <figcaption>Figure ${figureNumber}. ${escapeHtml(figure.caption)}</figcaption>
+      </figure>
+    </section>
+  `;
+}
+
+function renderChart(chart: PaperChart, sectionIndex: number, figureNumber: number): string {
+  return `
+    <section class="paper-section">
+      <h2>${sectionIndex}. ${escapeHtml(chart.title)}</h2>
+      <figure class="figure-plate chart-plate">
+        <div class="chart-wrap">${chart.svgMarkup}</div>
+        ${chart.note ? `<p class="chart-note">${escapeHtml(chart.note)}</p>` : ""}
+        <figcaption>Figure ${figureNumber}. ${escapeHtml(chart.caption)}</figcaption>
       </figure>
     </section>
   `;
@@ -209,9 +231,12 @@ function renderAppendix(entries: PaperAppendixEntry[], sectionIndex: number): st
 
 export function renderPaperReport(input: PaperDocument): string {
   const sections = input.sections ?? [];
+  const figures = [...(input.figures ?? []), ...(input.figure ? [input.figure] : [])];
+  const charts = input.charts ?? [];
   const tables = input.tables ?? [];
   const appendix = input.appendix ?? [];
   let sectionCounter = 1;
+  let figureCounter = 1;
 
   const sectionMarkup = sections
     .map((section) => {
@@ -221,13 +246,23 @@ export function renderPaperReport(input: PaperDocument): string {
     })
     .join("");
 
-  const figureMarkup = input.figure
-    ? (() => {
-        const markup = renderFigure(input.figure, sectionCounter);
-        sectionCounter += 1;
-        return markup;
-      })()
-    : "";
+  const figureMarkup = figures
+    .map((figure) => {
+      const markup = renderFigure(figure, sectionCounter, figureCounter);
+      sectionCounter += 1;
+      figureCounter += 1;
+      return markup;
+    })
+    .join("");
+
+  const chartMarkup = charts
+    .map((chart) => {
+      const markup = renderChart(chart, sectionCounter, figureCounter);
+      sectionCounter += 1;
+      figureCounter += 1;
+      return markup;
+    })
+    .join("");
 
   const tableMarkup = tables
     .map((table) => {
@@ -326,6 +361,21 @@ export function renderPaperReport(input: PaperDocument): string {
       .panel-note {
         margin: 0 0 12px;
         line-height: 1.7;
+      }
+      .chart-wrap {
+        border: 1px solid var(--rule);
+        background: #fffdfa;
+        padding: 12px;
+      }
+      .chart-wrap svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .chart-note {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 0.92rem;
       }
       .meta-grid,
       .facts-grid {
@@ -519,6 +569,7 @@ export function renderPaperReport(input: PaperDocument): string {
       </section>
       ${sectionMarkup}
       ${figureMarkup}
+      ${chartMarkup}
       ${tableMarkup}
       ${appendixMarkup}
     </main>

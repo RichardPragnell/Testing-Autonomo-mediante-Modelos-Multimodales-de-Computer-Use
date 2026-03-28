@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { formatUsageCost, sumAiUsageSummaries } from "../ai/usage.js";
 import type { AutomationRunner, ModelAvailability } from "../types.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
@@ -11,11 +12,13 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, resolveExperimentRoot, round, summarizeTaskRuns } from "./common.js";
+import { renderCostGraphSvg } from "./cost-graph.js";
 import { screenshotDataUrl, selectQaBaselineRun, selectQaRepresentativeRun } from "./report-figures.js";
 import { renderPaperReport } from "./report-html.js";
 import { computeQaScore } from "./scoring.js";
 import type {
   CompareResult,
+  CostGraph,
   QaExperimentSpec,
   QaLeaderboardEntry,
   QaModelMetrics,
@@ -84,6 +87,28 @@ function buildLeaderboard(modelSummaries: QaModelSummary[]): QaLeaderboardEntry[
     }));
 }
 
+function buildQaCostGraph(modelSummaries: QaModelSummary[]): CostGraph {
+  return {
+    title: "Exact Guided Cost",
+    caption: "Total guided benchmark cost per model across all executed tasks and trials.",
+    stacked: false,
+    series: [{ key: "guided", label: "Guided Tasks", color: "#4d5b7c" }],
+    data: modelSummaries.map((summary) => {
+      const usageSummary = sumAiUsageSummaries(summary.taskRuns.map((run) => run.usageSummary));
+      return {
+        modelId: summary.model.id,
+        provider: summary.model.provider,
+        values: {
+          guided: usageSummary.costUsd ?? 0
+        },
+        totalUsd: usageSummary.costUsd,
+        costSource: usageSummary.costSource,
+        note: usageSummary.costSource === "unavailable" ? "Exact gateway cost was unavailable for one or more guided calls." : undefined
+      };
+    })
+  };
+}
+
 function buildReport(artifact: QaRunArtifact): QaReport {
   return {
     kind: "qa",
@@ -92,7 +117,8 @@ function buildReport(artifact: QaRunArtifact): QaReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard: buildLeaderboard(artifact.modelSummaries),
-    modelSummaries: artifact.modelSummaries
+    modelSummaries: artifact.modelSummaries,
+    costGraph: buildQaCostGraph(artifact.modelSummaries)
   };
 }
 
@@ -175,6 +201,16 @@ function buildHtml(report: QaReport): string {
         })
       ]
     },
+    charts: [
+      {
+        title: report.costGraph.title,
+        caption: report.costGraph.caption,
+        svgMarkup: renderCostGraphSvg(report.costGraph),
+        note: report.costGraph.data.some((datum) => datum.costSource === "unavailable")
+          ? "Models marked unavailable encountered at least one guided call without an exact gateway cost lookup."
+          : undefined
+      }
+    ],
     tables: [
       {
         title: "Quantitative Results",
@@ -189,6 +225,20 @@ function buildHtml(report: QaReport): string {
           `${entry.avgLatencyMs.toFixed(0)} ms`,
           `$${entry.avgCostUsd.toFixed(4)}`
         ])
+      },
+      {
+        title: "Guided Cost Audit",
+        columns: ["Model", "Task", "Trial", "Calls", "Tokens", "Cost"],
+        rows: orderedSummaries.flatMap((summary) =>
+          summary.taskRuns.map((run) => [
+            summary.model.id,
+            run.taskId,
+            String(run.trial),
+            String(run.usageSummary?.callCount ?? run.aiCalls?.length ?? 0),
+            String(run.usageSummary?.totalTokens ?? 0),
+            formatUsageCost(run.usageSummary, run.costUsd)
+          ])
+        )
       }
     ],
     appendix: orderedSummaries.map((summary) => ({
@@ -346,6 +396,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
           model,
           runner,
           trial,
+          usagePhase: "guided_task",
           systemPrompt: resolvedSuite.prompts.guided
         });
         taskRuns.push(...execution.taskRuns);

@@ -7,8 +7,6 @@ import type { ModelAvailability, ModelRegistry } from "../types.js";
 const modelConfigSchema = z.object({
   id: z.string().min(1),
   provider: z.string().min(1),
-  env_key: z.string().min(1).optional(),
-  envKey: z.string().min(1).optional(),
   enabled: z.boolean().default(true)
 });
 
@@ -22,7 +20,6 @@ function normalizeRegistry(input: z.infer<typeof modelRegistrySchema>): ModelReg
   const models = input.models.map((model) => ({
     id: model.id,
     provider: model.provider,
-    envKey: model.envKey ?? model.env_key ?? "",
     enabled: model.enabled
   }));
   const defaultModel = input.defaultModel ?? input.default_model ?? models[0].id;
@@ -42,6 +39,7 @@ export function resolveModelAvailability(
   requestedModels: string[] | undefined,
   env: NodeJS.ProcessEnv = process.env
 ): ModelAvailability[] {
+  const gatewayEnabled = Boolean(env.AI_GATEWAY_API_KEY?.trim());
   const requestedSet = requestedModels?.length ? new Set(requestedModels) : undefined;
   const selected = requestedSet
     ? registry.models.filter((model) => requestedSet.has(model.id))
@@ -51,14 +49,13 @@ export function resolveModelAvailability(
     if (!model.enabled) {
       return { ...model, available: false, reason: "model disabled in registry" };
     }
-    if (model.envKey && !env[model.envKey]) {
+    if (!gatewayEnabled) {
       return {
         ...model,
         available: false,
-        reason: `missing required env key ${model.envKey}`
+        reason: "missing required env key AI_GATEWAY_API_KEY"
       };
     }
     return { ...model, available: true };
   });
 }
-

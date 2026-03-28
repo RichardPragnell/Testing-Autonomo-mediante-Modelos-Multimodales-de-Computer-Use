@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { formatUsageCost, sumAiUsageSummaries } from "../ai/usage.js";
 import type { ActionCacheEntry, AutomationRunner, ModelAvailability } from "../types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
 import { summarizeTaskRunCache } from "../cache/summary.js";
@@ -15,6 +16,7 @@ import { nowIso } from "../utils/time.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { loadAppBenchmark } from "./benchmark.js";
 import { buildResolvedSuite, executeGuidedTasks, resolveExperimentRoot, round, summarizeTaskRuns, unique } from "./common.js";
+import { renderCostGraphSvg } from "./cost-graph.js";
 import {
   screenshotDataUrl,
   selectExploreBaselineRun,
@@ -25,6 +27,7 @@ import { renderPaperReport } from "./report-html.js";
 import { computeExploreScore } from "./scoring.js";
 import type {
   CompareResult,
+  CostGraph,
   ExploreCapabilityDiscovery,
   ExploreExperimentSpec,
   ExploreLeaderboardEntry,
@@ -127,6 +130,34 @@ function buildLeaderboard(modelSummaries: ExploreModelSummary[]): ExploreLeaderb
     }));
 }
 
+function buildExploreCostGraph(modelSummaries: ExploreModelSummary[]): CostGraph {
+  return {
+    title: "Exploration Cost Breakdown",
+    caption: "Total exploration-mode cost per model, split between autonomous exploration and probe replay.",
+    stacked: true,
+    series: [
+      { key: "explore", label: "Explore", color: "#c47f2c" },
+      { key: "probe", label: "Probe Replay", color: "#4d5b7c" }
+    ],
+    data: modelSummaries.map((summary) => {
+      const explorationUsage = sumAiUsageSummaries(summary.trials.map((trial) => trial.explorationUsage));
+      const probeUsage = sumAiUsageSummaries(summary.trials.map((trial) => trial.probeUsage));
+      const totalUsage = sumAiUsageSummaries([explorationUsage, probeUsage]);
+      return {
+        modelId: summary.model.id,
+        provider: summary.model.provider,
+        values: {
+          explore: explorationUsage.costUsd ?? 0,
+          probe: probeUsage.costUsd ?? 0
+        },
+        totalUsd: totalUsage.costUsd,
+        costSource: totalUsage.costSource,
+        note: totalUsage.costSource === "unavailable" ? "One or more exploration or probe calls did not resolve an exact gateway cost." : undefined
+      };
+    })
+  };
+}
+
 function buildReport(artifact: ExploreRunArtifact): ExploreReport {
   return {
     kind: "explore",
@@ -135,7 +166,8 @@ function buildReport(artifact: ExploreRunArtifact): ExploreReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard: buildLeaderboard(artifact.modelSummaries),
-    modelSummaries: artifact.modelSummaries
+    modelSummaries: artifact.modelSummaries,
+    costGraph: buildExploreCostGraph(artifact.modelSummaries)
   };
 }
 
@@ -220,6 +252,16 @@ function buildHtml(report: ExploreReport): string {
         })
       ]
     },
+    charts: [
+      {
+        title: report.costGraph.title,
+        caption: report.costGraph.caption,
+        svgMarkup: renderCostGraphSvg(report.costGraph),
+        note: report.costGraph.data.some((datum) => datum.costSource === "unavailable")
+          ? "Models marked unavailable encountered at least one exploration or probe replay call without an exact gateway lookup."
+          : undefined
+      }
+    ],
     tables: [
       {
         title: "Quantitative Results",
@@ -234,6 +276,20 @@ function buildHtml(report: ExploreReport): string {
           `${(entry.transitionCoverage * 100).toFixed(1)}%`,
           `${(entry.actionDiversity * 100).toFixed(1)}%`
         ])
+      },
+      {
+        title: "Exploration Cost Audit",
+        columns: ["Model", "Trial", "Explore Cost", "Probe Cost", "Total Cost", "Source"],
+        rows: orderedSummaries.flatMap((summary) =>
+          summary.trials.map((trial) => [
+            summary.model.id,
+            String(trial.trial),
+            formatUsageCost(trial.explorationUsage),
+            formatUsageCost(trial.probeUsage),
+            formatUsageCost(trial.totalUsage),
+            trial.totalUsage?.costSource ?? "unavailable"
+          ])
+        )
       }
     ],
     appendix: orderedSummaries.map((summary) => {
@@ -292,6 +348,7 @@ function computeModelMetrics(summaryInput: {
 
   const probeRuns = summaryInput.trials.flatMap((trial) => trial.probeRuns);
   const probeSummary = summarizeTaskRuns(probeRuns.map((item) => item.taskRun));
+  const totalUsage = sumAiUsageSummaries(summaryInput.trials.map((trial) => trial.totalUsage));
   const avgStates = summaryInput.trials.reduce((sum, trial) => sum + trial.statesDiscovered, 0) / summaryInput.trials.length;
   const avgTransitions =
     summaryInput.trials.reduce((sum, trial) => sum + trial.transitionsDiscovered, 0) / summaryInput.trials.length;
@@ -313,16 +370,16 @@ function computeModelMetrics(summaryInput: {
     stateCoverage,
     transitionCoverage,
     actionDiversity,
-    avgLatencyMs: probeSummary.avgLatencyMs,
-    avgCostUsd: probeSummary.avgCostUsd,
+    avgLatencyMs: round(totalUsage.latencyMs / summaryInput.trials.length, 3),
+    avgCostUsd: round((totalUsage.costUsd ?? 0) / summaryInput.trials.length),
     score: computeExploreScore({
       capabilityDiscoveryRate,
       probeReplayPassRate: probeSummary.taskPassRate,
       stateCoverage,
       transitionCoverage,
       actionDiversity,
-      avgLatencyMs: probeSummary.avgLatencyMs,
-      avgCostUsd: probeSummary.avgCostUsd
+      avgLatencyMs: round(totalUsage.latencyMs / summaryInput.trials.length, 3),
+      avgCostUsd: round((totalUsage.costUsd ?? 0) / summaryInput.trials.length)
     })
   };
 }
@@ -459,6 +516,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           model,
           runner,
           trial,
+          usagePhase: "probe_replay",
           systemPrompt: resolvedSuite.prompts.guided,
           taskIds: spec.probeTaskIds
         });
@@ -479,6 +537,12 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           actionsCached: explorationArtifact.summary.actionsCached,
           actionKinds: inferActionKinds(explorationArtifact.actionCache),
           cacheSummary: explorationArtifact.cacheSummary,
+          explorationUsage: explorationArtifact.usageSummary,
+          probeUsage: summarizeTaskRuns(probeExecution.taskRuns).usageSummary,
+          totalUsage: sumAiUsageSummaries([
+            explorationArtifact.usageSummary,
+            summarizeTaskRuns(probeExecution.taskRuns).usageSummary
+          ]),
           capabilityDiscovery,
           probeRuns
         });

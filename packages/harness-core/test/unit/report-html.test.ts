@@ -38,6 +38,14 @@ describe("paper report renderer", () => {
           }
         ]
       },
+      charts: [
+        {
+          title: "Exact Guided Cost",
+          caption: "Total guided benchmark cost per model.",
+          svgMarkup: "<svg viewBox='0 0 10 10'><rect width='10' height='10' /></svg>",
+          note: "All values resolved from gateway generation lookups."
+        }
+      ],
       tables: [
         {
           title: "Quantitative Results",
@@ -57,7 +65,9 @@ describe("paper report renderer", () => {
     expect(html).toContain("Abstract");
     expect(html).toContain("1. Experiment Setup");
     expect(html).toContain("2. Unified Guided Figure");
+    expect(html).toContain("3. Exact Guided Cost");
     expect(html).toContain("Figure 1.");
+    expect(html).toContain("Figure 2.");
     expect(html).toContain("Quantitative Results");
     expect(html).toContain("Appendix");
     expect(html).toContain("figure-panel");

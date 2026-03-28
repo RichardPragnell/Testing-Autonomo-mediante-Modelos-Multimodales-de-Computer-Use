@@ -41,6 +41,19 @@ export class MockAutomationRunner implements AutomationRunner {
       `${input.model.id}:${input.task.id}:${input.trial}:${success ? "ok" : "ko"}`
     ).toString("base64");
     const cacheStatus = input.trial > 1 ? "hit" : "miss";
+    const usageSummary = {
+      latencyMs,
+      inputTokens: Math.round(800 + score * 300),
+      outputTokens: Math.round(200 + score * 120),
+      reasoningTokens: 0,
+      cachedInputTokens: cacheStatus === "hit" ? Math.round(120 + score * 40) : 0,
+      totalTokens: Math.round(1000 + score * 420),
+      costUsd,
+      resolvedCostUsd: costUsd,
+      costSource: "exact" as const,
+      callCount: 1,
+      unavailableCalls: 0
+    };
 
     return {
       taskId: input.task.id,
@@ -50,6 +63,28 @@ export class MockAutomationRunner implements AutomationRunner {
       message,
       latencyMs,
       costUsd,
+      usageSummary,
+      aiCalls: [
+        {
+          phase: input.usagePhase ?? "guided_task",
+          operation: "agent",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `mock-gen-${this.seed}-${input.task.id}-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd,
+          latencyMs,
+          inputTokens: usageSummary.inputTokens,
+          outputTokens: usageSummary.outputTokens,
+          reasoningTokens: 0,
+          cachedInputTokens: usageSummary.cachedInputTokens,
+          totalTokens: usageSummary.totalTokens,
+          timestamp: nowIso()
+        }
+      ],
       urlAfter: success ? `${input.aut.url}/docs` : input.aut.url,
       screenshotBase64,
       domSnapshot,
@@ -93,6 +128,7 @@ export class MockAutomationRunner implements AutomationRunner {
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
     const explorationRunId = `mock-explore-${this.seed}-${input.trial}`;
+    const costUsd = Number((0.006 + input.trial * 0.001).toFixed(6));
     const observeCache = [
       {
         entryId: "observe-root",
@@ -203,6 +239,59 @@ export class MockAutomationRunner implements AutomationRunner {
         warnings: [],
         modes: ["observe_manual"]
       },
+      usageSummary: {
+        latencyMs: 1400,
+        inputTokens: 1500,
+        outputTokens: 420,
+        reasoningTokens: 0,
+        cachedInputTokens: input.trial > 1 ? 260 : 0,
+        totalTokens: 1920,
+        costUsd,
+        resolvedCostUsd: costUsd,
+        costSource: "exact",
+        callCount: 2,
+        unavailableCalls: 0
+      },
+      aiCalls: [
+        {
+          phase: "exploration",
+          operation: "observe",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `mock-gen-explore-observe-${this.seed}-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: Number((costUsd * 0.55).toFixed(6)),
+          latencyMs: 700,
+          inputTokens: 900,
+          outputTokens: 220,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 1120,
+          timestamp: nowIso()
+        },
+        {
+          phase: "exploration",
+          operation: "act",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          servedModelId: input.model.id,
+          servedProvider: input.model.provider,
+          generationId: `mock-gen-explore-act-${this.seed}-${input.trial}`,
+          lookupStatus: "resolved",
+          costSource: "exact",
+          costUsd: Number((costUsd * 0.45).toFixed(6)),
+          latencyMs: 700,
+          inputTokens: 600,
+          outputTokens: 200,
+          reasoningTokens: 0,
+          cachedInputTokens: input.trial > 1 ? 260 : 0,
+          totalTokens: 800,
+          timestamp: nowIso()
+        }
+      ],
       trace: [
         {
           timestamp: nowIso(),
