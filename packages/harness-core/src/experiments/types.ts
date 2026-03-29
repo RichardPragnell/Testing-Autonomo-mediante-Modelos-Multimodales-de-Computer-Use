@@ -8,7 +8,8 @@ import type {
   ModelAvailability,
   OperationTrace,
   ResolvedBenchmarkTarget,
-  TaskRunResult
+  TaskRunResult,
+  UsageCostSummary
 } from "../types.js";
 
 export type ExperimentKind = "qa" | "explore" | "heal";
@@ -205,11 +206,13 @@ export interface QaLeaderboardEntry {
   modelId: string;
   provider: string;
   score: number;
+  taskPassRate: number;
   capabilityPassRate: number;
   fullScenarioCompletionRate: number;
   stability: number;
   avgLatencyMs: number;
   avgCostUsd: number;
+  costSummary: UsageCostSummary;
 }
 
 export interface QaReport {
@@ -221,6 +224,7 @@ export interface QaReport {
   leaderboard: QaLeaderboardEntry[];
   modelSummaries: QaModelSummary[];
   costGraph: CostGraph;
+  section: BenchmarkComparisonSection;
 }
 
 export interface ExploreCapabilityDiscovery {
@@ -295,6 +299,7 @@ export interface ExploreLeaderboardEntry {
   actionDiversity: number;
   avgLatencyMs: number;
   avgCostUsd: number;
+  costSummary: UsageCostSummary;
 }
 
 export interface ExploreReport {
@@ -306,6 +311,7 @@ export interface ExploreReport {
   leaderboard: ExploreLeaderboardEntry[];
   modelSummaries: ExploreModelSummary[];
   costGraph: CostGraph;
+  section: BenchmarkComparisonSection;
 }
 
 export interface HealCaseTrialResult {
@@ -378,6 +384,7 @@ export interface HealLeaderboardEntry {
   fixRate: number;
   avgLatencyMs: number;
   avgCostUsd: number;
+  costSummary: UsageCostSummary;
 }
 
 export interface HealReport {
@@ -389,6 +396,7 @@ export interface HealReport {
   leaderboard: HealLeaderboardEntry[];
   modelSummaries: HealModelSummary[];
   costGraph: CostGraph;
+  section: BenchmarkComparisonSection;
 }
 
 export interface ExperimentRunPaths {
@@ -418,10 +426,62 @@ export interface CompareLeaderboardEntry {
   runs: number;
 }
 
+export interface BenchmarkMetricColumn {
+  key: string;
+  label: string;
+  kind: "score" | "percent" | "ms" | "usd" | "integer" | "text";
+  aggregate: "mean" | "sum" | "first";
+}
+
+export interface BenchmarkComparisonCell {
+  appId: string;
+  runIds: string[];
+  metrics: Record<string, number | string | null>;
+  costSummary: UsageCostSummary;
+}
+
+export interface BenchmarkComparisonRow {
+  modelId: string;
+  provider: string;
+  avgScore: number;
+  cells: BenchmarkComparisonCell[];
+}
+
+export interface BenchmarkAuditTable {
+  title: string;
+  columns: string[];
+  rows: string[][];
+}
+
+export interface BenchmarkComparisonSection {
+  kind: ExperimentKind;
+  title: string;
+  summary: string;
+  appIds: string[];
+  metricColumns: BenchmarkMetricColumn[];
+  rows: BenchmarkComparisonRow[];
+  notes: string[];
+  audit: BenchmarkAuditTable;
+}
+
 export interface CompareResult<TReport> {
+  kind: ExperimentKind;
   reports: TReport[];
   aggregateLeaderboard: CompareLeaderboardEntry[];
-  htmlPath: string;
+  modeSection: BenchmarkComparisonSection;
+  finalReportPath: string;
+  finalJsonPath: string;
+}
+
+export interface BenchmarkComparisonReport {
+  title: string;
+  subtitle: string;
+  generatedAt: string;
+  runIds: string[];
+  appIds: string[];
+  modeSections: BenchmarkComparisonSection[];
+  finalReportPath: string;
+  finalJsonPath: string;
 }
 
 export interface RepairPromptContext {

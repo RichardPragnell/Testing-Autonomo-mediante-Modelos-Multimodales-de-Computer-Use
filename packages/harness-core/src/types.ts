@@ -109,6 +109,14 @@ export interface AiUsageSummary {
   unavailableCalls?: number;
 }
 
+export interface UsageCostSummary {
+  avgResolvedUsd: number;
+  totalResolvedUsd: number;
+  costSource: AiCostSource;
+  callCount: number;
+  unavailableCalls: number;
+}
+
 export type TaskExpectationType = "contains" | "url_contains" | "text_visible" | "text_not_visible";
 
 export interface TaskExpectation {
@@ -417,7 +425,7 @@ export interface TaskRunResult {
   success: boolean;
   message: string;
   latencyMs: number;
-  costUsd: number;
+  costUsd?: number;
   usageSummary?: AiUsageSummary;
   aiCalls?: AiUsageRecord[];
   urlAfter?: string;

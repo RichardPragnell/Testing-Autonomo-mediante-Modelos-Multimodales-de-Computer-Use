@@ -10,17 +10,22 @@ const requireFromTest = createRequire(import.meta.url);
 const tsxCli = requireFromTest.resolve("tsx/cli");
 
 describe("CLI surface", () => {
-  it("shows only the three run commands at the top level", async () => {
-    const { stdout } = await execFileAsync(process.execPath, [tsxCli, "src/index.ts", "--help"], {
-      cwd: cliDir
-    });
+  it(
+    "shows run, suite, and compare commands at the top level",
+    async () => {
+      const { stdout } = await execFileAsync(process.execPath, [tsxCli, "src/index.ts", "--help"], {
+        cwd: cliDir
+      });
 
-    expect(stdout).toContain("qa");
+      expect(stdout).toContain("qa");
     expect(stdout).toContain("explore");
-    expect(stdout).toContain("heal");
-    expect(stdout).not.toContain("report");
-    expect(stdout).not.toContain("compare");
-  });
+      expect(stdout).toContain("heal");
+      expect(stdout).toContain("suite");
+      expect(stdout).toContain("compare");
+      expect(stdout).not.toContain("report [command]");
+    },
+    15_000
+  );
 
   it("requires a positional app argument and does not expose the removed flags", async () => {
     const { stdout } = await execFileAsync(process.execPath, [tsxCli, "src/index.ts", "qa", "--help"], {

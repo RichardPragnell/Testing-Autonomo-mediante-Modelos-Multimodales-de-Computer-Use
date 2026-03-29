@@ -3,7 +3,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compareQaRuns, runExploreExperiment, runHealExperiment, runQaExperiment } from "../../src/index.js";
+import {
+  compareBenchmarkRuns,
+  compareQaRuns,
+  runBenchmarkSuite,
+  runExploreExperiment,
+  runHealExperiment,
+  runQaExperiment
+} from "../../src/index.js";
 import { MockAutomationRunner } from "../../src/runner/mock-runner.js";
 import { MockRepairModelClient } from "../../src/self-heal/model-client.js";
 import { nowIso } from "../../src/utils/time.js";
@@ -480,6 +487,70 @@ class BugAwareRunner implements AutomationRunner {
   }
 }
 
+class UnavailableCostRunner implements AutomationRunner {
+  async runTask(input: RunTaskInput): Promise<TaskRunResult> {
+    return {
+      taskId: input.task.id,
+      trial: input.trial,
+      modelId: input.model.id,
+      success: true,
+      message: "task passed",
+      latencyMs: 75,
+      costUsd: undefined,
+      usageSummary: {
+        latencyMs: 75,
+        inputTokens: 180,
+        outputTokens: 40,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 220,
+        costUsd: undefined,
+        resolvedCostUsd: 0,
+        costSource: "unavailable",
+        callCount: 1,
+        unavailableCalls: 1
+      },
+      aiCalls: [
+        {
+          phase: input.usagePhase ?? "guided_task",
+          operation: "agent",
+          requestedModelId: input.model.id,
+          requestedProvider: input.model.provider,
+          lookupStatus: "lookup_failed",
+          costSource: "unavailable",
+          latencyMs: 75,
+          inputTokens: 180,
+          outputTokens: 40,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 220,
+          timestamp: nowIso(),
+          error: "lookup failed"
+        }
+      ],
+      urlAfter: input.aut.url,
+      trace: [
+        {
+          timestamp: nowIso(),
+          action: "unavailable-cost.run",
+          details: {
+            taskId: input.task.id
+          }
+        }
+      ],
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "agent_native",
+        status: "miss",
+        aiInvoked: true,
+        warnings: []
+      }
+    };
+  }
+}
+
 describe("three experiment flows", () => {
   it("runs the QA experiment and writes JSON plus HTML reports", async () => {
     const dir = await mkdtemp(join(tmpdir(), "qa-exp-"));
@@ -498,13 +569,14 @@ describe("three experiment flows", () => {
     expect(result.report.leaderboard).toHaveLength(2);
     await expect(access(result.htmlPath)).resolves.toBeUndefined();
     const html = await readFile(result.htmlPath, "utf8");
-    expect(html).toContain("Abstract");
-    expect(html).toContain("Experiment Setup");
-    expect(html).toContain("Unified Guided Figure");
+    expect(html).toContain("Guided");
+    expect(html).toContain("Task Pass");
+    expect(html).toContain("Total Cost");
     const compare = await compareQaRuns([result.artifact.runId], dir);
     expect(compare.aggregateLeaderboard).toHaveLength(2);
-    const compareHtml = await readFile(compare.htmlPath, "utf8");
-    expect(compareHtml).toContain("Included Run IDs");
+    const compareHtml = await readFile(compare.finalReportPath, "utf8");
+    expect(compareHtml).toContain("Guided Mode Comparison");
+    expect(compareHtml).toContain("Guided Cost Audit");
   });
 
   it("runs the exploration experiment and scores coverage", async () => {
@@ -524,8 +596,8 @@ describe("three experiment flows", () => {
     expect(result.report.leaderboard[0]?.actionDiversity).toBeGreaterThan(0);
     await expect(access(result.htmlPath)).resolves.toBeUndefined();
     const html = await readFile(result.htmlPath, "utf8");
-    expect(html).toContain("Exploration Mode Report");
-    expect(html).toContain("Unified Exploration Figure");
+    expect(html).toContain("Explore");
+    expect(html).toContain("Capability Discovery");
   });
 
   it(
@@ -548,9 +620,102 @@ describe("three experiment flows", () => {
       expect(result.report.modelSummaries[0]?.caseResults.some((item) => item.fixed)).toBe(true);
       await expect(access(result.htmlPath)).resolves.toBeUndefined();
       const html = await readFile(result.htmlPath, "utf8");
-      expect(html).toContain("Self-Heal Report");
-      expect(html).toContain("Unified Self-Heal Figure");
-      expect(html).toContain("Appendix");
+      expect(html).toContain("Self-Heal");
+      expect(html).toContain("Failing-Task Fix");
+      expect(html).toContain("Self-Heal Cost Audit");
+    },
+    60_000
+  );
+
+  it("does not render unavailable guided cost as a clean zero-cost result", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qa-unavailable-"));
+    tempDirs.push(dir);
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+    const result = await runQaExperiment({
+      appId: "todo-react",
+      modelsPath,
+      resultsDir: dir,
+      trials: 1,
+      runner: new UnavailableCostRunner()
+    });
+
+    expect(result.report.leaderboard[0]?.costSummary.costSource).toBe("unavailable");
+    expect(result.report.leaderboard[0]?.costSummary.unavailableCalls).toBeGreaterThan(0);
+    const html = await readFile(result.htmlPath, "utf8");
+    expect(html).toContain("Unavailable");
+    expect(html).not.toContain("$0.0000</td>");
+  });
+
+  it(
+    "generates one combined final report for mixed qa, explore, and heal runs",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "final-compare-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const qa = await runQaExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new MockAutomationRunner(11)
+      });
+      const explore = await runExploreExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        runner: new RichExploreRunner()
+      });
+      const heal = await runHealExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        runner: new BugAwareRunner(),
+        repairClient: new MockRepairModelClient()
+      });
+
+      const finalReport = await compareBenchmarkRuns(
+        [qa.artifact.runId, explore.artifact.runId, heal.artifact.runId],
+        dir
+      );
+
+      expect(finalReport.modeSections).toHaveLength(3);
+      await expect(access(finalReport.finalReportPath)).resolves.toBeUndefined();
+      await expect(access(finalReport.finalJsonPath)).resolves.toBeUndefined();
+      const html = await readFile(finalReport.finalReportPath, "utf8");
+      expect(html).toContain("Benchmark Final Report");
+      expect(html).toContain("Guided");
+      expect(html).toContain("Explore");
+      expect(html).toContain("Self-Heal");
+      expect(html).toContain("todo-react");
+    },
+    60_000
+  );
+
+  it(
+    "runs a suite and returns the final matrix report paths",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "suite-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const result = await runBenchmarkSuite({
+        suitePath: "apps/todo-react/benchmark.json",
+        modelsPath,
+        resultsDir: dir,
+        qaRunner: new MockAutomationRunner(11),
+        exploreRunner: new RichExploreRunner(),
+        healRunner: new BugAwareRunner(),
+        repairClient: new MockRepairModelClient()
+      });
+
+      expect(result.finalReportPath).toBeTruthy();
+      expect(result.finalJsonPath).toBeTruthy();
+      await expect(access(result.finalReportPath)).resolves.toBeUndefined();
+      const html = await readFile(result.finalReportPath, "utf8");
+      expect(html).toContain("Benchmark Final Report");
+      expect(html).toContain("Self-Heal");
     },
     60_000
   );

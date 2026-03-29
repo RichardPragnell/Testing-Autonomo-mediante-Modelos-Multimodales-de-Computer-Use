@@ -4,11 +4,19 @@ import { loadModelRegistry, resolveModelAvailability } from "./config/model-regi
 import { describeBenchmarkTarget, listBenchmarkTargets } from "./config/target.js";
 import { loadProjectEnv } from "./env/load.js";
 import { loadAppBenchmark } from "./experiments/benchmark.js";
+import { persistComparisonReport } from "./experiments/comparison.js";
 import { buildResolvedSuite, executeGuidedTasks, readCandidateFileSnippets } from "./experiments/common.js";
 import { compareExploreRuns, getExploreReport, runExploreExperiment } from "./experiments/explore.js";
 import { compareHealRuns, getHealReport, runHealExperiment } from "./experiments/heal.js";
 import { compareQaRuns, getQaReport, runQaExperiment } from "./experiments/qa.js";
-import type { AppBenchmarkManifest, CompareResult, ExploreReport, HealReport, QaReport } from "./experiments/types.js";
+import type {
+  AppBenchmarkManifest,
+  BenchmarkComparisonReport,
+  CompareResult,
+  ExploreReport,
+  HealReport,
+  QaReport
+} from "./experiments/types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "./cache/config.js";
 import { summarizeTaskRunCache } from "./cache/summary.js";
 import { resolveExplorationCompatibility } from "./exploration/action-cache.js";
@@ -17,6 +25,7 @@ import { StagehandAutomationRunner } from "./runner/stagehand-runner.js";
 import { startAut } from "./runtime/aut.js";
 import { prepareRunWorkspace } from "./runtime/workspace.js";
 import { runAgentForPatch } from "./self-heal/adapter.js";
+import type { RepairModelClient } from "./self-heal/model-client.js";
 import { applyPatchInIsolatedWorktree } from "./self-heal/worktree.js";
 import type {
   AutomationRunner,
@@ -112,6 +121,7 @@ export interface RunBenchmarkSuiteInput {
   qaRunner?: AutomationRunner;
   exploreRunner?: AutomationRunner;
   healRunner?: AutomationRunner;
+  repairClient?: RepairModelClient;
 }
 
 export interface ExploreTargetInput {
@@ -455,8 +465,13 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
     appId: suite.appId,
     modelsPath: input.modelsPath,
     resultsDir,
-    runner: input.healRunner
+    runner: input.healRunner,
+    repairClient: input.repairClient
   });
+  const comparison = await compareBenchmarkRuns(
+    [qa.artifact.runId, explore.artifact.runId, heal.artifact.runId],
+    resultsDir
+  );
 
   return {
     appId: suite.appId,
@@ -478,7 +493,10 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
       artifactPath: heal.artifactPath,
       reportPath: heal.reportPath,
       htmlPath: heal.htmlPath
-    }
+    },
+    finalReportPath: comparison.finalReportPath,
+    finalJsonPath: comparison.finalJsonPath,
+    comparison
   };
 }
 
@@ -511,7 +529,7 @@ export async function getBenchmarkReport(runId: string, resultsDir = "results") 
   throw new Error(`unsupported run id ${runId}`);
 }
 
-export async function compareBenchmarkRuns(runIds: string[], resultsDir = "results") {
+export async function compareBenchmarkRuns(runIds: string[], resultsDir = "results"): Promise<BenchmarkComparisonReport> {
   const grouped = new Map<BenchmarkRunKind, string[]>();
 
   for (const runId of runIds) {
@@ -522,16 +540,17 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
     grouped.set(kind, [...(grouped.get(kind) ?? []), runId]);
   }
 
-  if (grouped.size === 1) {
-    const [kind, kindRunIds] = [...grouped.entries()][0];
-    return compareByKind(kind, kindRunIds, resultsDir);
-  }
-
   const comparisons = await Promise.all(
     [...grouped.entries()].map(async ([kind, kindRunIds]) => [kind, await compareByKind(kind, kindRunIds, resultsDir)] as const)
   );
-
-  return Object.fromEntries(comparisons);
+  return persistComparisonReport({
+    title: "Benchmark Final Report",
+    subtitle: `Matrix comparison across ${runIds.length} benchmark run(s).`,
+    runIds,
+    modeSections: comparisons.map(([, comparison]) => comparison.modeSection),
+    resultsDir,
+    prefix: "benchmark-compare"
+  });
 }
 
 export async function exploreTarget(input: ExploreTargetInput) {

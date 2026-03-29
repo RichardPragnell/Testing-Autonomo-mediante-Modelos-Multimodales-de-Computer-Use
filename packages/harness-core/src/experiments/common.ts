@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { sumAiUsageSummaries } from "../ai/usage.js";
-import type { ResolvedBenchmarkSuite, TaskRunResult } from "../types.js";
+import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
+import type { ResolvedBenchmarkSuite, TaskRunResult, UsageCostSummary } from "../types.js";
 import type { AiUsagePhase, AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
 import { summarizeTaskRunCache } from "../cache/summary.js";
@@ -249,17 +249,21 @@ export function summarizeTaskRuns(taskRuns: TaskRunResult[]): {
   taskPassRate: number;
   avgLatencyMs: number;
   avgCostUsd: number;
+  costSummary: UsageCostSummary;
   stability: number;
   usageSummary: ReturnType<typeof sumAiUsageSummaries>;
   cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
 } {
   const successes = taskRuns.filter((run) => run.success).length;
   const taskPassRate = taskRuns.length ? successes / taskRuns.length : 0;
-  const usageSummary = sumAiUsageSummaries(taskRuns.map((run) => run.usageSummary));
+  const usageSummaries = taskRuns.map((run) => run.usageSummary);
+  const usageSummary = sumAiUsageSummaries(usageSummaries);
+  const costSummary = summarizeUsageCosts(usageSummaries, taskRuns.length);
   return {
     taskPassRate: round(taskPassRate),
     avgLatencyMs: round(avg(taskRuns.map((run) => run.latencyMs)), 3),
-    avgCostUsd: round(avg(taskRuns.map((run) => run.usageSummary?.costUsd ?? run.costUsd))),
+    avgCostUsd: costSummary.avgResolvedUsd,
+    costSummary,
     stability: computeBinaryStability(groupTaskOutcomesByTask(taskRuns)),
     usageSummary,
     cacheSummary: summarizeTaskRunCache(taskRuns)
