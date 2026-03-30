@@ -14,6 +14,9 @@ function escapeHtml(value: string): string {
 }
 
 function costBadge(summary: UsageCostSummary): string {
+  if (summary.callCount === 0) {
+    return "No AI calls";
+  }
   if (summary.costSource === "estimated") {
     return "Estimated";
   }
@@ -54,6 +57,9 @@ function formatMetricValue(
         return `$${value.toFixed(4)}`;
       }
       const badge = costBadge(costSummary);
+      if (costSummary.callCount === 0 && value <= 0) {
+        return escapeHtml(badge);
+      }
       if (costSummary.costSource === "unavailable" && value <= 0) {
         return badge;
       }

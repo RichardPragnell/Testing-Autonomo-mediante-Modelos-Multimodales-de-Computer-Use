@@ -170,10 +170,13 @@ function buildExploreCostGraph(modelSummaries: ExploreModelSummary[]): CostGraph
         },
         totalUsd: costSummary.totalResolvedUsd,
         costSource: costSummary.costSource,
+        callCount: costSummary.callCount,
         note:
-          costSummary.costSource === "unavailable"
-            ? "One or more exploration or probe calls lacked an exact gateway lookup."
-            : undefined
+          costSummary.callCount === 0
+            ? "No AI calls were required for this run."
+            : costSummary.costSource === "unavailable"
+              ? "One or more exploration or probe calls lacked exact provider usage."
+              : undefined
       };
     })
   };
@@ -219,7 +222,8 @@ function buildExploreSection(input: {
     notes: [
       "Capability Discovery, State Coverage, and Transition Coverage are the primary exploration outcomes.",
       "Avg Cost is resolved spend per exploration trial.",
-      "Partial or unavailable cost labels indicate missing exact gateway lookups."
+      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
+      "No AI calls indicates the run completed without invoking a model."
     ],
     audit: {
       title: "Explore Cost Audit",

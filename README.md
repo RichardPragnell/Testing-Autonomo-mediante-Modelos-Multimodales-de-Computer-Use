@@ -18,12 +18,12 @@ The current reference implementation is `apps/todo-react`. The framework-agnosti
 
 ## Exact Cost Tracking
 
-Benchmark runs now support exact AI cost accounting through Vercel AI Gateway.
+Benchmark runs now support exact AI cost accounting through OpenRouter.
 
-- Set `AI_GATEWAY_API_KEY` to route guided, exploration, and self-heal model calls through Gateway while keeping the existing model ids from `experiments/models/registry.yaml`
-- `AI_GATEWAY_BASE_URL` is optional and defaults to Vercel's hosted Gateway endpoint
-- Gateway is now the only supported real-model path for benchmark execution
-- If a Gateway generation lookup fails, the run marks cost as unavailable instead of silently pretending it is exact
+- Set `OPENROUTER_API_KEY` to route guided, exploration, and self-heal model calls through OpenRouter using the registry ids from `experiments/models/registry.yaml`
+- `OPENROUTER_BASE_URL` is optional and defaults to OpenRouter's hosted API endpoint
+- OpenRouter is now the only supported real-model path for benchmark execution
+- Exact benchmark cost is recorded directly from the provider response usage for each AI call
 
 Generated reports now include a dedicated cost graph plus an audit table for each experiment family:
 
@@ -35,15 +35,15 @@ Generated reports now include a dedicated cost graph plus an audit table for eac
 
 ```bash
 Copy-Item .env.example .env
-npx pnpm@9.12.3 install
-npx pnpm@9.12.3 build
-npx pnpm@9.12.3 test
+pnpm install
+pnpm build
+pnpm test
 ```
 
 Run the target app directly:
 
 ```bash
-npx pnpm@9.12.3 app:todo-react
+pnpm app:todo-react
 ```
 
 Open `http://127.0.0.1:3101`.
@@ -53,19 +53,19 @@ Open `http://127.0.0.1:3101`.
 Guided QA:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa todo-react
+pnpm bench qa todo-react
 ```
 
 Autonomous exploration:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore todo-react
+pnpm bench explore todo-react
 ```
 
 Self-heal:
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal todo-react
+pnpm bench heal todo-react
 ```
 
 The CLI now stays intentionally narrow: it only starts runs. Inspect the generated JSON and HTML files directly under `results/<experiment>/reports`.
@@ -74,7 +74,7 @@ The CLI now stays intentionally narrow: it only starts runs. Inspect the generat
 
 - Local configuration template: `.env.example`
 - The CLI and benchmark app server auto-load `.env` from the repository root when present
-- Exact cost tracking and model access both require `AI_GATEWAY_API_KEY`
+- Exact cost tracking and model access both require `OPENROUTER_API_KEY`
 - Guided QA stays scenario-driven: each task is a high-level user intent plus an explicit expected outcome
 - Autonomous exploration records discovered states, transitions, and reusable actions before scoring coverage
 - Self-heal benchmarks diagnose seeded bugs, propose patches, validate them in an isolated worktree, and record repair outcomes

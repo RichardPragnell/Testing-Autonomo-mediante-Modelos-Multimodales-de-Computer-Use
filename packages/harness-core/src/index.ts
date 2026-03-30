@@ -5,6 +5,6 @@ export * from "./experiments/explore.js";
 export * from "./experiments/heal.js";
 export * from "./types.js";
 export * from "./ai/usage.js";
-export * from "./ai/gateway.js";
+export * from "./ai/openrouter.js";
 export * from "./env/load.js";
 export * from "./service.js";

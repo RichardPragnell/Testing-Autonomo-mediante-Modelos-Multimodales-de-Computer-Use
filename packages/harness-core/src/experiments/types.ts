@@ -137,6 +137,7 @@ export interface CostGraphDatum {
   values: Record<string, number>;
   totalUsd?: number;
   costSource: AiCostSource;
+  callCount?: number;
   note?: string;
 }
 

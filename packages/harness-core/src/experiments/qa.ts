@@ -126,10 +126,13 @@ function buildQaCostGraph(modelSummaries: QaModelSummary[]): CostGraph {
         },
         totalUsd: costSummary.totalResolvedUsd,
         costSource: costSummary.costSource,
+        callCount: costSummary.callCount,
         note:
-          costSummary.costSource === "unavailable"
-            ? "One or more guided calls lacked an exact gateway lookup."
-            : undefined
+          costSummary.callCount === 0
+            ? "No AI calls were required for this run."
+            : costSummary.costSource === "unavailable"
+              ? "One or more guided calls lacked exact provider usage."
+              : undefined
       };
     })
   };
@@ -174,7 +177,8 @@ function buildQaSection(input: {
     notes: [
       "Avg Cost is resolved spend per executed guided task.",
       "Total Cost sums resolved guided spend across the full run.",
-      "Partial or unavailable cost labels indicate missing exact gateway lookups."
+      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
+      "No AI calls indicates the run completed without invoking a model."
     ],
     audit: {
       title: "Guided Cost Audit",

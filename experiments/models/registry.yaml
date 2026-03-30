@@ -12,9 +12,9 @@ models:
   - id: openai/gpt-4o-mini
     provider: openai
     enabled: true
-  - id: anthropic/claude-3-7-sonnet-latest
+  - id: anthropic/claude-3.7-sonnet
     provider: anthropic
     enabled: true
-  - id: anthropic/claude-3-5-haiku-latest
+  - id: anthropic/claude-3.5-haiku
     provider: anthropic
     enabled: true

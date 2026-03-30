@@ -16,7 +16,7 @@ afterEach(async () => {
 });
 
 describe("model registry", () => {
-  it("loads yaml and requires AI_GATEWAY_API_KEY for model availability", async () => {
+  it("loads yaml and requires OPENROUTER_API_KEY for model availability", async () => {
     const dir = await mkdtemp(join(tmpdir(), "registry-"));
     tempDirs.push(dir);
     const file = join(dir, "models.yaml");
@@ -37,12 +37,12 @@ describe("model registry", () => {
 
     const registry = await loadModelRegistry(file);
     const unavailable = resolveModelAvailability(registry, undefined, {});
-    const available = resolveModelAvailability(registry, undefined, { AI_GATEWAY_API_KEY: "x" });
+    const available = resolveModelAvailability(registry, undefined, { OPENROUTER_API_KEY: "x" });
 
     expect(unavailable[0].available).toBe(false);
-    expect(unavailable[0].reason).toContain("AI_GATEWAY_API_KEY");
+    expect(unavailable[0].reason).toContain("OPENROUTER_API_KEY");
     expect(unavailable[1].available).toBe(false);
-    expect(unavailable[1].reason).toContain("AI_GATEWAY_API_KEY");
+    expect(unavailable[1].reason).toContain("OPENROUTER_API_KEY");
     expect(available[0].available).toBe(true);
     expect(available[1].available).toBe(true);
   });

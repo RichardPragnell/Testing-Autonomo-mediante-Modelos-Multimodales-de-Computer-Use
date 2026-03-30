@@ -55,7 +55,7 @@ describe("matrix report renderer", () => {
               ]
             }
           ],
-          notes: ["Partial labels indicate missing exact gateway lookups."],
+          notes: ["Unavailable labels indicate calls where the provider response lacked exact usage cost."],
           audit: {
             title: "Guided Cost Audit",
             columns: ["App", "Model", "Source"],

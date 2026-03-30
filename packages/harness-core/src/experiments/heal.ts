@@ -9,7 +9,7 @@ import { loadProjectEnv } from "../env/load.js";
 import { StagehandAutomationRunner } from "../runner/stagehand-runner.js";
 import { prepareRunWorkspace } from "../runtime/workspace.js";
 import { startAut } from "../runtime/aut.js";
-import { ProviderRepairModelClient, type RepairModelClient } from "../self-heal/model-client.js";
+import { OpenRouterRepairModelClient, type RepairModelClient } from "../self-heal/model-client.js";
 import { rebaseAutConfig, withPatchedIsolatedWorktree } from "../self-heal/worktree.js";
 import { execCommand } from "../utils/exec.js";
 import { nowIso } from "../utils/time.js";
@@ -144,10 +144,13 @@ function buildHealCostGraph(modelSummaries: HealModelSummary[]): CostGraph {
         },
         totalUsd: costSummary.totalResolvedUsd,
         costSource: costSummary.costSource,
+        callCount: costSummary.callCount,
         note:
-          costSummary.costSource === "unavailable"
-            ? "One or more reproduce, repair, or replay calls lacked an exact gateway lookup."
-            : undefined
+          costSummary.callCount === 0
+            ? "No AI calls were required for this run."
+            : costSummary.costSource === "unavailable"
+              ? "One or more reproduce, repair, or replay calls lacked exact provider usage."
+              : undefined
       };
     })
   };
@@ -193,7 +196,8 @@ function buildHealSection(input: {
     notes: [
       "Failing-Task Fix and Regression-Free dominate the self-heal score.",
       "Avg Cost is resolved spend per repair case.",
-      "Partial or unavailable cost labels indicate missing exact gateway lookups."
+      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
+      "No AI calls indicates the run completed without invoking a model."
     ],
     audit: {
       title: "Self-Heal Cost Audit",
@@ -377,7 +381,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   const runId = `heal-${input.appId}-${Date.now()}`;
   const startedAt = nowIso();
   const runner = input.runner ?? new StagehandAutomationRunner();
-  const repairClient = input.repairClient ?? new ProviderRepairModelClient();
+  const repairClient = input.repairClient ?? new OpenRouterRepairModelClient();
   const modelSummaries: HealModelSummary[] = [];
 
   for (const model of models) {

@@ -1,5 +1,9 @@
 import { generateText } from "ai";
-import { buildGatewayUsageRecord, createGatewayLanguageModel, isGatewayCostTrackingEnabled } from "../ai/gateway.js";
+import {
+  buildOpenRouterUsageRecord,
+  createOpenRouterLanguageModel,
+  isOpenRouterCostTrackingEnabled
+} from "../ai/openrouter.js";
 import { summarizeAiUsage } from "../ai/usage.js";
 import type { ModelAvailability } from "../types.js";
 import type { RepairModelResult, RepairPromptContext, RepairUsage } from "../experiments/types.js";
@@ -164,24 +168,24 @@ function buildEstimatedRepairUsage(latencyMs: number, usage: {
   };
 }
 
-async function runGatewayRepairModel(input: {
+async function runOpenRouterRepairModel(input: {
   model: ModelAvailability;
   systemPrompt: string;
   prompt: string;
 }): Promise<{ text: string; usage: RepairUsage }> {
-  if (!isGatewayCostTrackingEnabled()) {
-    throw new Error("AI_GATEWAY_API_KEY is required for repair model execution");
+  if (!isOpenRouterCostTrackingEnabled()) {
+    throw new Error("OPENROUTER_API_KEY is required for repair model execution");
   }
 
   const startedAt = Date.now();
   const result = await generateText({
-    model: createGatewayLanguageModel(input.model.id),
+    model: createOpenRouterLanguageModel(input.model.id),
     temperature: 0.1,
     system: input.systemPrompt,
     prompt: input.prompt
   });
 
-  const record = await buildGatewayUsageRecord({
+  const record = await buildOpenRouterUsageRecord({
     result,
     requestedModelId: input.model.id,
     requestedProvider: input.model.provider,
@@ -209,19 +213,19 @@ async function runGatewayRepairModel(input: {
   };
 }
 
-export class ProviderRepairModelClient implements RepairModelClient {
+export class OpenRouterRepairModelClient implements RepairModelClient {
   async repair(input: {
     model: ModelAvailability;
     systemPrompt: string;
     context: RepairPromptContext;
   }): Promise<RepairModelResult> {
     const prompt = formatRepairPrompt(input.context);
-    const gatewayResponse = await runGatewayRepairModel({
+    const providerResponse = await runOpenRouterRepairModel({
       model: input.model,
       systemPrompt: input.systemPrompt,
       prompt
     });
-    return parseRepairResult(gatewayResponse.text, gatewayResponse.usage);
+    return parseRepairResult(providerResponse.text, providerResponse.usage);
   }
 }
 

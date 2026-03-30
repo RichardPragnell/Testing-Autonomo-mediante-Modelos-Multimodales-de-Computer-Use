@@ -1,6 +1,6 @@
 # Stagehand Local Runtime and Docs Setup
 
-This repository runs Stagehand locally against benchmark app clones created under `results/runs/<runId>/workspace`.
+This repository runs Stagehand locally against benchmark app clones created under `results/<experiment>/runs/<runId>/workspace`.
 Browserbase cloud is not required for experiment execution.
 
 Use the docs this way:
@@ -12,12 +12,12 @@ Use the docs this way:
 ## Runtime mode
 - `packages/harness-core/src/runner/stagehand-runner.ts` uses `env: "LOCAL"`.
 - Benchmark apps are started from the cloned workspace using the selected target manifest from `apps/<targetId>/target.json`.
-- Model access goes through Vercel AI Gateway while preserving registry model ids such as `google/...`, `openai/...`, and `anthropic/...`.
+- Model access goes through OpenRouter using the model ids defined in `experiments/models/registry.yaml`.
 
 ## Required model variables
-- `AI_GATEWAY_API_KEY`
+- `OPENROUTER_API_KEY`
 
-`AI_GATEWAY_BASE_URL` is optional if you need a non-default Gateway endpoint.
+`OPENROUTER_BASE_URL` is optional if you need a non-default OpenRouter endpoint.
 The repo auto-loads these values from a root `.env` file when present. Start from `.env.example`.
 
 ## Optional local browser variables
@@ -30,9 +30,9 @@ These are passed into Stagehand local browser launch options when defined.
 
 ## Local run examples
 1. Start the pristine benchmark target directly:
-   `npx pnpm@9.12.3 app:todo-react`
+   `pnpm app:todo-react`
 2. Run the guided QA experiment through the harness:
-   `npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa todo-react`
+   `pnpm bench qa todo-react`
 
 ## Optional docs MCP
 Stagehand documentation can still be attached to your coding client through the public MCP endpoint:

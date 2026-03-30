@@ -8,8 +8,11 @@ function escapeXml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-function formatUsd(value?: number, unavailable = false): string {
-  if (unavailable || typeof value !== "number") {
+function formatUsd(value?: number, options?: { unavailable?: boolean; noAiCalls?: boolean }): string {
+  if (options?.noAiCalls) {
+    return "No AI calls";
+  }
+  if (options?.unavailable || typeof value !== "number") {
     return "Unavailable";
   }
   return `$${value.toFixed(4)}`;
@@ -65,7 +68,10 @@ export function renderCostGraphSvg(graph: CostGraph): string {
         })
         .join("");
 
-      const valueLabel = formatUsd(datum.totalUsd, datum.costSource === "unavailable");
+      const valueLabel = formatUsd(datum.totalUsd, {
+        unavailable: datum.costSource === "unavailable",
+        noAiCalls: datum.callCount === 0
+      });
       const note = datum.note
         ? `<text x="${marginLeft}" y="${y + 42}" fill="#8f8577" font-size="11">${escapeXml(datum.note)}</text>`
         : "";

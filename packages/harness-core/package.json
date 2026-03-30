@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "^2.0.55",
+    "@ai-sdk/openai-compatible": "^2.0.37",
     "@browserbasehq/stagehand": "^3.2.0",
     "ai": "^5.0.150",
     "yaml": "^2.6.1",

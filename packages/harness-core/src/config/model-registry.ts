@@ -39,7 +39,7 @@ export function resolveModelAvailability(
   requestedModels: string[] | undefined,
   env: NodeJS.ProcessEnv = process.env
 ): ModelAvailability[] {
-  const gatewayEnabled = Boolean(env.AI_GATEWAY_API_KEY?.trim());
+  const openRouterEnabled = Boolean(env.OPENROUTER_API_KEY?.trim());
   const requestedSet = requestedModels?.length ? new Set(requestedModels) : undefined;
   const selected = requestedSet
     ? registry.models.filter((model) => requestedSet.has(model.id))
@@ -49,11 +49,11 @@ export function resolveModelAvailability(
     if (!model.enabled) {
       return { ...model, available: false, reason: "model disabled in registry" };
     }
-    if (!gatewayEnabled) {
+    if (!openRouterEnabled) {
       return {
         ...model,
         available: false,
-        reason: "missing required env key AI_GATEWAY_API_KEY"
+        reason: "missing required env key OPENROUTER_API_KEY"
       };
     }
     return { ...model, available: true };

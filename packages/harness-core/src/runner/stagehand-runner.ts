@@ -1,5 +1,5 @@
 import { summarizeCacheTelemetry } from "../cache/summary.js";
-import { isGatewayCostTrackingEnabled } from "../ai/gateway.js";
+import { isOpenRouterCostTrackingEnabled } from "../ai/openrouter.js";
 import { emptyAiUsageSummary, summarizeAiUsage, sumAiUsageSummaries } from "../ai/usage.js";
 import { buildActionCacheEntries, markExecutedActions } from "../exploration/action-cache.js";
 import {
@@ -29,7 +29,7 @@ import type {
   TaskRunResult
 } from "../types.js";
 import { nowIso } from "../utils/time.js";
-import { StagehandGatewayTrackingClient } from "./stagehand-gateway-client.js";
+import { StagehandOpenRouterTrackingClient } from "./stagehand-openrouter-client.js";
 
 type StagehandExecutionResult = {
   metadata?: Record<string, unknown>;
@@ -202,8 +202,8 @@ function buildStagehandConfig(
     logger?: (line: any) => void;
   }
 ): any {
-  if (!isGatewayCostTrackingEnabled()) {
-    throw new Error("AI_GATEWAY_API_KEY is required for Stagehand benchmark execution");
+  if (!isOpenRouterCostTrackingEnabled()) {
+    throw new Error("OPENROUTER_API_KEY is required for benchmark execution");
   }
 
   const config: any = {
@@ -211,7 +211,7 @@ function buildStagehandConfig(
     model: input.model.id,
     cacheDir: input.cacheConfig.cacheDir,
     selfHeal: true,
-    llmClient: new StagehandGatewayTrackingClient({
+    llmClient: new StagehandOpenRouterTrackingClient({
       modelId: input.model.id,
       provider: input.model.provider,
       phase: input.usagePhase,
@@ -576,8 +576,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
           domSnapshot: pageSnapshot.domSnapshot,
           trace,
           historyEntries: history,
-          cache,
-          cacheHints: input.cacheHints
+          cache
         };
       } catch (error) {
         const metrics = await readStagehandMetrics(stagehand);
@@ -621,7 +620,6 @@ export class StagehandAutomationRunner implements AutomationRunner {
             trace,
             historyEntries: history,
             cache,
-            cacheHints: input.cacheHints,
             error: error instanceof Error ? error.message : String(error)
           };
         }
@@ -644,8 +642,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
         mode: "agent_native",
         metrics: undefined,
         logs: []
-      }),
-      cacheHints: input.cacheHints
+      })
     };
   }
 

@@ -93,6 +93,10 @@ export function formatUsageCost(summary: AiUsageSummary | undefined, fallback = 
     return `$${fallback.toFixed(4)} (estimated)`;
   }
 
+  if ((summary.callCount ?? 0) === 0) {
+    return "No AI calls";
+  }
+
   if (summary.costSource === "unavailable") {
     const resolved = summary.resolvedCostUsd ?? summary.costUsd ?? 0;
     return resolved > 0 ? `$${resolved.toFixed(4)} (partial)` : "Unavailable";

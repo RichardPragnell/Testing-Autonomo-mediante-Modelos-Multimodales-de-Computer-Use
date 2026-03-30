@@ -5,8 +5,10 @@ This document is the operational runbook for the repository: install it, start t
 ## 1. Prerequisites
 
 - Node.js 22 or newer
-- `pnpm` via `npx pnpm@9.12.3`
-- `AI_GATEWAY_API_KEY` for real benchmark runs
+- `pnpm` installed locally or via Corepack
+- `OPENROUTER_API_KEY` for real benchmark runs
+
+The repo pins `pnpm@9.12.3` in the root `package.json`, but the examples below use plain `pnpm`.
 
 Important:
 - Stagehand runs locally in this repo. The browser is local and the AUT is local.
@@ -26,9 +28,9 @@ Then fill the variables you need in `.env`.
 After that:
 
 ```bash
-npx pnpm@9.12.3 install
-npx pnpm@9.12.3 build
-npx pnpm@9.12.3 test
+pnpm install
+pnpm build
+pnpm test
 ```
 
 ## 3. Start The Benchmark App
@@ -36,7 +38,7 @@ npx pnpm@9.12.3 test
 The benchmark target is `apps/todo-react`. You can run its pristine template directly without the harness:
 
 ```bash
-npx pnpm@9.12.3 app:todo-react
+pnpm app:todo-react
 ```
 
 Open `http://127.0.0.1:3101`.
@@ -60,7 +62,7 @@ Use the manifest instead of spreading benchmark definitions across separate suit
 QA measures how well a model follows the guided scenarios and reaches the expected outcomes.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench qa todo-react
+pnpm bench qa todo-react
 ```
 
 QA reports compare:
@@ -76,7 +78,7 @@ QA reports compare:
 Exploration measures whether the model discovers useful app functionality before it is asked to validate anything.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench explore todo-react
+pnpm bench explore todo-react
 ```
 
 Exploration reports compare:
@@ -92,7 +94,7 @@ Exploration reports compare:
 Self-heal measures how well a model can diagnose, patch, and validate seeded bugs.
 
 ```bash
-npx pnpm@9.12.3 --filter @agentic-qa/harness-cli bench heal todo-react
+pnpm bench heal todo-react
 ```
 
 Heal reports compare:
@@ -132,7 +134,7 @@ Use those output paths directly. The CLI no longer provides separate `report` or
 
 Minimal practical loop:
 
-1. Export `AI_GATEWAY_API_KEY`.
+1. Export `OPENROUTER_API_KEY`.
 2. Run `bench qa todo-react`.
 3. Run `bench explore todo-react`.
 4. Run `bench heal todo-react`.
@@ -142,7 +144,7 @@ Minimal practical loop:
 ## 11. Troubleshooting
 
 If a run starts but does not execute model calls:
-- verify that `AI_GATEWAY_API_KEY` is set
+- verify that `OPENROUTER_API_KEY` is set
 
 If the AUT does not start:
 - verify that port `3101` is free

@@ -17,10 +17,10 @@ import { nowIso } from "../../src/utils/time.js";
 import type { AutomationRunner, ExplorationArtifact, RunTaskInput, TaskRunResult } from "../../src/types.js";
 
 const tempDirs: string[] = [];
-const originalGatewayKey = process.env.AI_GATEWAY_API_KEY;
+const originalOpenRouterKey = process.env.OPENROUTER_API_KEY;
 
 beforeEach(() => {
-  process.env.AI_GATEWAY_API_KEY = "test-ai-gateway-key";
+  process.env.OPENROUTER_API_KEY = "test-openrouter-key";
 });
 
 afterEach(async () => {
@@ -31,10 +31,10 @@ afterEach(async () => {
     }
   }
 
-  if (originalGatewayKey === undefined) {
-    delete process.env.AI_GATEWAY_API_KEY;
+  if (originalOpenRouterKey === undefined) {
+    delete process.env.OPENROUTER_API_KEY;
   } else {
-    process.env.AI_GATEWAY_API_KEY = originalGatewayKey;
+    process.env.OPENROUTER_API_KEY = originalOpenRouterKey;
   }
 });
 
@@ -99,7 +99,6 @@ class RichExploreRunner implements AutomationRunner {
           servedModelId: input.model.id,
           servedProvider: input.model.provider,
           generationId: `rich-probe-${input.task.id}-${input.trial}`,
-          lookupStatus: "resolved",
           costSource: "exact",
           costUsd: 0.003,
           latencyMs: 120,
@@ -341,7 +340,6 @@ class RichExploreRunner implements AutomationRunner {
           servedModelId: input.model.id,
           servedProvider: input.model.provider,
           generationId: `rich-explore-observe-${input.trial}`,
-          lookupStatus: "resolved",
           costSource: "exact",
           costUsd: 0.006,
           latencyMs: 440,
@@ -360,7 +358,6 @@ class RichExploreRunner implements AutomationRunner {
           servedModelId: input.model.id,
           servedProvider: input.model.provider,
           generationId: `rich-explore-act-${input.trial}`,
-          lookupStatus: "resolved",
           costSource: "exact",
           costUsd: 0.005,
           latencyMs: 440,
@@ -449,7 +446,6 @@ class BugAwareRunner implements AutomationRunner {
           servedModelId: input.model.id,
           servedProvider: input.model.provider,
           generationId: `bug-aware-${input.task.id}-${input.trial}`,
-          lookupStatus: "resolved",
           costSource: "exact",
           costUsd: 0.002,
           latencyMs: 90,
@@ -516,7 +512,6 @@ class UnavailableCostRunner implements AutomationRunner {
           operation: "agent",
           requestedModelId: input.model.id,
           requestedProvider: input.model.provider,
-          lookupStatus: "lookup_failed",
           costSource: "unavailable",
           latencyMs: 75,
           inputTokens: 180,
@@ -525,7 +520,7 @@ class UnavailableCostRunner implements AutomationRunner {
           cachedInputTokens: 0,
           totalTokens: 220,
           timestamp: nowIso(),
-          error: "lookup failed"
+          error: "provider response did not include exact usage cost"
         }
       ],
       urlAfter: input.aut.url,
@@ -607,13 +602,13 @@ describe("three experiment flows", () => {
       tempDirs.push(dir);
       const modelsPath = await writeRegistry(dir, ["openai/gpt-4o-mini"]);
 
-    const result = await runHealExperiment({
-      appId: "todo-react",
-      modelsPath,
-      resultsDir: dir,
-      runner: new BugAwareRunner(),
-      repairClient: new MockRepairModelClient()
-    });
+      const result = await runHealExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        runner: new BugAwareRunner(),
+        repairClient: new MockRepairModelClient()
+      });
 
       expect(result.report.kind).toBe("heal");
       expect(result.report.modelSummaries[0]?.caseResults.some((item) => item.patchGenerated)).toBe(true);

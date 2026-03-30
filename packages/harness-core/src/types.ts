@@ -51,13 +51,6 @@ export interface ModelRegistry {
 
 export type AiCostSource = "exact" | "estimated" | "unavailable";
 
-export type AiLookupStatus =
-  | "resolved"
-  | "missing_generation_id"
-  | "lookup_failed"
-  | "estimated"
-  | "not_requested";
-
 export type AiUsagePhase =
   | "guided_task"
   | "exploration"
@@ -82,7 +75,6 @@ export interface AiUsageRecord {
   servedModelId?: string;
   servedProvider?: string;
   generationId?: string;
-  lookupStatus: AiLookupStatus;
   costSource: AiCostSource;
   costUsd?: number;
   latencyMs: number;
@@ -434,8 +426,6 @@ export interface TaskRunResult {
   trace: OperationTrace[];
   historyEntries?: StagehandHistoryEntry[];
   cache?: CacheTelemetry;
-  // Deprecated: prompt-time cache hints have been replaced by cache-first execution telemetry.
-  cacheHints?: ActionCacheEntry[];
   error?: string;
 }
 
@@ -478,8 +468,6 @@ export interface RunTaskInput {
   cacheConfig: ExecutionCacheConfig;
   usagePhase?: AiUsagePhase;
   systemPrompt?: string;
-  // Deprecated: prompt-time cache hints have been replaced by cache-first execution telemetry.
-  cacheHints?: ActionCacheEntry[];
 }
 
 export interface AutomationRunner {

@@ -2,9 +2,12 @@ node_modules/
 .pnpm-store/
 .env
 .env.*
+!.env.example
 *.log
 dist/
 coverage/
 results/runs/
 results/reports/
+results/*/runs/
+results/*/reports/
 .tmp/
