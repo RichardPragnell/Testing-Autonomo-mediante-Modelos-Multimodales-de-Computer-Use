@@ -68,7 +68,7 @@ Self-heal:
 pnpm bench heal todo-react
 ```
 
-The CLI now stays intentionally narrow: it only starts runs. Inspect the generated JSON and HTML files directly under `results/<experiment>/reports`.
+The CLI now stays intentionally narrow: it only starts runs. While a run is active it streams progress logs to the terminal, and the final JSON summary remains on stdout. Inspect the generated JSON and HTML files directly under `results/<experiment>/reports`.
 
 ## Notes
 

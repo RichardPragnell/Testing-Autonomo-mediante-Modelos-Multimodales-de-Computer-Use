@@ -1,20 +1,26 @@
-default_model: google/gemini-2.5-flash
+default_model: mistralai/mistral-small-3.2-24b-instruct
 models:
-  - id: google/gemini-2.5-flash
+  - id: mistralai/mistral-small-3.2-24b-instruct
+    provider: mistralai
+    enabled: true
+  - id: qwen/qwen3.5-flash-02-23
+    provider: qwen
+    enabled: true
+  - id: google/gemini-2.5-flash-lite
     provider: google
     enabled: true
-  - id: google/gemini-2.5-pro
+  - id: google/gemini-3-flash-preview
     provider: google
     enabled: true
-  - id: openai/gpt-4o
-    provider: openai
+  - id: moonshotai/kimi-k2.5
+    provider: moonshotai
     enabled: true
-  - id: openai/gpt-4o-mini
-    provider: openai
+  - id: openrouter/free
+    provider: openrouter
     enabled: true
-  - id: anthropic/claude-3.7-sonnet
-    provider: anthropic
+  - id: mistralai/mistral-small-3.1-24b-instruct:free
+    provider: mistralai
     enabled: true
-  - id: anthropic/claude-3.5-haiku
-    provider: anthropic
+  - id: google/gemma-3n-e2b-it:free
+    provider: google
     enabled: true

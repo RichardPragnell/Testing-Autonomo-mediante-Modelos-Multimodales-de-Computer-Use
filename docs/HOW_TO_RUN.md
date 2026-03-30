@@ -123,12 +123,13 @@ Each run should produce:
 
 The CLI prints:
 
+- live progress logs to the terminal while the run is active
 - `runId`
 - `artifactPath`
 - `reportPath`
 - `htmlPath`
 
-Use those output paths directly. The CLI no longer provides separate `report` or `compare` commands.
+Use those output paths directly. The live progress logs are for humans; the final JSON summary remains the machine-readable output. The CLI no longer provides separate `report` or `compare` commands.
 
 ## 10. Common Local Workflow
 

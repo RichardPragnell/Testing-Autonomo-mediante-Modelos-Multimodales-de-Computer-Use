@@ -1,4 +1,7 @@
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import {
+  OpenAICompatibleChatLanguageModel,
+  type MetadataExtractor
+} from "@ai-sdk/openai-compatible";
 import type { AiOperation, AiUsagePhase, AiUsageRecord } from "../types.js";
 import { nowIso } from "../utils/time.js";
 
@@ -100,11 +103,20 @@ function buildProviderMetadata(parsedBody: unknown): OpenRouterProviderMetadata 
   return metadata;
 }
 
-function createOpenRouterMetadataExtractor(): any {
+function toSharedProviderMetadata(
+  metadata: OpenRouterProviderMetadata | undefined
+): Awaited<ReturnType<MetadataExtractor["extractMetadata"]>> {
+  return metadata
+    ? ({
+        openrouter: metadata as unknown as Record<string, unknown>
+      } as Awaited<ReturnType<MetadataExtractor["extractMetadata"]>>)
+    : undefined;
+}
+
+function createOpenRouterMetadataExtractor(): MetadataExtractor {
   return {
-    extractMetadata: ({ parsedBody }: { parsedBody: unknown }) => {
-      const metadata = buildProviderMetadata(parsedBody);
-      return metadata ? { openrouter: metadata } : {};
+    extractMetadata: async ({ parsedBody }: { parsedBody: unknown }) => {
+      return toSharedProviderMetadata(buildProviderMetadata(parsedBody));
     },
     createStreamExtractor: () => {
       let latestBody: unknown;
@@ -115,8 +127,7 @@ function createOpenRouterMetadataExtractor(): any {
           }
         },
         buildMetadata: () => {
-          const metadata = buildProviderMetadata(latestBody);
-          return metadata ? { openrouter: metadata } : {};
+          return toSharedProviderMetadata(buildProviderMetadata(latestBody));
         }
       };
     }
@@ -124,16 +135,20 @@ function createOpenRouterMetadataExtractor(): any {
 }
 
 export function createOpenRouterLanguageModel(modelId: string, env: NodeJS.ProcessEnv = process.env): any {
-  const provider = createOpenAICompatible({
-    name: "openrouter",
-    apiKey: env.OPENROUTER_API_KEY,
-    baseURL: resolveOpenRouterBaseUrl(env),
+  const baseURL = resolveOpenRouterBaseUrl(env).replace(/\/$/, "");
+  const headers: Record<string, string> = {};
+  if (env.OPENROUTER_API_KEY?.trim()) {
+    headers.Authorization = `Bearer ${env.OPENROUTER_API_KEY}`;
+  }
+
+  return new OpenAICompatibleChatLanguageModel(modelId, {
+    provider: "openrouter.chat",
+    url: ({ path }) => `${baseURL}${path}`,
+    headers: () => headers,
     includeUsage: true,
     supportsStructuredOutputs: true,
     metadataExtractor: createOpenRouterMetadataExtractor()
   });
-
-  return provider(modelId);
 }
 
 function usageFromSdkResult(result: any): OpenRouterUsageDetails {

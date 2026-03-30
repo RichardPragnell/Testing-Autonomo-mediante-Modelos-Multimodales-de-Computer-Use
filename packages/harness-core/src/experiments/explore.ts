@@ -20,7 +20,16 @@ import {
   buildAggregateLeaderboard,
   persistComparisonReport
 } from "./comparison.js";
-import { buildResolvedSuite, executeGuidedTasks, resolveExperimentRoot, round, summarizeTaskRuns, unique } from "./common.js";
+import {
+  buildResolvedSuite,
+  emitExperimentLog,
+  executeGuidedTasks,
+  formatDurationMs,
+  resolveExperimentRoot,
+  round,
+  summarizeTaskRuns,
+  unique
+} from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSource, formatCostSummary } from "./report-utils.js";
 import { computeExploreScore } from "./scoring.js";
@@ -41,6 +50,7 @@ import type {
   ExploreRunResult,
   ExploreTrialArtifact
 } from "./types.js";
+import type { ExperimentLogFn } from "./types.js";
 
 const explorePresetSchema = z
   .object({
@@ -72,6 +82,7 @@ export interface RunExploreExperimentInput {
   trials?: number;
   resultsDir?: string;
   runner?: AutomationRunner;
+  onLog?: ExperimentLogFn;
 }
 
 async function loadExplorePreset(pathLike?: string): Promise<z.infer<typeof explorePresetSchema>> {
@@ -350,6 +361,7 @@ function computeModelMetrics(summaryInput: {
 
 export async function runExploreExperiment(input: RunExploreExperimentInput): Promise<ExploreRunResult> {
   await loadProjectEnv();
+  const runStartedAtMs = Date.now();
 
   const preset = await loadExplorePreset(input.presetPath);
   const benchmark = await loadAppBenchmark(input.appId);
@@ -380,6 +392,10 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
 
   const runId = `explore-${input.appId}-${Date.now()}`;
   const startedAt = nowIso();
+  emitExperimentLog(
+    input.onLog,
+    `[explore] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.probeTaskIds.length} probe task(s)`
+  );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
     taskIds: spec.probeTaskIds,
@@ -408,8 +424,12 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const modelSummaries: ExploreModelSummary[] = [];
 
   try {
-    for (const model of models) {
+    for (const [modelIndex, model] of models.entries()) {
       if (!model.available) {
+        emitExperimentLog(
+          input.onLog,
+          `[explore] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
+        );
         modelSummaries.push({
           model,
           metrics: zeroMetrics(model),
@@ -421,6 +441,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
       const trials: ExploreTrialArtifact[] = [];
       const probeTaskRuns: ExploreProbeRun["taskRun"][] = [];
       const explorationPrompt = resolvedSuite.prompts.autonomous ?? spec.promptId;
+      emitExperimentLog(input.onLog, `[explore] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
       const exploreCacheConfig = await resolveExecutionCacheConfig({
         resultsDir,
         targetId: input.appId,
@@ -434,6 +455,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
       });
 
       for (let trial = 1; trial <= spec.trials; trial += 1) {
+        emitExperimentLog(input.onLog, `[explore] Trial ${trial}/${spec.trials} for ${model.id}: autonomous exploration started`);
         const explorationArtifact = await runner.exploreTarget({
           model,
           trial,
@@ -451,6 +473,10 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           workspacePath: workspace.workspacePath
         });
         await persistRunExplorationArtifacts(resultsRoot, runId, explorationArtifact);
+        emitExperimentLog(
+          input.onLog,
+          `[explore] Trial ${trial}/${spec.trials} for ${model.id}: exploration captured ${explorationArtifact.summary.statesDiscovered} state(s), ${explorationArtifact.summary.transitionsDiscovered} transition(s), ${explorationArtifact.summary.actionsCached} action(s)`
+        );
 
         const capabilityDiscovery: ExploreCapabilityDiscovery[] = capabilityIds.map((capabilityId) => {
           const capability = benchmark.capabilityMap.get(capabilityId)!;
@@ -472,6 +498,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           };
         });
 
+        emitExperimentLog(input.onLog, `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay started`);
         const probeExecution = await executeGuidedTasks({
           runId,
           resultsRoot,
@@ -482,10 +509,17 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           trial,
           usagePhase: "probe_replay",
           systemPrompt: resolvedSuite.prompts.guided,
-          taskIds: spec.probeTaskIds
+          taskIds: spec.probeTaskIds,
+          onLog: input.onLog,
+          taskLabel: `[explore][${model.id}][trial ${trial}] probe task`
         });
         probeTaskRuns.push(...probeExecution.taskRuns);
         const probeSummary = summarizeTaskRuns(probeExecution.taskRuns);
+        const passedProbeTasks = probeExecution.taskRuns.filter((taskRun) => taskRun.success).length;
+        emitExperimentLog(
+          input.onLog,
+          `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay completed with ${passedProbeTasks}/${probeExecution.taskRuns.length} task(s) passing`
+        );
         const probeRuns: ExploreProbeRun[] = probeExecution.taskRuns.map((taskRun) => ({
           trial,
           taskId: taskRun.taskId,
@@ -510,16 +544,21 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
         });
       }
 
+      const metrics = computeModelMetrics({
+        model,
+        trials,
+        heuristicTargets: spec.heuristicTargets
+      });
       modelSummaries.push({
         model,
-        metrics: computeModelMetrics({
-          model,
-          trials,
-          heuristicTargets: spec.heuristicTargets
-        }),
+        metrics,
         probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
         trials
       });
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, discovery ${(metrics.capabilityDiscoveryRate * 100).toFixed(1)}%, probe replay ${(metrics.probeReplayPassRate * 100).toFixed(1)}%`
+      );
     }
   } finally {
     await autHandle?.stop();
@@ -535,7 +574,12 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
     modelSummaries
   };
 
-  return persistExploreOutput(resultsRoot, artifact, buildReport(artifact));
+  const output = await persistExploreOutput(resultsRoot, artifact, buildReport(artifact));
+  emitExperimentLog(
+    input.onLog,
+    `[explore] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`
+  );
+  return output;
 }
 
 export async function getExploreReport(runId: string, resultsDir = "results"): Promise<ExploreReport> {

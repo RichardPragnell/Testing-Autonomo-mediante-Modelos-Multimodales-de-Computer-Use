@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "instruction": "Goal: Open the app and verify the page title Todo Bench is visible.\nTake exactly one next UI action toward the goal. Do not explain. Step 1.",
+  "url": "http://127.0.0.1:3101/",
+  "variableKeys": [],
+  "actions": [
+    {
+      "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[1]/h1[1]",
+      "description": "The heading 'Todo Bench' which serves as the page title to verify visibility.",
+      "method": "scrollTo",
+      "arguments": [
+        "0%"
+      ]
+    }
+  ],
+  "actionDescription": "The heading 'Todo Bench' which serves as the page title to verify visibility.",
+  "message": "Action [scrollTo] performed successfully on selector: xpath=/html[1]/body[1]/div[1]/main[1]/section[1]/h1[1]"
+}

@@ -187,10 +187,12 @@ export interface BenchmarkSuite {
   models?: string[];
   explorationMode: ExplorationMode;
   promptIds?: SuitePromptIds;
+  profile?: "fast" | "full";
   trials: number;
   timeoutMs: number;
   retryCount: number;
   maxSteps: number;
+  maxOutputTokens?: number;
   viewport: {
     width: number;
     height: number;
@@ -450,9 +452,11 @@ export interface CoverageGraphSnapshot {
 }
 
 export interface StagehandRunConfig {
+  profile?: "fast" | "full";
   timeoutMs: number;
   retryCount: number;
   maxSteps: number;
+  maxOutputTokens?: number;
   viewport: {
     width: number;
     height: number;

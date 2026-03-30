@@ -13,6 +13,8 @@ import type {
 } from "../types.js";
 
 export type ExperimentKind = "qa" | "explore" | "heal";
+export type ExperimentLogFn = (message: string) => void;
+export type QaExecutionProfile = "fast" | "full";
 
 export interface CapabilityDefinition {
   capabilityId: string;
@@ -81,9 +83,11 @@ export interface ResolvedAppBenchmark {
 }
 
 export interface ExperimentRuntime {
+  profile?: QaExecutionProfile;
   timeoutMs: number;
   retryCount: number;
   maxSteps: number;
+  maxOutputTokens?: number;
   viewport: {
     width: number;
     height: number;
@@ -94,8 +98,9 @@ export interface QaExperimentSpec {
   appId: string;
   capabilityIds: string[];
   taskIds: string[];
-  models?: string[];
+  models: string[];
   promptId: string;
+  profile: QaExecutionProfile;
   trials: number;
   runtime: ExperimentRuntime;
   resultsDir: string;

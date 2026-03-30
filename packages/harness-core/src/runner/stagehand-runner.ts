@@ -215,7 +215,8 @@ function buildStagehandConfig(
       modelId: input.model.id,
       provider: input.model.provider,
       phase: input.usagePhase,
-      usageSink: input.usageSink
+      usageSink: input.usageSink,
+      defaultMaxOutputTokens: input.runConfig.maxOutputTokens
     })
   };
 
@@ -414,6 +415,183 @@ function buildExplorationObserveInstruction(prompt: string): string {
   return `Exploration goal: ${prompt}\nFind the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.`;
 }
 
+function buildGuidedStepInstruction(taskInstruction: string, step: number): string {
+  return `Goal: ${taskInstruction}\nTake exactly one next UI action toward the goal. Do not explain. Step ${step + 1}.`;
+}
+
+function shouldAbortGuidedLoop(input: {
+  unchangedStateCount: number;
+  unchangedUrlCount: number;
+}): boolean {
+  return input.unchangedStateCount >= 2 || input.unchangedUrlCount >= 2;
+}
+
+interface GuidedAttemptResult {
+  assertion: Awaited<ReturnType<typeof evaluateExpectation>>;
+  executionMode: CacheMode;
+  executionResult?: unknown;
+  pageSnapshot: Awaited<ReturnType<typeof snapshotPage>>;
+}
+
+export async function executeGuidedStepLoop(input: {
+  stagehand: any;
+  page: any;
+  task: RunTaskInput["task"];
+  autUrl: string;
+  runConfig: RunTaskInput["runConfig"];
+  trace: TaskRunResult["trace"];
+  cacheNamespace: string;
+}): Promise<GuidedAttemptResult> {
+  const initialAssertion = await evaluateExpectation(input.page, input.task.expected);
+  const initialSnapshot = await snapshotPage(input.page);
+  if (initialAssertion.success) {
+    return {
+      assertion: initialAssertion,
+      executionMode: "act_native",
+      pageSnapshot: initialSnapshot
+    };
+  }
+
+  let previousFingerprint = fingerprintState({
+    url: initialSnapshot.url || input.autUrl,
+    domSnapshot: initialSnapshot.domSnapshot,
+    screenshotBase64: initialSnapshot.screenshotBase64
+  });
+  let previousUrl = initialSnapshot.url || input.autUrl;
+  let latestAssertion = initialAssertion;
+  let latestSnapshot = initialSnapshot;
+  let unchangedStateCount = 0;
+  let unchangedUrlCount = 0;
+
+  if (typeof input.stagehand.act !== "function") {
+    throw new Error("stagehand act not available");
+  }
+
+  for (let step = 0; step < input.runConfig.maxSteps; step += 1) {
+    const instruction = buildGuidedStepInstruction(input.task.instruction, step);
+    await input.stagehand.act(instruction);
+    input.trace.push({
+      timestamp: nowIso(),
+      action: "act",
+      details: {
+        instruction,
+        step: step + 1,
+        cacheNamespace: input.cacheNamespace
+      }
+    });
+
+    latestAssertion = await evaluateExpectation(input.page, input.task.expected);
+    latestSnapshot = await snapshotPage(input.page);
+    const nextUrl = latestSnapshot.url || input.autUrl;
+    const nextFingerprint = fingerprintState({
+      url: nextUrl,
+      domSnapshot: latestSnapshot.domSnapshot,
+      screenshotBase64: latestSnapshot.screenshotBase64
+    });
+
+    const unchangedState = nextFingerprint.id === previousFingerprint.id;
+    unchangedStateCount = unchangedState ? unchangedStateCount + 1 : 0;
+    unchangedUrlCount = unchangedState && nextUrl === previousUrl ? unchangedUrlCount + 1 : 0;
+
+    if (latestAssertion.success) {
+      return {
+        assertion: latestAssertion,
+        executionMode: "act_native",
+        executionResult: {
+          stepCount: step + 1
+        },
+        pageSnapshot: latestSnapshot
+      };
+    }
+
+    if (shouldAbortGuidedLoop({ unchangedStateCount, unchangedUrlCount })) {
+      input.trace.push({
+        timestamp: nowIso(),
+        action: "guided.loop_abort",
+        details: {
+          step: step + 1,
+          reason: unchangedStateCount >= 2 ? "same_state_loop" : "same_url_loop",
+          cacheNamespace: input.cacheNamespace
+        }
+      });
+      break;
+    }
+
+    previousFingerprint = nextFingerprint;
+    previousUrl = nextUrl;
+  }
+
+  return {
+    assertion: latestAssertion,
+    executionMode: "act_native",
+    executionResult: {
+      exhausted: true
+    },
+    pageSnapshot: latestSnapshot
+  };
+}
+
+export async function executeGuidedTaskAttempt(input: {
+  stagehand: any;
+  page: any;
+  modelId: string;
+  systemPrompt?: string;
+  task: RunTaskInput["task"];
+  autUrl: string;
+  runConfig: RunTaskInput["runConfig"];
+  trace: TaskRunResult["trace"];
+  cacheNamespace: string;
+  allowAgentFallback: boolean;
+}): Promise<GuidedAttemptResult> {
+  const stepLoopResult = await executeGuidedStepLoop({
+    stagehand: input.stagehand,
+    page: input.page,
+    task: input.task,
+    autUrl: input.autUrl,
+    runConfig: input.runConfig,
+    trace: input.trace,
+    cacheNamespace: input.cacheNamespace
+  });
+
+  if (stepLoopResult.assertion.success || !input.allowAgentFallback) {
+    return stepLoopResult;
+  }
+
+  const agent =
+    typeof input.stagehand.agent === "function"
+      ? input.stagehand.agent({
+          model: input.modelId,
+          mode: "dom",
+          systemPrompt: input.systemPrompt
+        })
+      : undefined;
+
+  if (!agent?.execute) {
+    return stepLoopResult;
+  }
+
+  const executionResult = await agent.execute({
+    instruction: input.task.instruction,
+    maxSteps: input.runConfig.maxSteps
+  });
+  input.trace.push({
+    timestamp: nowIso(),
+    action: "agent.execute",
+    details: {
+      instruction: input.task.instruction,
+      maxSteps: input.runConfig.maxSteps,
+      cacheNamespace: input.cacheNamespace
+    }
+  });
+
+  return {
+    assertion: await evaluateExpectation(input.page, input.task.expected),
+    executionMode: "agent_native",
+    executionResult,
+    pageSnapshot: await snapshotPage(input.page)
+  };
+}
+
 function pickReplacementAction(
   previous: ActionCacheEntry,
   refreshedEntries: ActionCacheEntry[]
@@ -497,57 +675,26 @@ export class StagehandAutomationRunner implements AutomationRunner {
           details: { url: input.aut.url, attempt }
         });
 
-        let executionMode: CacheMode = "act_native";
-        let executionResult: any;
-        const agent =
-          typeof stagehand.agent === "function"
-            ? stagehand.agent({
-                model: input.model.id,
-                mode: "dom",
-                systemPrompt: input.systemPrompt
-              })
-            : undefined;
-
-        if (agent?.execute) {
-          executionMode = "agent_native";
-          executionResult = await agent.execute({
-            instruction: input.task.instruction,
-            maxSteps: input.runConfig.maxSteps
-          });
-          trace.push({
-            timestamp: nowIso(),
-            action: "agent.execute",
-            details: {
-              instruction: input.task.instruction,
-              maxSteps: input.runConfig.maxSteps,
-              cacheNamespace: input.cacheConfig.namespace
-            }
-          });
-        } else if (typeof stagehand.act === "function") {
-          executionMode = "act_native";
-          executionResult = await stagehand.act(input.task.instruction);
-          trace.push({
-            timestamp: nowIso(),
-            action: "act",
-            details: {
-              instruction: input.task.instruction,
-              cacheNamespace: input.cacheConfig.namespace
-            }
-          });
-        } else {
-          throw new Error("stagehand execution primitive not available");
-        }
-
-        const assertion = await evaluateExpectation(page, input.task.expected);
-        const pageSnapshot = await snapshotPage(page);
+        const execution = await executeGuidedTaskAttempt({
+          stagehand,
+          page,
+          modelId: input.model.id,
+          systemPrompt: input.systemPrompt,
+          task: input.task,
+          autUrl: input.aut.url,
+          runConfig: input.runConfig,
+          trace,
+          cacheNamespace: input.cacheConfig.namespace,
+          allowAgentFallback: input.runConfig.profile === "full" && attempt === input.runConfig.retryCount
+        });
         const metrics = await readStagehandMetrics(stagehand);
         history = await readStagehandHistory(stagehand);
         const cache = buildGuidedCacheTelemetry({
           cacheConfig: input.cacheConfig,
-          mode: executionMode,
+          mode: execution.executionMode,
           metrics,
           logs: stagehandLogs,
-          executionResult
+          executionResult: execution.executionResult as StagehandExecutionResult | undefined
         });
 
         appendCacheTrace(trace, cache);
@@ -565,15 +712,15 @@ export class StagehandAutomationRunner implements AutomationRunner {
           taskId: input.task.id,
           trial: input.trial,
           modelId: input.model.id,
-          success: assertion.success,
-          message: assertion.message,
+          success: execution.assertion.success,
+          message: execution.assertion.message,
           latencyMs: Date.now() - started,
           costUsd: usageSummary.costUsd,
           usageSummary,
           aiCalls: [...allAiCalls],
-          urlAfter: assertion.urlAfter ?? pageSnapshot.url,
-          screenshotBase64: pageSnapshot.screenshotBase64,
-          domSnapshot: pageSnapshot.domSnapshot,
+          urlAfter: execution.assertion.urlAfter ?? execution.pageSnapshot.url,
+          screenshotBase64: execution.pageSnapshot.screenshotBase64,
+          domSnapshot: execution.pageSnapshot.domSnapshot,
           trace,
           historyEntries: history,
           cache
@@ -584,7 +731,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
         appendHistoryTrace(trace, history);
         const cache = buildGuidedCacheTelemetry({
           cacheConfig: input.cacheConfig,
-          mode: "agent_native",
+          mode: input.runConfig.profile === "full" && attempt === input.runConfig.retryCount ? "agent_native" : "act_native",
           metrics,
           logs: stagehandLogs
         });
@@ -639,7 +786,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
       trace,
       cache: buildGuidedCacheTelemetry({
         cacheConfig: input.cacheConfig,
-        mode: "agent_native",
+        mode: input.runConfig.profile === "full" ? "agent_native" : "act_native",
         metrics: undefined,
         logs: []
       })

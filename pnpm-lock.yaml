@@ -52,8 +52,8 @@ importers:
   packages/harness-core:
     dependencies:
       '@ai-sdk/openai-compatible':
-        specifier: ^2.0.37
-        version: 2.0.37(zod@4.3.6)
+        specifier: ^1.0.34
+        version: 1.0.34(zod@4.3.6)
       '@browserbasehq/stagehand':
         specifier: ^3.2.0
         version: 3.2.0(@cfworker/json-schema@4.1.1)(@opentelemetry/api@1.9.0)(deepmerge@4.3.1)(zod@4.3.6)
@@ -158,12 +158,6 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/openai-compatible@2.0.37':
-    resolution: {integrity: sha512-+POSFVcgiu47BK64dhsI6OpcDC0/VAE2ZSaXdXGNNhpC/ava++uSRJYks0k2bpfY0wwCTgpAWZsXn/dG2Yppiw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
   '@ai-sdk/openai@2.0.98':
     resolution: {integrity: sha512-6BI2lpY0WBuLzwz1bVTVkB4gpupisiN5/bFrud0+gHNhgspYOvh5uLf+7sz/NKvAtRB47WEzlBxwDQwGdIpbQw==}
     engines: {node: '>=18'}
@@ -182,18 +176,8 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@4.0.21':
-    resolution: {integrity: sha512-MtFUYI1/8mgDvRmaBDjbLJPFFrMG777AvSgyIFQtZHIMzm88R/12vYBBpnk7pfiWLFE1DSZzY4WDYzGbKAcmiw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
   '@ai-sdk/provider@2.0.1':
     resolution: {integrity: sha512-KCUwswvsC5VsW2PWFqF8eJgSCu5Ysj7m1TxiHTVA6g7k360bk0RNQENT8KTMAYEs+8fWPD3Uu4dEmzGHc+jGng==}
-    engines: {node: '>=18'}
-
-  '@ai-sdk/provider@3.0.8':
-    resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
     engines: {node: '>=18'}
 
   '@ai-sdk/togetherai@1.0.37':
@@ -2359,13 +2343,6 @@ snapshots:
       '@ai-sdk/provider': 2.0.1
       '@ai-sdk/provider-utils': 3.0.22(zod@4.3.6)
       zod: 4.3.6
-    optional: true
-
-  '@ai-sdk/openai-compatible@2.0.37(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.21(zod@4.3.6)
-      zod: 4.3.6
 
   '@ai-sdk/openai@2.0.98(zod@4.3.6)':
     dependencies:
@@ -2388,18 +2365,7 @@ snapshots:
       eventsource-parser: 3.0.6
       zod: 4.3.6
 
-  '@ai-sdk/provider-utils@4.0.21(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@standard-schema/spec': 1.1.0
-      eventsource-parser: 3.0.6
-      zod: 4.3.6
-
   '@ai-sdk/provider@2.0.1':
-    dependencies:
-      json-schema: 0.4.0
-
-  '@ai-sdk/provider@3.0.8':
     dependencies:
       json-schema: 0.4.0
 

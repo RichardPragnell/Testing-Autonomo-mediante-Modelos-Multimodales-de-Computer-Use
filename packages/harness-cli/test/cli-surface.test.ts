@@ -33,10 +33,14 @@ describe("CLI surface", () => {
     });
 
     expect(stdout).toContain("qa [options] <app>");
+    expect(stdout).toContain("--profile <profile>");
+    expect(stdout).toContain("--models <ids...>");
+    expect(stdout).toContain("--trials <n>");
+    expect(stdout).toContain("--max-steps <n>");
+    expect(stdout).toContain("--timeout-ms <n>");
+    expect(stdout).toContain("--max-output-tokens <n>");
     expect(stdout).not.toContain("--app");
-    expect(stdout).not.toContain("--models");
     expect(stdout).not.toContain("--models-path");
-    expect(stdout).not.toContain("--trials");
     expect(stdout).not.toContain("--results-dir");
     expect(stdout).not.toContain("--preset");
   });

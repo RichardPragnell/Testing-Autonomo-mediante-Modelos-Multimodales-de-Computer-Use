@@ -554,6 +554,7 @@ describe("three experiment flows", () => {
 
     const result = await runQaExperiment({
       appId: "todo-react",
+      profile: "full",
       modelsPath,
       resultsDir: dir,
       trials: 1,
@@ -572,6 +573,104 @@ describe("three experiment flows", () => {
     const compareHtml = await readFile(compare.finalReportPath, "utf8");
     expect(compareHtml).toContain("Guided Mode Comparison");
     expect(compareHtml).toContain("Guided Cost Audit");
+  });
+
+  it("emits progress logs while the QA experiment runs", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qa-logs-"));
+    tempDirs.push(dir);
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+    const logs: string[] = [];
+
+    await runQaExperiment({
+      appId: "todo-react",
+      profile: "full",
+      modelsPath,
+      resultsDir: dir,
+      trials: 1,
+      runner: new MockAutomationRunner(11),
+      onLog: (message) => logs.push(message)
+    });
+
+    expect(logs.some((message) => message.includes("[qa] Starting"))).toBe(true);
+    expect(logs.some((message) => message.includes("guided task 1/"))).toBe(true);
+    expect(logs.some((message) => message.includes("[qa] Completed"))).toBe(true);
+  });
+
+  it("defaults QA to the fast profile and writes incremental progress", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qa-fast-default-"));
+    tempDirs.push(dir);
+    const modelsPath = await writeRegistry(dir, [
+      "mistralai/mistral-small-3.2-24b-instruct",
+      "google/gemini-2.5-flash-lite"
+    ]);
+
+    const result = await runQaExperiment({
+      appId: "todo-react",
+      modelsPath,
+      resultsDir: dir,
+      runner: new MockAutomationRunner(11)
+    });
+
+    expect(result.artifact.spec.profile).toBe("fast");
+    expect(result.artifact.spec.models).toEqual(["mistralai/mistral-small-3.2-24b-instruct"]);
+    expect(result.artifact.spec.trials).toBe(1);
+    expect(result.artifact.spec.runtime.retryCount).toBe(0);
+    expect(result.artifact.spec.runtime.maxSteps).toBe(8);
+    expect(result.artifact.spec.runtime.timeoutMs).toBe(45_000);
+    expect(result.artifact.spec.runtime.maxOutputTokens).toBe(300);
+
+    const progressPath = join(dir, "qa", "runs", result.artifact.runId, "progress.json");
+    const progress = JSON.parse(await readFile(progressPath, "utf8")) as {
+      status: string;
+      currentTaskId?: string;
+      completedTasks: number;
+      totalTasks: number;
+    };
+    expect(progress.status).toBe("completed");
+    expect(progress.completedTasks).toBe(progress.totalTasks);
+  });
+
+  it("uses the enabled registry set for the full QA profile and excludes disabled free models", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qa-full-profile-"));
+    tempDirs.push(dir);
+    const modelsPath = join(dir, "registry.yaml");
+    await writeFile(
+      modelsPath,
+      [
+        "default_model: mistralai/mistral-small-3.2-24b-instruct",
+        "models:",
+        "  - id: mistralai/mistral-small-3.2-24b-instruct",
+        "    provider: mistralai",
+        "    enabled: true",
+        "  - id: qwen/qwen3.5-flash-02-23",
+        "    provider: qwen",
+        "    enabled: true",
+        "  - id: openrouter/free",
+        "    provider: openrouter",
+        "    enabled: false"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const result = await runQaExperiment({
+      appId: "todo-react",
+      profile: "full",
+      modelsPath,
+      resultsDir: dir,
+      trials: 1,
+      runner: new MockAutomationRunner(11)
+    });
+
+    expect(result.artifact.spec.profile).toBe("full");
+    expect(result.artifact.spec.models).toEqual([
+      "mistralai/mistral-small-3.2-24b-instruct",
+      "qwen/qwen3.5-flash-02-23"
+    ]);
+    expect(result.report.modelSummaries.map((summary) => summary.model.id)).toEqual([
+      "mistralai/mistral-small-3.2-24b-instruct",
+      "qwen/qwen3.5-flash-02-23"
+    ]);
+    expect(result.artifact.spec.runtime.maxOutputTokens).toBe(600);
   });
 
   it("runs the exploration experiment and scores coverage", async () => {
@@ -629,6 +728,7 @@ describe("three experiment flows", () => {
 
     const result = await runQaExperiment({
       appId: "todo-react",
+      profile: "full",
       modelsPath,
       resultsDir: dir,
       trials: 1,

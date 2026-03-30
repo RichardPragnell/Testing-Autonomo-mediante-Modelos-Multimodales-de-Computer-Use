@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "instruction": "Goal: Add a new task called Review benchmark notes and verify it appears in the task list.\nTake exactly one next UI action toward the goal. Do not explain. Step 2.",
+  "url": "http://127.0.0.1:3101/",
+  "variableKeys": [],
+  "actions": [
+    {
+      "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+      "description": "Add task button to submit the new task 'Review benchmark notes' to the list",
+      "method": "click",
+      "arguments": []
+    }
+  ],
+  "actionDescription": "Add task button to submit the new task 'Review benchmark notes' to the list",
+  "message": "Action [click] performed successfully on selector: xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]"
+}

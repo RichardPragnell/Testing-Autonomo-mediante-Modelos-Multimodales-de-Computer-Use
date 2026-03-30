@@ -152,6 +152,7 @@ export function resolveExplorationCompatibility(input: {
   artifact: ExplorationArtifact;
   targetId: string;
   bugIds: string[];
+  modelId: string;
   viewport: {
     width: number;
     height: number;
@@ -174,6 +175,15 @@ export function resolveExplorationCompatibility(input: {
       explorationRunId: input.artifact.explorationRunId,
       compatible: false,
       reason: `bug mismatch: ${normalizedArtifactBugs.join(", ") || "(none)"} != ${normalizedRequestedBugs.join(", ") || "(none)"}`,
+      matchedActions: 0
+    };
+  }
+
+  if (input.artifact.modelId !== input.modelId) {
+    return {
+      explorationRunId: input.artifact.explorationRunId,
+      compatible: false,
+      reason: `model mismatch: ${input.artifact.modelId} != ${input.modelId}`,
       matchedActions: 0
     };
   }

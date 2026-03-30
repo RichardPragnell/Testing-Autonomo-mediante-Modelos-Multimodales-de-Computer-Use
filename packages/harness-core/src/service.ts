@@ -5,7 +5,13 @@ import { describeBenchmarkTarget, listBenchmarkTargets } from "./config/target.j
 import { loadProjectEnv } from "./env/load.js";
 import { loadAppBenchmark } from "./experiments/benchmark.js";
 import { persistComparisonReport } from "./experiments/comparison.js";
-import { buildResolvedSuite, executeGuidedTasks, readCandidateFileSnippets } from "./experiments/common.js";
+import {
+  buildResolvedSuite,
+  emitExperimentLog,
+  executeGuidedTasks,
+  formatDurationMs,
+  readCandidateFileSnippets
+} from "./experiments/common.js";
 import { compareExploreRuns, getExploreReport, runExploreExperiment } from "./experiments/explore.js";
 import { compareHealRuns, getHealReport, runHealExperiment } from "./experiments/heal.js";
 import { compareQaRuns, getQaReport, runQaExperiment } from "./experiments/qa.js";
@@ -13,6 +19,7 @@ import type {
   AppBenchmarkManifest,
   BenchmarkComparisonReport,
   CompareResult,
+  ExperimentLogFn,
   ExploreReport,
   HealReport,
   QaReport
@@ -122,6 +129,7 @@ export interface RunBenchmarkSuiteInput {
   exploreRunner?: AutomationRunner;
   healRunner?: AutomationRunner;
   repairClient?: RepairModelClient;
+  onLog?: ExperimentLogFn;
 }
 
 export interface ExploreTargetInput {
@@ -446,31 +454,44 @@ export async function describeTarget(targetId: string, appsRoot = "apps") {
 
 export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
   await loadProjectEnv();
+  const suiteStartedAtMs = Date.now();
 
   const suite = await resolveSuiteManifest(input.suitePath);
   const resultsDir = input.resultsDir ?? "results";
+  emitExperimentLog(input.onLog, `[suite] Starting benchmark suite for ${suite.appId}`);
   const qa = await runQaExperiment({
     appId: suite.appId,
     modelsPath: input.modelsPath,
     resultsDir,
-    runner: input.qaRunner
+    runner: input.qaRunner,
+    onLog: input.onLog
   });
   const explore = await runExploreExperiment({
     appId: suite.appId,
     modelsPath: input.modelsPath,
     resultsDir,
-    runner: input.exploreRunner
+    runner: input.exploreRunner,
+    onLog: input.onLog
   });
   const heal = await runHealExperiment({
     appId: suite.appId,
     modelsPath: input.modelsPath,
     resultsDir,
     runner: input.healRunner,
-    repairClient: input.repairClient
+    repairClient: input.repairClient,
+    onLog: input.onLog
   });
+  emitExperimentLog(
+    input.onLog,
+    `[suite] Comparing runs ${qa.artifact.runId}, ${explore.artifact.runId}, ${heal.artifact.runId}`
+  );
   const comparison = await compareBenchmarkRuns(
     [qa.artifact.runId, explore.artifact.runId, heal.artifact.runId],
     resultsDir
+  );
+  emitExperimentLog(
+    input.onLog,
+    `[suite] Completed benchmark suite for ${suite.appId} in ${formatDurationMs(Date.now() - suiteStartedAtMs)}. Final report: ${comparison.finalReportPath}`
   );
 
   return {
@@ -689,6 +710,7 @@ export async function runGuided(input: RunGuidedInput) {
         artifact: located.artifact,
         targetId: input.targetId,
         bugIds,
+        modelId: model.id,
         viewport: runtime.viewport
       });
     }

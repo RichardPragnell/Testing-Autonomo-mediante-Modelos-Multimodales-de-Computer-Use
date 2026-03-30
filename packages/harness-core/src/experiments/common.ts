@@ -13,6 +13,7 @@ import { nowIso } from "../utils/time.js";
 import { resolveWorkspacePath } from "../utils/fs.js";
 import type {
   CapabilityDefinition,
+  ExperimentLogFn,
   ExperimentKind,
   ExperimentRuntime,
   RepairPromptContext,
@@ -36,6 +37,47 @@ function std(values: number[]): number {
 
 export function round(value: number, digits = 6): number {
   return Number(value.toFixed(digits));
+}
+
+function truncateLogText(value: string, maxLength = 160): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+export function formatDurationMs(durationMs: number): string {
+  if (durationMs < 1_000) {
+    return `${Math.round(durationMs)}ms`;
+  }
+  if (durationMs < 60_000) {
+    return `${(durationMs / 1_000).toFixed(1)}s`;
+  }
+
+  const minutes = Math.floor(durationMs / 60_000);
+  const seconds = ((durationMs % 60_000) / 1_000).toFixed(1);
+  return `${minutes}m ${seconds}s`;
+}
+
+export function emitExperimentLog(onLog: ExperimentLogFn | undefined, message: string): void {
+  if (!onLog) {
+    return;
+  }
+
+  try {
+    onLog(message);
+  } catch {
+    // Logging must never break benchmark execution.
+  }
+}
+
+function describeTaskResult(result: TaskRunResult): string {
+  const status = result.success ? "passed" : "failed";
+  const cache = result.cache?.status ? `, cache ${result.cache.status}` : "";
+  const detailSource = result.success ? result.message : result.error ?? result.message;
+  const detail = detailSource ? `, ${truncateLogText(detailSource)}` : "";
+  return `${status} in ${formatDurationMs(result.latencyMs)}${cache}${detail}`;
 }
 
 export function clamp(value: number, min = 0, max = 1): number {
@@ -119,10 +161,12 @@ export async function buildResolvedSuite(input: {
       bugIds: input.bugIds,
       explorationMode: input.explorationMode,
       promptIds: input.promptIds,
+      profile: input.runtime.profile,
       trials: 1,
       timeoutMs: input.runtime.timeoutMs,
       retryCount: input.runtime.retryCount,
       maxSteps: input.runtime.maxSteps,
+      maxOutputTokens: input.runtime.maxOutputTokens,
       viewport: input.runtime.viewport,
       seed: 1,
       resultsDir: input.resultsDir
@@ -162,6 +206,14 @@ export async function executeGuidedTasks(input: {
   includeBugHints?: boolean;
   taskIds?: string[];
   usagePhase?: AiUsagePhase;
+  onLog?: ExperimentLogFn;
+  taskLabel?: string;
+  onTaskRunComplete?: (event: {
+    taskIndex: number;
+    totalTasks: number;
+    taskId: string;
+    result: TaskRunResult;
+  }) => Promise<void> | void;
 }): Promise<{
   taskRuns: TaskRunResult[];
   findings: Finding[];
@@ -169,6 +221,7 @@ export async function executeGuidedTasks(input: {
   const taskRuns: TaskRunResult[] = [];
   const findings: Finding[] = [];
   const selectedTaskIds = input.taskIds ? new Set(input.taskIds) : undefined;
+  const selectedTasks = input.resolvedSuite.tasks.filter((task) => !selectedTaskIds || selectedTaskIds.has(task.id));
   const cacheConfig = await resolveExecutionCacheConfig({
     resultsDir: input.resolvedSuite.suite.resultsDir,
     targetId: input.resolvedSuite.suite.targetId,
@@ -181,19 +234,20 @@ export async function executeGuidedTasks(input: {
     })
   });
 
-  for (const task of input.resolvedSuite.tasks) {
-    if (selectedTaskIds && !selectedTaskIds.has(task.id)) {
-      continue;
-    }
+  for (const [taskIndex, task] of selectedTasks.entries()) {
+    const taskLabel = input.taskLabel ?? "task";
+    emitExperimentLog(input.onLog, `${taskLabel} ${taskIndex + 1}/${selectedTasks.length} (${task.id}) started`);
     const result = await input.runner.runTask({
       model: input.model,
       task,
       trial: input.trial,
       aut: input.workspace.aut,
       runConfig: {
+        profile: input.resolvedSuite.suite.profile,
         timeoutMs: input.resolvedSuite.suite.timeoutMs,
         retryCount: input.resolvedSuite.suite.retryCount,
         maxSteps: input.resolvedSuite.suite.maxSteps,
+        maxOutputTokens: input.resolvedSuite.suite.maxOutputTokens,
         viewport: input.resolvedSuite.suite.viewport
       },
       cacheConfig,
@@ -201,6 +255,16 @@ export async function executeGuidedTasks(input: {
       systemPrompt: input.systemPrompt,
     });
     taskRuns.push(result);
+    await input.onTaskRunComplete?.({
+      taskIndex,
+      totalTasks: selectedTasks.length,
+      taskId: task.id,
+      result
+    });
+    emitExperimentLog(
+      input.onLog,
+      `${taskLabel} ${taskIndex + 1}/${selectedTasks.length} (${task.id}) ${describeTaskResult(result)}`
+    );
 
     if (!input.includeFindings || result.success) {
       continue;

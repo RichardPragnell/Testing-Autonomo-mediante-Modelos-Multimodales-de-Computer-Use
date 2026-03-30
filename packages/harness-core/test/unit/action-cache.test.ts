@@ -113,10 +113,52 @@ describe("action cache", () => {
       },
       targetId: "todo-react",
       bugIds: [],
+      modelId: "mock/model",
       viewport: { width: 1280, height: 720 }
     });
 
     expect(compatibility.compatible).toBe(false);
     expect(compatibility.reason).toContain("bug mismatch");
+  });
+
+  it("rejects exploration artifacts produced by a different model", () => {
+    const compatibility = resolveExplorationCompatibility({
+      artifact: {
+        explorationRunId: "explore-2",
+        targetId: "todo-react",
+        bugIds: [],
+        modelId: "qwen/qwen3.5-flash-02-23",
+        trial: 1,
+        prompt: "Explore",
+        workspacePath: "/tmp/workspace",
+        startedAt: "2026-03-08T00:00:00.000Z",
+        finishedAt: "2026-03-08T00:00:01.000Z",
+        compatibility: {
+          targetId: "todo-react",
+          bugIds: [],
+          viewport: { width: 1280, height: 720 }
+        },
+        history: [],
+        pages: [],
+        coverageGraph: { nodes: [], edges: [] },
+        observeCache: [],
+        actionCache: [],
+        trace: [],
+        summary: {
+          statesDiscovered: 0,
+          transitionsDiscovered: 0,
+          actionsCached: 0,
+          observeCacheEntries: 0,
+          historyEntries: 0
+        }
+      },
+      targetId: "todo-react",
+      bugIds: [],
+      modelId: "mistralai/mistral-small-3.2-24b-instruct",
+      viewport: { width: 1280, height: 720 }
+    });
+
+    expect(compatibility.compatible).toBe(false);
+    expect(compatibility.reason).toContain("model mismatch");
   });
 });

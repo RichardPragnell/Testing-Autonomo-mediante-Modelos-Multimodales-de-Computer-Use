@@ -4,7 +4,9 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "tsc -p tsconfig.json --noEmit",
@@ -12,7 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/openai-compatible": "^2.0.37",
+    "@ai-sdk/openai-compatible": "^1.0.34",
     "@browserbasehq/stagehand": "^3.2.0",
     "ai": "^5.0.150",
     "yaml": "^2.6.1",

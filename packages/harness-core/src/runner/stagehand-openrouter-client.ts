@@ -77,13 +77,42 @@ interface StagehandOpenRouterTrackingClientOptions {
   provider: string;
   phase: AiUsagePhase;
   usageSink: AiUsageRecord[];
+  defaultMaxOutputTokens?: number;
   env?: NodeJS.ProcessEnv;
+}
+
+function toOptionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function buildGenerationOptions(
+  base: {
+    model: any;
+    messages: ReturnType<typeof formatMessages>;
+  },
+  options: any,
+  defaultMaxOutputTokens?: number
+) {
+  const maxOutputTokens =
+    toOptionalNumber(options.maxOutputTokens) ??
+    toOptionalNumber(options.max_tokens) ??
+    defaultMaxOutputTokens;
+
+  return {
+    ...base,
+    maxOutputTokens,
+    temperature: options.temperature,
+    topP: options.top_p,
+    frequencyPenalty: options.frequency_penalty,
+    presencePenalty: options.presence_penalty
+  };
 }
 
 export class StagehandOpenRouterTrackingClient extends LLMClient {
   override type: string;
   override hasVision = true;
   private readonly model: any;
+  private readonly defaultMaxOutputTokens?: number;
   private readonly phase: AiUsagePhase;
   private readonly requestedProvider: string;
   private readonly usageSink: AiUsageRecord[];
@@ -94,6 +123,7 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
     this.phase = options.phase;
     this.requestedProvider = options.provider;
     this.usageSink = options.usageSink;
+    this.defaultMaxOutputTokens = options.defaultMaxOutputTokens;
     this.model = createOpenRouterLanguageModel(options.modelId, options.env ?? process.env);
   }
 
@@ -116,7 +146,13 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
 
   override generateText = async (options: any): Promise<any> => {
     const startedAt = Date.now();
-    const result = await generateText(options);
+    const result = await generateText({
+      ...options,
+      maxOutputTokens:
+        toOptionalNumber(options?.maxOutputTokens) ??
+        toOptionalNumber(options?.max_tokens) ??
+        this.defaultMaxOutputTokens
+    });
     await this.recordUsage(result, "agent", startedAt);
     return result;
   };
@@ -131,8 +167,14 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
 
     if (options.response_model) {
       const response = await generateObject({
-        model: this.model,
-        messages,
+        ...buildGenerationOptions(
+          {
+            model: this.model,
+            messages
+          },
+          options,
+          this.defaultMaxOutputTokens
+        ),
         schema: options.response_model.schema
       });
       await this.recordUsage(response, operation, startedAt);
@@ -157,8 +199,14 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
     }
 
     const response = await generateText({
-      model: this.model,
-      messages,
+      ...buildGenerationOptions(
+        {
+          model: this.model,
+          messages
+        },
+        options,
+        this.defaultMaxOutputTokens
+      ),
       tools
     });
     await this.recordUsage(response, operation, startedAt);
