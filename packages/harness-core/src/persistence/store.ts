@@ -7,6 +7,10 @@ export function runDirectory(resultsRoot: string, runId: string): string {
   return join(resultsRoot, "runs", runId);
 }
 
+function safePathSegment(value: string): string {
+  return value.replace(/[<>:"/\\|?*\x00-\x1F]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "") || "artifact";
+}
+
 async function persistExplorationFiles(baseDir: string, artifact: ExplorationArtifact): Promise<string> {
   await ensureDir(baseDir);
   const artifactPath = join(baseDir, "exploration.json");
@@ -29,7 +33,12 @@ export async function persistTaskArtifacts(
   modelId: string,
   run: TaskRunResult
 ): Promise<DiagnosisArtifacts> {
-  const baseDir = join(runDirectory(resultsRoot, runId), "artifacts", modelId, `${run.taskId}__trial_${run.trial}`);
+  const baseDir = join(
+    runDirectory(resultsRoot, runId),
+    "artifacts",
+    safePathSegment(modelId),
+    `${safePathSegment(run.taskId)}__trial_${run.trial}`
+  );
   await ensureDir(baseDir);
 
   const artifacts: DiagnosisArtifacts = {};
@@ -54,6 +63,11 @@ export async function persistRunExplorationArtifacts(
   runId: string,
   artifact: ExplorationArtifact
 ): Promise<string> {
-  const baseDir = join(runDirectory(resultsRoot, runId), "exploration", artifact.modelId, `trial_${artifact.trial}`);
+  const baseDir = join(
+    runDirectory(resultsRoot, runId),
+    "exploration",
+    safePathSegment(artifact.modelId),
+    `trial_${artifact.trial}`
+  );
   return persistExplorationFiles(baseDir, artifact);
 }

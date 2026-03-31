@@ -53,22 +53,23 @@ describe("model registry", () => {
     expect(available[2].available).toBe(true);
   });
 
-  it("ships the refreshed default registry with cheap computer-use defaults and disabled dev models", async () => {
+  it("ships the default registry with only free models enabled", async () => {
     const repoRoot = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))));
     const registry = await loadModelRegistry(join(repoRoot, "experiments", "models", "registry.yaml"));
 
-    expect(registry.defaultModel).toBe("mistralai/mistral-small-3.2-24b-instruct");
+    expect(registry.defaultModel).toBe("google/gemma-3-27b-it:free");
     expect(registry.models.filter((model) => model.enabled).map((model) => model.id)).toEqual([
-      "mistralai/mistral-small-3.2-24b-instruct",
-      "qwen/qwen3.5-flash-02-23",
-      "google/gemini-2.5-flash-lite"
+      "minimax/minimax-m2.5:free",
+      "google/gemma-3-27b-it:free"
     ]);
     expect(registry.models.filter((model) => !model.enabled).map((model) => model.id)).toEqual([
+      "deepseek/deepseek-v3.2",
+      "mistralai/mistral-small-3.2-24b-instruct",
+      "qwen/qwen3.5-flash-02-23",
+      "google/gemini-2.5-flash-lite",
       "google/gemini-3-flash-preview",
       "moonshotai/kimi-k2.5",
-      "openrouter/free",
-      "mistralai/mistral-small-3.1-24b-instruct:free",
-      "google/gemma-3n-e2b-it:free"
+      "z-ai/glm-5-turbo"
     ]);
   });
 });

@@ -371,7 +371,8 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const resultsRoot = await resolveExperimentRoot(resultsDir, "explore");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels = input.models ?? preset.models;
+  const requestedModels =
+    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: ExploreExperimentSpec = {
     appId: input.appId,
@@ -410,100 +411,122 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
     }
   });
 
-  const workspace = await prepareRunWorkspace({
-    resolvedSuite,
-    runId,
-    resultsRoot
-  });
   const runner = input.runner ?? new StagehandAutomationRunner();
   if (typeof runner.exploreTarget !== "function") {
     throw new Error("selected automation runner does not support autonomous exploration");
   }
 
-  const autHandle = await startAut(workspace.aut);
   const modelSummaries: ExploreModelSummary[] = [];
 
-  try {
-    for (const [modelIndex, model] of models.entries()) {
-      if (!model.available) {
-        emitExperimentLog(
-          input.onLog,
-          `[explore] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
-        );
-        modelSummaries.push({
-          model,
-          metrics: zeroMetrics(model),
-          trials: []
-        });
-        continue;
-      }
-
-      const trials: ExploreTrialArtifact[] = [];
-      const probeTaskRuns: ExploreProbeRun["taskRun"][] = [];
-      const explorationPrompt = resolvedSuite.prompts.autonomous ?? spec.promptId;
-      emitExperimentLog(input.onLog, `[explore] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
-      const exploreCacheConfig = await resolveExecutionCacheConfig({
-        resultsDir,
-        targetId: input.appId,
-        bugIds: [],
-        viewport: spec.runtime.viewport,
-        modelId: model.id,
-        configSignature: buildStagehandConfigSignature({
-          executionKind: "explore",
-          instructionPrompt: explorationPrompt
-        })
+  for (const [modelIndex, model] of models.entries()) {
+    if (!model.available) {
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
+      );
+      modelSummaries.push({
+        model,
+        metrics: zeroMetrics(model),
+        trials: []
       });
+      continue;
+    }
 
-      for (let trial = 1; trial <= spec.trials; trial += 1) {
-        emitExperimentLog(input.onLog, `[explore] Trial ${trial}/${spec.trials} for ${model.id}: autonomous exploration started`);
-        const explorationArtifact = await runner.exploreTarget({
+    const trials: ExploreTrialArtifact[] = [];
+    const probeTaskRuns: ExploreProbeRun["taskRun"][] = [];
+    const explorationPrompt = resolvedSuite.prompts.autonomous ?? spec.promptId;
+    const runConfig = {
+      timeoutMs: spec.runtime.timeoutMs,
+      retryCount: spec.runtime.retryCount,
+      maxSteps: spec.runtime.maxSteps,
+      viewport: spec.runtime.viewport
+    };
+    emitExperimentLog(input.onLog, `[explore] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
+    const exploreCacheConfig = await resolveExecutionCacheConfig({
+      resultsDir,
+      targetId: input.appId,
+      bugIds: [],
+      viewport: spec.runtime.viewport,
+      modelId: model.id,
+      configSignature: buildStagehandConfigSignature({
+        executionKind: "explore",
+        instructionPrompt: explorationPrompt
+      })
+    });
+
+    for (let trial = 1; trial <= spec.trials; trial += 1) {
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: autonomous exploration started in a fresh workspace`
+      );
+      const explorationWorkspace = await prepareRunWorkspace({
+        resolvedSuite,
+        runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-explore`,
+        resultsRoot
+      });
+      const explorationAutHandle = await startAut(explorationWorkspace.aut);
+
+      let explorationArtifact;
+      try {
+        explorationArtifact = await runner.exploreTarget({
           model,
           trial,
           targetId: input.appId,
           bugIds: [],
           prompt: explorationPrompt,
-          aut: workspace.aut,
-          runConfig: {
-            timeoutMs: spec.runtime.timeoutMs,
-            retryCount: spec.runtime.retryCount,
-            maxSteps: spec.runtime.maxSteps,
-            viewport: spec.runtime.viewport
-          },
+          aut: explorationWorkspace.aut,
+          runConfig,
           cacheConfig: exploreCacheConfig,
-          workspacePath: workspace.workspacePath
+          workspacePath: explorationWorkspace.workspacePath
         });
-        await persistRunExplorationArtifacts(resultsRoot, runId, explorationArtifact);
-        emitExperimentLog(
-          input.onLog,
-          `[explore] Trial ${trial}/${spec.trials} for ${model.id}: exploration captured ${explorationArtifact.summary.statesDiscovered} state(s), ${explorationArtifact.summary.transitionsDiscovered} transition(s), ${explorationArtifact.summary.actionsCached} action(s)`
+      } finally {
+        await explorationAutHandle?.stop();
+      }
+
+      await persistRunExplorationArtifacts(resultsRoot, runId, explorationArtifact);
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: exploration captured ${explorationArtifact.summary.statesDiscovered} state(s), ${explorationArtifact.summary.transitionsDiscovered} transition(s), ${explorationArtifact.summary.actionsCached} action(s)`
+      );
+
+      const capabilityDiscovery: ExploreCapabilityDiscovery[] = capabilityIds.map((capabilityId) => {
+        const capability = benchmark.capabilityMap.get(capabilityId)!;
+        const matchedActionIds = unique(
+          capability.taskIds.flatMap((taskId) =>
+            matchActionCache({
+              cache: explorationArtifact.actionCache,
+              instruction: benchmark.tasks.get(taskId)?.instruction ?? "",
+              limit: 3
+            }).map((entry) => entry.actionId)
+          )
         );
+        return {
+          capabilityId,
+          title: capability.title,
+          trial,
+          discovered: matchedActionIds.length > 0,
+          matchedActionIds
+        };
+      });
 
-        const capabilityDiscovery: ExploreCapabilityDiscovery[] = capabilityIds.map((capabilityId) => {
-          const capability = benchmark.capabilityMap.get(capabilityId)!;
-          const matchedActionIds = unique(
-            capability.taskIds.flatMap((taskId) =>
-              matchActionCache({
-                cache: explorationArtifact.actionCache,
-                instruction: benchmark.tasks.get(taskId)?.instruction ?? "",
-                limit: 3
-              }).map((entry) => entry.actionId)
-            )
-          );
-          return {
-            capabilityId,
-            title: capability.title,
-            trial,
-            discovered: matchedActionIds.length > 0,
-            matchedActionIds
-          };
-        });
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay started in a fresh workspace`
+      );
+      const probeWorkspace = await prepareRunWorkspace({
+        resolvedSuite,
+        runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-probe`,
+        resultsRoot
+      });
+      const probeAutHandle = await startAut(probeWorkspace.aut);
 
-        emitExperimentLog(input.onLog, `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay started`);
-        const probeExecution = await executeGuidedTasks({
+      let probeExecution;
+      try {
+        probeExecution = await executeGuidedTasks({
           runId,
           resultsRoot,
           resolvedSuite,
-          workspace,
+          workspace: probeWorkspace,
           model,
           runner,
           trial,
@@ -513,55 +536,56 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           onLog: input.onLog,
           taskLabel: `[explore][${model.id}][trial ${trial}] probe task`
         });
-        probeTaskRuns.push(...probeExecution.taskRuns);
-        const probeSummary = summarizeTaskRuns(probeExecution.taskRuns);
-        const passedProbeTasks = probeExecution.taskRuns.filter((taskRun) => taskRun.success).length;
-        emitExperimentLog(
-          input.onLog,
-          `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay completed with ${passedProbeTasks}/${probeExecution.taskRuns.length} task(s) passing`
-        );
-        const probeRuns: ExploreProbeRun[] = probeExecution.taskRuns.map((taskRun) => ({
-          trial,
-          taskId: taskRun.taskId,
-          success: taskRun.success,
-          matchedActionIds: [],
-          taskRun
-        }));
-
-        trials.push({
-          trial,
-          explorationRunId: explorationArtifact.explorationRunId,
-          statesDiscovered: explorationArtifact.summary.statesDiscovered,
-          transitionsDiscovered: explorationArtifact.summary.transitionsDiscovered,
-          actionsCached: explorationArtifact.summary.actionsCached,
-          actionKinds: inferActionKinds(explorationArtifact.actionCache),
-          cacheSummary: explorationArtifact.cacheSummary,
-          explorationUsage: explorationArtifact.usageSummary,
-          probeUsage: probeSummary.usageSummary,
-          totalUsage: sumAiUsageSummaries([explorationArtifact.usageSummary, probeSummary.usageSummary]),
-          capabilityDiscovery,
-          probeRuns
-        });
+      } finally {
+        await probeAutHandle?.stop();
       }
 
-      const metrics = computeModelMetrics({
-        model,
-        trials,
-        heuristicTargets: spec.heuristicTargets
-      });
-      modelSummaries.push({
-        model,
-        metrics,
-        probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
-        trials
-      });
+      probeTaskRuns.push(...probeExecution.taskRuns);
+      const probeSummary = summarizeTaskRuns(probeExecution.taskRuns);
+      const passedProbeTasks = probeExecution.taskRuns.filter((taskRun) => taskRun.success).length;
       emitExperimentLog(
         input.onLog,
-        `[explore] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, discovery ${(metrics.capabilityDiscoveryRate * 100).toFixed(1)}%, probe replay ${(metrics.probeReplayPassRate * 100).toFixed(1)}%`
+        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay completed with ${passedProbeTasks}/${probeExecution.taskRuns.length} task(s) passing`
       );
+      const probeRuns: ExploreProbeRun[] = probeExecution.taskRuns.map((taskRun) => ({
+        trial,
+        taskId: taskRun.taskId,
+        success: taskRun.success,
+        matchedActionIds: [],
+        taskRun
+      }));
+
+      trials.push({
+        trial,
+        explorationRunId: explorationArtifact.explorationRunId,
+        statesDiscovered: explorationArtifact.summary.statesDiscovered,
+        transitionsDiscovered: explorationArtifact.summary.transitionsDiscovered,
+        actionsCached: explorationArtifact.summary.actionsCached,
+        actionKinds: inferActionKinds(explorationArtifact.actionCache),
+        cacheSummary: explorationArtifact.cacheSummary,
+        explorationUsage: explorationArtifact.usageSummary,
+        probeUsage: probeSummary.usageSummary,
+        totalUsage: sumAiUsageSummaries([explorationArtifact.usageSummary, probeSummary.usageSummary]),
+        capabilityDiscovery,
+        probeRuns
+      });
     }
-  } finally {
-    await autHandle?.stop();
+
+    const metrics = computeModelMetrics({
+      model,
+      trials,
+      heuristicTargets: spec.heuristicTargets
+    });
+    modelSummaries.push({
+      model,
+      metrics,
+      probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
+      trials
+    });
+    emitExperimentLog(
+      input.onLog,
+      `[explore] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, discovery ${(metrics.capabilityDiscoveryRate * 100).toFixed(1)}%, probe replay ${(metrics.probeReplayPassRate * 100).toFixed(1)}%`
+    );
   }
 
   const artifact: ExploreRunArtifact = {

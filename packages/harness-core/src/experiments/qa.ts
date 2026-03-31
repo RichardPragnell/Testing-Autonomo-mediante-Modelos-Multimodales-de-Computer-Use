@@ -46,7 +46,7 @@ import type {
 import type { ExperimentLogFn } from "./types.js";
 
 const FAST_QA_PROFILE = {
-  models: ["mistralai/mistral-small-3.2-24b-instruct"],
+  models: ["google/gemma-3-27b-it:free"],
   trials: 1,
   timeoutMs: 45_000,
   retryCount: 0,
@@ -446,11 +446,6 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     }
   });
 
-  const workspace = await prepareRunWorkspace({
-    resolvedSuite,
-    runId,
-    resultsRoot
-  });
   await persistQaProgress(resultsRoot, runId, {
     appId: input.appId,
     profile,
@@ -464,31 +459,40 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     cumulativeUsage: sumAiUsageSummaries([])
   });
   const runner = input.runner ?? new StagehandAutomationRunner();
-  const autHandle = await startAut(workspace.aut);
   const modelSummaries: QaModelSummary[] = [];
 
-  try {
-    for (const [modelIndex, model] of models.entries()) {
-      if (!model.available) {
-        emitExperimentLog(
-          input.onLog,
-          `[qa] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
-        );
-        modelSummaries.push({
-          model,
-          metrics: zeroMetrics(model),
-          taskRuns: [],
-          capabilityRuns: []
-        });
-        continue;
-      }
+  for (const [modelIndex, model] of models.entries()) {
+    if (!model.available) {
+      emitExperimentLog(
+        input.onLog,
+        `[qa] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
+      );
+      modelSummaries.push({
+        model,
+        metrics: zeroMetrics(model),
+        taskRuns: [],
+        capabilityRuns: []
+      });
+      continue;
+    }
 
-      const taskRuns: QaModelSummary["taskRuns"] = [];
-      const capabilityRuns: QaModelSummary["capabilityRuns"] = [];
-      emitExperimentLog(input.onLog, `[qa] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
+    const taskRuns: QaModelSummary["taskRuns"] = [];
+    const capabilityRuns: QaModelSummary["capabilityRuns"] = [];
+    emitExperimentLog(input.onLog, `[qa] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
 
-      for (let trial = 1; trial <= spec.trials; trial += 1) {
-        emitExperimentLog(input.onLog, `[qa] Trial ${trial}/${spec.trials} for ${model.id} started`);
+    for (let trial = 1; trial <= spec.trials; trial += 1) {
+      emitExperimentLog(
+        input.onLog,
+        `[qa] Trial ${trial}/${spec.trials} for ${model.id} started with a fresh workspace`
+      );
+      const workspace = await prepareRunWorkspace({
+        resolvedSuite,
+        runId,
+        resultsRoot
+      });
+      const autHandle = await startAut(workspace.aut);
+
+      try {
         const execution = await executeGuidedTasks({
           runId,
           resultsRoot,
@@ -542,43 +546,43 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
             failedTaskIds: relevantRuns.filter((run) => !run.success).map((run) => run.taskId)
           });
         }
+      } finally {
+        await autHandle?.stop();
       }
-
-      const taskSummary = summarizeTaskRuns(taskRuns);
-      const metrics = computeModelMetrics({
-        model,
-        taskRuns,
-        capabilityRuns,
-        trials: spec.trials
-      });
-      modelSummaries.push({
-        model,
-        metrics,
-        cacheSummary: taskSummary.cacheSummary,
-        taskRuns,
-        capabilityRuns
-      });
-      emitExperimentLog(
-        input.onLog,
-        `[qa] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
-      );
-      await persistQaProgress(resultsRoot, runId, {
-        appId: input.appId,
-        profile,
-        status: "running",
-        startedAt,
-        updatedAt: nowIso(),
-        models: spec.models,
-        trials: spec.trials,
-        currentModelId: model.id,
-        completedTasks,
-        totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
-        cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
-        lastTaskResult: taskRuns.length ? slimTaskRunForProgress(taskRuns.at(-1)!) : undefined
-      });
     }
-  } finally {
-    await autHandle?.stop();
+
+    const taskSummary = summarizeTaskRuns(taskRuns);
+    const metrics = computeModelMetrics({
+      model,
+      taskRuns,
+      capabilityRuns,
+      trials: spec.trials
+    });
+    modelSummaries.push({
+      model,
+      metrics,
+      cacheSummary: taskSummary.cacheSummary,
+      taskRuns,
+      capabilityRuns
+    });
+    emitExperimentLog(
+      input.onLog,
+      `[qa] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
+    );
+    await persistQaProgress(resultsRoot, runId, {
+      appId: input.appId,
+      profile,
+      status: "running",
+      startedAt,
+      updatedAt: nowIso(),
+      models: spec.models,
+      trials: spec.trials,
+      currentModelId: model.id,
+      completedTasks,
+      totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
+      cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
+      lastTaskResult: taskRuns.length ? slimTaskRunForProgress(taskRuns.at(-1)!) : undefined
+    });
   }
 
   const artifact: QaRunArtifact = {

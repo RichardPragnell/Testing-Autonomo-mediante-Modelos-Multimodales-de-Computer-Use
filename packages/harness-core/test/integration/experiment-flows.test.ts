@@ -546,34 +546,238 @@ class UnavailableCostRunner implements AutomationRunner {
   }
 }
 
+class WorkspaceIsolationRunner implements AutomationRunner {
+  async runTask(input: RunTaskInput): Promise<TaskRunResult> {
+    const workspacePath = input.aut.cwd;
+    if (!workspacePath) {
+      throw new Error("workspace path missing from AUT config");
+    }
+
+    const markerPath = join(workspacePath, "workspace-marker.txt");
+    let inheritedFrom: string | undefined;
+    try {
+      inheritedFrom = (await readFile(markerPath, "utf8")).trim() || undefined;
+    } catch {
+      inheritedFrom = undefined;
+    }
+
+    await writeFile(markerPath, input.model.id, "utf8");
+
+    return {
+      taskId: input.task.id,
+      trial: input.trial,
+      modelId: input.model.id,
+      success: inheritedFrom === undefined || inheritedFrom === input.model.id,
+      message: inheritedFrom ? `workspace inherited from ${inheritedFrom}` : "fresh workspace",
+      latencyMs: 25,
+      costUsd: 0.001,
+      usageSummary: {
+        latencyMs: 25,
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 15,
+        costUsd: 0.001,
+        resolvedCostUsd: 0.001,
+        costSource: "exact",
+        callCount: 1,
+        unavailableCalls: 0
+      },
+      aiCalls: [],
+      urlAfter: input.aut.url,
+      trace: [
+        {
+          timestamp: nowIso(),
+          action: "workspace.check",
+          details: {
+            workspacePath,
+            inheritedFrom: inheritedFrom ?? null
+          }
+        }
+      ],
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "act_native",
+        status: "miss",
+        aiInvoked: false,
+        warnings: []
+      }
+    };
+  }
+}
+
+class ExploreIsolationRunner implements AutomationRunner {
+  async runTask(input: RunTaskInput): Promise<TaskRunResult> {
+    const workspacePath = input.aut.cwd;
+    if (!workspacePath) {
+      throw new Error("workspace path missing from AUT config");
+    }
+
+    const explorationMarkerPath = join(workspacePath, "explore-marker.txt");
+    let inheritedExplorationState = false;
+    try {
+      await access(explorationMarkerPath);
+      inheritedExplorationState = true;
+    } catch {
+      inheritedExplorationState = false;
+    }
+
+    return {
+      taskId: input.task.id,
+      trial: input.trial,
+      modelId: input.model.id,
+      success: !inheritedExplorationState,
+      message: inheritedExplorationState ? "probe replay inherited exploration state" : "probe replay clean",
+      latencyMs: 25,
+      costUsd: 0.001,
+      usageSummary: {
+        latencyMs: 25,
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 15,
+        costUsd: 0.001,
+        resolvedCostUsd: 0.001,
+        costSource: "exact",
+        callCount: 1,
+        unavailableCalls: 0
+      },
+      aiCalls: [],
+      urlAfter: input.aut.url,
+      trace: [
+        {
+          timestamp: nowIso(),
+          action: "probe.check",
+          details: {
+            workspacePath,
+            inheritedExplorationState
+          }
+        }
+      ],
+      cache: {
+        rootDir: input.cacheConfig.rootDir,
+        namespace: input.cacheConfig.namespace,
+        configSignature: input.cacheConfig.configSignature,
+        mode: "act_native",
+        status: "miss",
+        aiInvoked: false,
+        warnings: []
+      }
+    };
+  }
+
+  async exploreTarget(input: {
+    model: RunTaskInput["model"];
+    trial: number;
+    targetId: string;
+    bugIds: string[];
+    prompt: string;
+    aut: RunTaskInput["aut"];
+    runConfig: RunTaskInput["runConfig"];
+    cacheConfig: RunTaskInput["cacheConfig"];
+    workspacePath: string;
+  }): Promise<ExplorationArtifact> {
+    await writeFile(join(input.workspacePath, "explore-marker.txt"), input.model.id, "utf8");
+
+    return {
+      explorationRunId: `explore-isolation-${input.trial}-${input.model.id.replace(/[^\w-]+/g, "_")}`,
+      targetId: input.targetId,
+      bugIds: input.bugIds,
+      modelId: input.model.id,
+      trial: input.trial,
+      prompt: input.prompt,
+      workspacePath: input.workspacePath,
+      startedAt: nowIso(),
+      finishedAt: nowIso(),
+      compatibility: {
+        targetId: input.targetId,
+        bugIds: input.bugIds,
+        viewport: input.runConfig.viewport
+      },
+      history: [],
+      pages: [],
+      coverageGraph: {
+        nodes: [],
+        edges: []
+      },
+      observeCache: [],
+      actionCache: [],
+      cacheSummary: {
+        statuses: {
+          hit: 0,
+          miss: 1,
+          refreshed_after_failure: 0
+        },
+        modes: {
+          act_native: 0,
+          agent_native: 0,
+          observe_manual: 1
+        },
+        aiInvokedRuns: 0,
+        warningCount: 0
+      },
+      usageSummary: {
+        latencyMs: 30,
+        inputTokens: 12,
+        outputTokens: 6,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 18,
+        costUsd: 0.001,
+        resolvedCostUsd: 0.001,
+        costSource: "exact",
+        callCount: 1,
+        unavailableCalls: 0
+      },
+      aiCalls: [],
+      trace: [],
+      summary: {
+        statesDiscovered: 1,
+        transitionsDiscovered: 0,
+        actionsCached: 0,
+        observeCacheEntries: 0,
+        historyEntries: 0
+      }
+    };
+  }
+}
+
 describe("three experiment flows", () => {
-  it("runs the QA experiment and writes JSON plus HTML reports", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "qa-exp-"));
-    tempDirs.push(dir);
-    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash", "openai/gpt-4o-mini"]);
+  it(
+    "runs the QA experiment and writes JSON plus HTML reports",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "qa-exp-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash", "openai/gpt-4o-mini"]);
 
-    const result = await runQaExperiment({
-      appId: "todo-react",
-      profile: "full",
-      modelsPath,
-      resultsDir: dir,
-      trials: 1,
-      runner: new MockAutomationRunner(11)
-    });
+      const result = await runQaExperiment({
+        appId: "todo-react",
+        profile: "full",
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new MockAutomationRunner(11)
+      });
 
-    expect(result.report.kind).toBe("qa");
-    expect(result.report.leaderboard).toHaveLength(2);
-    await expect(access(result.htmlPath)).resolves.toBeUndefined();
-    const html = await readFile(result.htmlPath, "utf8");
-    expect(html).toContain("Guided");
-    expect(html).toContain("Task Pass");
-    expect(html).toContain("Total Cost");
-    const compare = await compareQaRuns([result.artifact.runId], dir);
-    expect(compare.aggregateLeaderboard).toHaveLength(2);
-    const compareHtml = await readFile(compare.finalReportPath, "utf8");
-    expect(compareHtml).toContain("Guided Mode Comparison");
-    expect(compareHtml).toContain("Guided Cost Audit");
-  });
+      expect(result.report.kind).toBe("qa");
+      expect(result.report.leaderboard).toHaveLength(2);
+      await expect(access(result.htmlPath)).resolves.toBeUndefined();
+      const html = await readFile(result.htmlPath, "utf8");
+      expect(html).toContain("Guided");
+      expect(html).toContain("Task Pass");
+      expect(html).toContain("Total Cost");
+      const compare = await compareQaRuns([result.artifact.runId], dir);
+      expect(compare.aggregateLeaderboard).toHaveLength(2);
+      const compareHtml = await readFile(compare.finalReportPath, "utf8");
+      expect(compareHtml).toContain("Guided Mode Comparison");
+      expect(compareHtml).toContain("Guided Cost Audit");
+    },
+    15_000
+  );
 
   it("emits progress logs while the QA experiment runs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "qa-logs-"));
@@ -600,7 +804,7 @@ describe("three experiment flows", () => {
     const dir = await mkdtemp(join(tmpdir(), "qa-fast-default-"));
     tempDirs.push(dir);
     const modelsPath = await writeRegistry(dir, [
-      "mistralai/mistral-small-3.2-24b-instruct",
+      "google/gemma-3-27b-it:free",
       "google/gemini-2.5-flash-lite"
     ]);
 
@@ -612,7 +816,7 @@ describe("three experiment flows", () => {
     });
 
     expect(result.artifact.spec.profile).toBe("fast");
-    expect(result.artifact.spec.models).toEqual(["mistralai/mistral-small-3.2-24b-instruct"]);
+    expect(result.artifact.spec.models).toEqual(["google/gemma-3-27b-it:free"]);
     expect(result.artifact.spec.trials).toBe(1);
     expect(result.artifact.spec.runtime.retryCount).toBe(0);
     expect(result.artifact.spec.runtime.maxSteps).toBe(8);
@@ -672,6 +876,51 @@ describe("three experiment flows", () => {
     ]);
     expect(result.artifact.spec.runtime.maxOutputTokens).toBe(600);
   });
+
+  it("resets the QA workspace between models so model runs do not inherit prior state", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "qa-isolation-"));
+    tempDirs.push(dir);
+    const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash", "openai/gpt-4o-mini"]);
+
+    const result = await runQaExperiment({
+      appId: "todo-react",
+      profile: "full",
+      modelsPath,
+      resultsDir: dir,
+      trials: 1,
+      runner: new WorkspaceIsolationRunner()
+    });
+
+    const taskRuns = result.report.modelSummaries.flatMap((summary) => summary.taskRuns);
+    expect(taskRuns.length).toBeGreaterThan(0);
+    expect(taskRuns.every((run) => run.success)).toBe(true);
+    expect(taskRuns.some((run) => run.message === "fresh workspace")).toBe(true);
+  });
+
+  it(
+    "resets explore state between exploration and probe replay",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "explore-isolation-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemma-3-27b-it:free", "minimax/minimax-m2.5:free"]);
+
+      const result = await runExploreExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new ExploreIsolationRunner()
+      });
+
+      const probeRuns = result.report.modelSummaries.flatMap((summary) =>
+        summary.trials.flatMap((trial) => trial.probeRuns.map((probeRun) => probeRun.taskRun))
+      );
+      expect(probeRuns.length).toBeGreaterThan(0);
+      expect(probeRuns.every((run) => run.success)).toBe(true);
+      expect(probeRuns.some((run) => run.message === "probe replay clean")).toBe(true);
+    },
+    15_000
+  );
 
   it("runs the exploration experiment and scores coverage", async () => {
     const dir = await mkdtemp(join(tmpdir(), "explore-exp-"));

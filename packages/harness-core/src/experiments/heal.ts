@@ -372,7 +372,8 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   const resultsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels = input.models ?? preset.models;
+  const requestedModels =
+    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: HealExperimentSpec = {
     appId: input.appId,

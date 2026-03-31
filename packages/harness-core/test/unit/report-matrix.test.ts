@@ -20,7 +20,9 @@ describe("matrix report renderer", () => {
           appIds: ["todo-react", "todo-vue"],
           metricColumns: [
             { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-            { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" }
+            { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+            { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
+            { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
           ],
           rows: [
             {
@@ -31,7 +33,7 @@ describe("matrix report renderer", () => {
                 {
                   appId: "todo-react",
                   runIds: ["qa-demo"],
-                  metrics: { score: 88.9, avgCost: 0.0041 },
+                  metrics: { score: 88.9, avgLatency: 740, avgCost: 0.0041, totalCost: 0.0287 },
                   costSummary: {
                     avgResolvedUsd: 0.0041,
                     totalResolvedUsd: 0.0287,
@@ -43,7 +45,7 @@ describe("matrix report renderer", () => {
                 {
                   appId: "todo-vue",
                   runIds: ["qa-demo-2"],
-                  metrics: { score: 83.2, avgCost: 0.0022 },
+                  metrics: { score: 83.2, avgLatency: 510, avgCost: 0.0022, totalCost: 0.0154 },
                   costSummary: {
                     avgResolvedUsd: 0.0022,
                     totalResolvedUsd: 0.0154,
@@ -72,6 +74,8 @@ describe("matrix report renderer", () => {
     expect(html).toContain("todo-vue");
     expect(html).toContain("google/gemini-2.5-flash");
     expect(html).toContain("Avg Cost");
+    expect(html).toContain("Average Latency by Model");
+    expect(html).toContain("Price vs Speed Frontier");
     expect(html).toContain("Partial");
     expect(html).toContain("Guided Cost Audit");
   });
