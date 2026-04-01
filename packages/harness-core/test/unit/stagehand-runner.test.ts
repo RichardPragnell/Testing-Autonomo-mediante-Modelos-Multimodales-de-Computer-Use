@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeGuidedStepLoop, executeGuidedTaskAttempt } from "../../src/runner/stagehand-runner.js";
+import {
+  computeRetryDelayMs,
+  executeGuidedStepLoop,
+  executeGuidedTaskAttempt,
+  normalizeExecutionError
+} from "../../src/runner/stagehand-runner.js";
 
 function createPage(initialText: string) {
   const state = {
@@ -30,6 +35,50 @@ const task = {
 };
 
 describe("stagehand runner guided helpers", () => {
+  it("promotes a nested provider cause over the generic wrapper message", () => {
+    const cause = {
+      message: "Rate limit exceeded: free-models-per-min. ",
+      details: "429 Too Many Requests"
+    };
+    const error = Object.assign(new Error("Provider returned error"), { cause });
+
+    expect(normalizeExecutionError(error)).toBe("Rate limit exceeded: free-models-per-min.");
+  });
+
+  it("extracts nested OpenRouter privacy failures from wrapped retry errors", () => {
+    const error = Object.assign(
+      new Error("Failed after 2 attempts with non-retryable error: 'Provider returned error'"),
+      {
+        cause: {
+          error: {
+            message:
+              "No endpoints available matching your guardrail restrictions and data policy. Configure: https://openrouter.ai/settings/privacy"
+          }
+        }
+      }
+    );
+
+    expect(normalizeExecutionError(error)).toContain("No endpoints available matching your guardrail restrictions");
+  });
+
+  it("uses longer retry delays for free-model rate limits than generic provider errors", () => {
+    const rateLimitDelay = computeRetryDelayMs({
+      attempt: 0,
+      modelId: "google/gemma-3-27b-it:free",
+      errorMessage: "Rate limit exceeded: free-models-per-min.",
+      env: {}
+    });
+    const providerDelay = computeRetryDelayMs({
+      attempt: 0,
+      modelId: "google/gemma-3-27b-it:free",
+      errorMessage: "Provider returned error",
+      env: {}
+    });
+
+    expect(rateLimitDelay).toBeGreaterThan(providerDelay);
+    expect(providerDelay).toBeGreaterThan(0);
+  });
+
   it("exits the guided step loop as soon as the expectation passes", async () => {
     const trace: Array<{ action: string }> = [];
     const { state, page } = createPage("Initial");

@@ -14,10 +14,10 @@ models:
     enabled: false
   - id: minimax/minimax-m2.5:free
     provider: minimax
-    enabled: true
+    enabled: false
   - id: google/gemini-3-flash-preview
     provider: google
-    enabled: false
+    enabled: true
   - id: moonshotai/kimi-k2.5
     provider: moonshotai
     enabled: false
@@ -26,4 +26,7 @@ models:
     enabled: false
   - id: google/gemma-3-27b-it:free
     provider: google
-    enabled: true
+    enabled: false
+  - id: google/gemini-2.5-flash-lite-preview-09-2025
+    provider: google
+    enabled: true  

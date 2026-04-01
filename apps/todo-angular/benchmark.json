@@ -1,0 +1,140 @@
+{
+  "appId": "todo-angular",
+  "displayName": "Todo Angular",
+  "prompts": {
+    "qa": "guided.default",
+    "explore": "autonomous.default",
+    "heal": "repair.default"
+  },
+  "runtime": {
+    "timeoutMs": 90000,
+    "retryCount": 1,
+    "maxSteps": 20,
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "qaTrials": 2,
+    "exploreTrials": 1,
+    "healTrials": 1
+  },
+  "capabilities": [
+    {
+      "capabilityId": "smoke-load",
+      "title": "Load the application",
+      "taskIds": ["smoke-home-title", "smoke-default-count"]
+    },
+    {
+      "capabilityId": "add-task",
+      "title": "Add a new task",
+      "taskIds": ["guided-add-task"]
+    },
+    {
+      "capabilityId": "complete-task",
+      "title": "Complete an existing task",
+      "taskIds": ["guided-complete-task"]
+    },
+    {
+      "capabilityId": "filter-active",
+      "title": "Filter active tasks",
+      "taskIds": ["guided-filter-active"]
+    },
+    {
+      "capabilityId": "edit-task",
+      "title": "Edit an existing task",
+      "taskIds": ["guided-edit-task"]
+    },
+    {
+      "capabilityId": "create-delete-task",
+      "title": "Create and delete a task",
+      "taskIds": ["guided-create-delete-task"]
+    }
+  ],
+  "qa": {
+    "capabilityIds": [
+      "smoke-load",
+      "add-task",
+      "complete-task",
+      "filter-active",
+      "edit-task",
+      "create-delete-task"
+    ]
+  },
+  "explore": {
+    "capabilityIds": [
+      "smoke-load",
+      "add-task",
+      "complete-task",
+      "filter-active",
+      "edit-task",
+      "create-delete-task"
+    ],
+    "probeTaskIds": [
+      "smoke-home-title",
+      "smoke-default-count",
+      "guided-add-task",
+      "guided-complete-task",
+      "guided-filter-active",
+      "guided-edit-task",
+      "guided-create-delete-task"
+    ],
+    "heuristicTargets": {
+      "minStates": 4,
+      "minTransitions": 3,
+      "actionKinds": ["navigate", "add", "toggle", "filter", "edit", "delete"]
+    }
+  },
+  "heal": {
+    "caseIds": [
+      "heal-new-task-label-lost",
+      "heal-toggle-completion-noop",
+      "heal-edit-task-save-noop"
+    ],
+    "cases": [
+      {
+        "caseId": "heal-new-task-label-lost",
+        "title": "Repair created task labels",
+        "bugId": "new-task-label-lost",
+        "reproductionTaskIds": ["guided-add-task"],
+        "regressionTaskIds": [
+          "smoke-home-title",
+          "smoke-default-count",
+          "guided-complete-task",
+          "guided-filter-active",
+          "guided-edit-task",
+          "guided-create-delete-task"
+        ],
+          "goldTouchedFiles": ["src/app/todo-store.ts"]
+      },
+      {
+        "caseId": "heal-toggle-completion-noop",
+        "title": "Repair completion toggling",
+        "bugId": "toggle-completion-noop",
+        "reproductionTaskIds": ["guided-complete-task", "guided-filter-active"],
+        "regressionTaskIds": [
+          "smoke-home-title",
+          "smoke-default-count",
+          "guided-add-task",
+          "guided-edit-task",
+          "guided-create-delete-task"
+        ],
+          "goldTouchedFiles": ["src/app/todo-store.ts"]
+      },
+      {
+        "caseId": "heal-edit-task-save-noop",
+        "title": "Repair task editing persistence",
+        "bugId": "edit-task-save-noop",
+        "reproductionTaskIds": ["guided-edit-task"],
+        "regressionTaskIds": [
+          "smoke-home-title",
+          "smoke-default-count",
+          "guided-add-task",
+          "guided-complete-task",
+          "guided-filter-active",
+          "guided-create-delete-task"
+        ],
+          "goldTouchedFiles": ["src/app/todo-store.ts"]
+      }
+    ]
+  }
+}

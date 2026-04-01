@@ -1,0 +1,734 @@
+[
+  {
+    "entryId": "da73e60a5df29ccbab57c560885d8986ff71193c0edbdd5add7f251b029476cb",
+    "key": "eb4be8d155e88dfc24ebb6b40b07a79143374531db147e87b3f36516b59f8296",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "34bd3d8155b3a9ca73288b35443ab4b0acd07a6f1e9ca23541f0ff81b189e143",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "5cf3ffb806dbc275c0d845ec55014b9f38c45292e7b4cea47d7d03a1539b8d0b",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox for entering a new task",
+        "method": "fill",
+        "arguments": [
+          "New task content"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter by All tasks",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter by Active tasks",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter by Completed tasks",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to edit 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to remove 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Button to edit 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Button to remove 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 8,
+    "createdAt": "2026-03-31T15:13:36.550Z",
+    "updatedAt": "2026-03-31T15:13:54.153Z"
+  },
+  {
+    "entryId": "6204b6d7b80806369d83a234708531d115fd2c1362153175ddf43563ce08d56d",
+    "key": "fe6b97acb9aa5616613158b7c9f4f4651850b6cde6852d86bacc734876e3dce3",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "65d63db1fa9ce660f3e3f3e0a0c8dec854aa7c4a42130378f9cd430bfb6fa767",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "d9c9db5e2be5dbe82e0fb750c075ddb6c8e586f742b182f47a7b039a5627a577",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "New task to explore"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "button: All",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "button: Completed",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "checkbox: Plan todo benchmark",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "button: Remove",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:38.683Z",
+    "updatedAt": "2026-03-31T15:13:38.683Z"
+  },
+  {
+    "entryId": "254fce00c918973c2f0b1a99ffe0e978f2259514d01c08c88958ea2fcafa4f2d",
+    "key": "97c087c514a059d8b97591b5dbb1727056fe0272013dd501cc14eec4df5cd28d",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "7e32d2186365c092e7620fbb731bfcee736eee5dc7e7a707a7721cc1584e0a39",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "254cbfe56deebf591fba061f30087afd4fee3f7e2957f3d65dbb8612d72d95af",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "New task textbox for adding a new todo item.",
+        "method": "fill",
+        "arguments": [
+          "Enter a new task here"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add the new task entered in the textbox.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Filter button for 'All' todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Filter button for 'Active' todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Filter button for 'Completed' todo items.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for 'Plan todo benchmark' task.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Button to edit the task 'Plan todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Button to remove the task 'Plan todo benchmark'.",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:40.110Z",
+    "updatedAt": "2026-03-31T15:13:40.110Z"
+  },
+  {
+    "entryId": "8d68994b411b0e20ac01fa247109de74b629199b182242dc7b1a3fd75874719a",
+    "key": "a39763fc2f0e3c5a33ba49963de786981e2c7faa4d560ccabf549ad82679f65b",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "bea1bb018cc42feda8aecf6b81c977e8c3cae31200fe0da0421d0de76dac930b",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "6e1fea8c4b401d63161c26f010748dc53a086b0ce5e6ae7dab23e957b5467c38",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "New task to explore"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "button: Completed",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:42.117Z",
+    "updatedAt": "2026-03-31T15:13:42.117Z"
+  },
+  {
+    "entryId": "ff4ba3e7c3a474c118f56dbce781f60eedb98b6a5e5263236ab41878ad7d786f",
+    "key": "2992bc2e894e7993956d863e923de4b241155e7770abee2d7e96b1b22aec1120",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "37dec55fa0919d771e1acaa698f69080c8952e891841670cd4824eb3df0ab99e",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "b905399daee5900a61ee8c16f81bddcf0c678b7fa6909ccfa25b5fa03727929f",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "New task textbox for adding a new todo item",
+        "method": "fill",
+        "arguments": [
+          "New task"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Add task button to submit a new todo item",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter todos by All",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter todos by Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter todos by Completed",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Edit button for the task 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Remove button for the task 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:43.385Z",
+    "updatedAt": "2026-03-31T15:13:43.385Z"
+  },
+  {
+    "entryId": "2515b8892c3387c17422d4f381b755b39a01457c9946e5afe834d796f1a17f8a",
+    "key": "b9c03eb03df73bccfcab06c86ed23e5ed0b1c0c3801df5f9deca1d95642dba37",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "2a31596de915ec7cf1738904f1683e9ebc91a72ad232800d69d5ae8ae1d312e4",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "01fb5b58934426ce071f053efccd5216166222a40e12f85eba3f92fbacf3275a",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox for entering a new task",
+        "method": "fill",
+        "arguments": [
+          "Buy groceries"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Filter button for 'All' todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Filter button for 'Active' todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Filter button for 'Completed' todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Edit button for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Remove button for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Edit button for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Remove button for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:45.122Z",
+    "updatedAt": "2026-03-31T15:13:45.122Z"
+  },
+  {
+    "entryId": "b7082d60b8ea6778f0b6b22a6e7e294f2ec43293a8c4f3edf30f9b1a677e563c",
+    "key": "9cc7ad6db1d1abe35222247ba492f793d28f842c1a07debf23ffedc422b62b5a",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "825b78906fcc80f4e08b542ba626f2f290c3ce9fae77bf03468e5fc352140c9d",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "15d10adef4c9b859746256150b0529a0850a9457212329c35893544f4aa4cdc5",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "Buy milk"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "button: Completed",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:47.012Z",
+    "updatedAt": "2026-03-31T15:13:47.012Z"
+  },
+  {
+    "entryId": "6f313e4fd1b154366f6516bcdfa8c2c811d1ac202cd07f1e2029773d1ba1eeda",
+    "key": "e0b101b68a79a27db64cc193138d6bc87798d9d9e393a5f05579c676b61dcfb7",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "1d4965735c40d9c452f5c42b18050be6ce19bf35b5431d2c1e4d6c34e971f6ec",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "0f34a81c302bd8f2686f6a24fb4db583ddb0791e947cad3fb639f113aaf19b01",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "Textbox for entering a new task",
+        "method": "fill",
+        "arguments": [
+          "New task"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Button to add a new task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Filter button for showing all todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Filter button for showing active todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Filter button for showing completed todos",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Edit button for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Remove button for 'Plan todo benchmark'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/label[1]/input[1]",
+        "description": "Checkbox for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "Edit button for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[2]",
+        "description": "Remove button for 'Draft Stagehand checklist'",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:48.502Z",
+    "updatedAt": "2026-03-31T15:13:48.502Z"
+  },
+  {
+    "entryId": "78f9d298b1813c5164ae2e18d908e84028abe98bddcec6c1147b18cd52ccb736",
+    "key": "7976214afdf14908cc67402cd0a7a7e2b0f0178bc502ab9396f77e6c7bf9a09a",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "ac2a665165bedc09ec8da434087a0515929a59c9179065b3fcf28a1a143eae0c",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "197f041ba520d6d59220da478ec6225b26361b146ec3d5f648c99b773a8a85cf",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "New task textbox for adding a new todo item",
+        "method": "fill",
+        "arguments": [
+          "Buy groceries"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "Add task button to submit a new todo item",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "Button to filter by All todo items",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "Button to filter by Active todo items",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "Button to filter by Completed todo items",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "Checkbox for 'Plan todo benchmark' task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "Edit button for 'Plan todo benchmark' task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "Remove button for 'Plan todo benchmark' task",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:50.060Z",
+    "updatedAt": "2026-03-31T15:13:50.060Z"
+  },
+  {
+    "entryId": "f434e1c92f7b9b60500d5cbe284aba60a5a6c52326e5875f9676c63fd6313dd8",
+    "key": "cb140700f132946c511f82bf55eca5832d98d6714820fd4300d51221d2da5b80",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "7ab109f310c08cf838956a5aa4e4bdabca38f40c9539a873e59a5f1caf23d817",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "22fea654f70f8d027d9bd6c71c65c665493e2fd33298616e593713eea38018ef",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "Buy groceries"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[3]",
+        "description": "button: Completed",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[1]",
+        "description": "button: All",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/label[1]/input[1]",
+        "description": "checkbox: Draft Stagehand checklist",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[2]",
+        "description": "button: Remove",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:52.295Z",
+    "updatedAt": "2026-03-31T15:13:52.295Z"
+  },
+  {
+    "entryId": "b94d3716154301330ba131d02a54aa2374c9d059cb8bf037b35aba35c75883d2",
+    "key": "bfe45c19ee8134caa0b46d87634464b40e84add89e9c4432f67969c46aa361e8",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "054adf5cf34d62da81d20185ba8d650454dbc3c45fba10b8544c6e1472b0df6d",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "4234699df101b58f9141c28b9972c02e34d083572a426ea11217de36b2f26883",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "Buy groceries"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:53.827Z",
+    "updatedAt": "2026-03-31T15:13:53.827Z"
+  },
+  {
+    "entryId": "e5fb6247a5718f73213f4c52f9594d8fe7235ade53730c48a45443ceb43145b3",
+    "key": "253dee63bd82c9024e0b34a165fda2b42d18be06c64e637fe1328116554b8dd7",
+    "instruction": "Exploration goal: You are a web QA exploration agent. Explore the app autonomously, keep a compact memory of visited UI states, prefer novel actions over repeated ones, and collect reusable selectors or actions that can help later guided validation. Find the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.",
+    "stateId": "f2bc36fc8982323e556fea6fbdd2b279500aa5531caa6d267aedbb95c193032b",
+    "url": "http://127.0.0.1:3101/",
+    "domHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "visualHash": "80ca4de6ac32040e29e746b9cec207d7d56a44444f4bc62d7f003647b516169a",
+    "actions": [
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/label[1]/input[1]",
+        "description": "textbox: New task",
+        "method": "type",
+        "arguments": [
+          "Explore new feature"
+        ]
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/form[1]/button[1]",
+        "description": "button: Add task",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/div[1]/div[2]/button[2]",
+        "description": "button: Active",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[1]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      },
+      {
+        "selector": "xpath=/html[1]/body[1]/div[1]/main[1]/section[2]/ul[1]/li[2]/div[1]/button[1]",
+        "description": "button: Edit",
+        "method": "click",
+        "arguments": []
+      }
+    ],
+    "hitCount": 0,
+    "createdAt": "2026-03-31T15:13:55.773Z",
+    "updatedAt": "2026-03-31T15:13:55.773Z"
+  }
+]

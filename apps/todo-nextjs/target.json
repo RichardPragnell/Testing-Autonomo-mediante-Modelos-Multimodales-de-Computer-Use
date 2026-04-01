@@ -1,0 +1,13 @@
+{
+  "targetId": "todo-nextjs",
+  "displayName": "Todo Next.js",
+  "baseUrl": "http://127.0.0.1:3102",
+  "devCommand": "powershell -NoProfile -Command \"if (-not (Test-Path node_modules)) { New-Item -ItemType Junction -Path node_modules -Target '{{repoRoot}}/node_modules' | Out-Null }; node '{{repoRoot}}/node_modules/next/dist/bin/next' dev . --hostname 127.0.0.1 --port 3102 --webpack\"",
+  "devEnv": {
+    "PORT": "3102"
+  },
+  "defaultValidationCommand": "node --test tests/*.test.mjs",
+  "templateDir": "template",
+  "bugsDir": "bugs",
+  "scenariosDir": "scenarios"
+}

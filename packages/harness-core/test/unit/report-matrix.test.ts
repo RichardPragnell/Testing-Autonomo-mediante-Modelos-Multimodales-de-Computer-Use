@@ -78,5 +78,67 @@ describe("matrix report renderer", () => {
     expect(html).toContain("Price vs Speed Frontier");
     expect(html).toContain("Partial");
     expect(html).toContain("Guided Cost Audit");
+    expect(html).toContain("metric-bar-list");
+    expect(html).toContain("plot-legend");
+  });
+
+  it("keeps single-model visuals readable by rendering label details outside the plot", () => {
+    const report: BenchmarkComparisonReport = {
+      title: "Explore Report",
+      subtitle: "Single model matrix comparison.",
+      generatedAt: "2026-03-31T12:00:00.000Z",
+      runIds: ["explore-demo"],
+      appIds: ["todo-react"],
+      finalReportPath: "",
+      finalJsonPath: "",
+      modeSections: [
+        {
+          kind: "explore",
+          title: "Explore",
+          summary: "Single-model explore summary.",
+          appIds: ["todo-react"],
+          metricColumns: [
+            { key: "score", label: "Score", kind: "score", aggregate: "mean" },
+            { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+            { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
+            { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
+          ],
+          rows: [
+            {
+              modelId: "google/gemini-2.5-flash-lite-preview-09-2025",
+              provider: "google",
+              avgScore: 91.795,
+              cells: [
+                {
+                  appId: "todo-react",
+                  runIds: ["explore-demo"],
+                  metrics: { score: 91.795, avgLatency: 3574, avgCost: 0.007, totalCost: 0.007 },
+                  costSummary: {
+                    avgResolvedUsd: 0.007,
+                    totalResolvedUsd: 0.007,
+                    costSource: "exact",
+                    callCount: 1,
+                    unavailableCalls: 0
+                  }
+                }
+              ]
+            }
+          ],
+          notes: [],
+          audit: {
+            title: "Explore Cost Audit",
+            columns: ["App", "Model", "Source"],
+            rows: [["todo-react", "google/gemini-2.5-flash-lite-preview-09-2025", "Exact"]]
+          }
+        }
+      ]
+    };
+
+    const html = renderBenchmarkComparisonHtml(report);
+
+    expect(html).toContain("gemini-2.5-flash-lite-preview-09-2025");
+    expect(html).toContain("google/gemini-2.5-flash-lite-preview-09-2025");
+    expect(html).toContain("plot-chip");
+    expect(html).toContain('text-anchor="end"');
   });
 });

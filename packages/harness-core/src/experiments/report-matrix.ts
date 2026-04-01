@@ -86,6 +86,30 @@ function average(values: number[]): number | undefined {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function shortenMiddle(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  const visible = Math.max(8, maxLength - 1);
+  const left = Math.ceil(visible / 2);
+  const right = Math.floor(visible / 2);
+  return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
+}
+
+function describeModelLabel(modelId: string): { primary: string; secondary?: string } {
+  const slashIndex = modelId.indexOf("/");
+  const base = slashIndex >= 0 ? modelId.slice(slashIndex + 1) : modelId;
+  const primary = shortenMiddle(base, 30);
+  const secondary = primary === modelId ? undefined : modelId;
+  return { primary, secondary };
+}
+
+function paddedDomainMax(value: number, fallback: number): number {
+  const safe = Math.max(value, fallback);
+  return safe <= fallback ? fallback : safe * 1.12;
+}
+
 function metricValue(input: {
   section: BenchmarkComparisonSection;
   row: BenchmarkComparisonSection["rows"][number];
@@ -156,43 +180,27 @@ function renderHorizontalBarChart(input: {
   const sorted = [...input.data].sort((left, right) =>
     input.sort === "asc" ? left.value - right.value : right.value - left.value
   );
-  const width = 620;
-  const marginLeft = 250;
-  const marginRight = 115;
-  const chartWidth = width - marginLeft - marginRight;
-  const rowHeight = 44;
-  const top = 16;
-  const bottom = 26;
-  const height = top + sorted.length * rowHeight + bottom;
   const maxValue = Math.max(...sorted.map((item) => item.value), 0.0001);
-  const ticks = [0, 0.25, 0.5, 0.75, 1];
-  const axisY = height - 8;
-
   const bars = sorted
     .map((item, index) => {
-      const y = top + index * rowHeight;
-      const barWidth = (item.value / maxValue) * chartWidth;
+      const label = describeModelLabel(item.label);
+      const width = Math.max(item.value > 0 ? 10 : 0, (item.value / maxValue) * 100);
       return `
-        <g>
-          <text x="${marginLeft - 12}" y="${y + 22}" class="plot-label" text-anchor="end">${escapeHtml(item.label)}</text>
-          <rect x="${marginLeft}" y="${y + 8}" width="${chartWidth}" height="18" rx="7" fill="#f0e8dc" />
-          <rect x="${marginLeft}" y="${y + 8}" width="${barWidth}" height="18" rx="7" fill="${input.color}" />
-          <text x="${width - marginRight + 10}" y="${y + 22}" class="plot-value">${escapeHtml(
-            formatCompactValue(input.kind, item.value)
-          )}</text>
-        </g>
-      `;
-    })
-    .join("");
-
-  const grid = ticks
-    .map((tick) => {
-      const x = marginLeft + chartWidth * tick;
-      return `
-        <line x1="${x}" y1="${top - 2}" x2="${x}" y2="${axisY - 14}" class="plot-grid" />
-        <text x="${x}" y="${axisY + 12}" class="plot-tick" text-anchor="${
-          tick === 0 ? "start" : tick === 1 ? "end" : "middle"
-        }">${escapeHtml(formatCompactValue(input.kind, maxValue * tick))}</text>
+        <li class="metric-bar-row">
+          <div class="metric-bar-head">
+            <div class="metric-bar-copy">
+              <span class="metric-rank">${String(index + 1).padStart(2, "0")}</span>
+              <div class="metric-labels">
+                <span class="metric-label">${escapeHtml(label.primary)}</span>
+                ${label.secondary ? `<span class="metric-detail">${escapeHtml(label.secondary)}</span>` : ""}
+              </div>
+            </div>
+            <span class="metric-value">${escapeHtml(formatCompactValue(input.kind, item.value))}</span>
+          </div>
+          <div class="metric-track" aria-hidden="true">
+            <span class="metric-fill" style="width: ${width.toFixed(1)}%; background: ${input.color};"></span>
+          </div>
+        </li>
       `;
     })
     .join("");
@@ -203,13 +211,7 @@ function renderHorizontalBarChart(input: {
         <h3>${escapeHtml(input.title)}</h3>
         <p>${escapeHtml(input.subtitle)}</p>
       </header>
-      <div class="chart-frame">
-        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(input.title)}" xmlns="http://www.w3.org/2000/svg">
-          <rect width="${width}" height="${height}" fill="#fffdfa" />
-          ${grid}
-          ${bars}
-        </svg>
-      </div>
+      <ol class="metric-bar-list" role="img" aria-label="${escapeHtml(input.title)}">${bars}</ol>
     </article>
   `;
 }
@@ -228,17 +230,28 @@ function renderScatterChart(input: {
     return "";
   }
 
-  const width = 620;
-  const height = 380;
-  const marginLeft = 70;
-  const marginRight = 24;
+  const width = 860;
+  const height = 430;
+  const marginLeft = 88;
+  const marginRight = 76;
   const marginTop = 28;
-  const marginBottom = 54;
+  const marginBottom = 64;
   const chartWidth = width - marginLeft - marginRight;
   const chartHeight = height - marginTop - marginBottom;
-  const maxLatency = Math.max(...input.data.map((item) => item.latencyMs), 1);
-  const maxCost = Math.max(...input.data.map((item) => item.costUsd), 0.0001);
+  const maxLatency = paddedDomainMax(Math.max(...input.data.map((item) => item.latencyMs), 1), 1);
+  const maxCost = paddedDomainMax(Math.max(...input.data.map((item) => item.costUsd), 0.0001), 0.0001);
+  const scoreValues = input.data
+    .map((item) => item.score)
+    .filter((value): value is number => typeof value === "number");
+  const minScore = scoreValues.length ? Math.min(...scoreValues) : undefined;
+  const maxScore = scoreValues.length ? Math.max(...scoreValues) : undefined;
   const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const palette = [
+    { fill: "#8b6c32", stroke: "#4f4020" },
+    { fill: "#55708d", stroke: "#33455a" },
+    { fill: "#7f4b3e", stroke: "#4d2b23" },
+    { fill: "#5f8065", stroke: "#37503d" }
+  ];
 
   const grid = ticks
     .map((tick) => {
@@ -258,15 +271,51 @@ function renderScatterChart(input: {
     .join("");
 
   const points = input.data
-    .map((item) => {
+    .map((item, index) => {
       const x = marginLeft + (item.latencyMs / maxLatency) * chartWidth;
       const y = marginTop + (1 - item.costUsd / maxCost) * chartHeight;
-      const radius = typeof item.score === "number" ? 7 + Math.max(0, Math.min(1, item.score)) * 6 : 9;
+      const radius =
+        typeof item.score === "number" && typeof minScore === "number" && typeof maxScore === "number"
+          ? minScore === maxScore
+            ? 11
+            : 8 + ((item.score - minScore) / (maxScore - minScore)) * 8
+          : 10;
+      const label = describeModelLabel(item.label);
+      const color = palette[index % palette.length];
+      const anchor = x > marginLeft + chartWidth * 0.78 ? "end" : "start";
+      const labelX = anchor === "end" ? x - radius - 8 : x + radius + 8;
+      const labelY =
+        y < marginTop + 24 ? y + radius + 14 : y > marginTop + chartHeight - 18 ? y - radius - 8 : y + 4;
       return `
         <g>
-          <circle cx="${x}" cy="${y}" r="${radius}" class="plot-point" />
-          <text x="${x + radius + 6}" y="${y + 4}" class="plot-label">${escapeHtml(item.label)}</text>
+          <line x1="${x}" y1="${y}" x2="${x}" y2="${marginTop + chartHeight}" class="plot-guide" />
+          <line x1="${marginLeft}" y1="${y}" x2="${x}" y2="${y}" class="plot-guide" />
+          <circle cx="${x}" cy="${y}" r="${radius}" class="plot-point" fill="${color.fill}" stroke="${color.stroke}" />
+          <text x="${labelX}" y="${labelY}" class="plot-point-label" text-anchor="${anchor}">${escapeHtml(label.primary)}</text>
         </g>
+      `;
+    })
+    .join("");
+
+  const legend = input.data
+    .map((item, index) => {
+      const label = describeModelLabel(item.label);
+      const color = palette[index % palette.length];
+      return `
+        <li class="plot-legend-item">
+          <div class="plot-legend-copy">
+            <span class="plot-legend-swatch" style="background: ${color.fill}; border-color: ${color.stroke};"></span>
+            <div>
+              <span class="plot-legend-label">${escapeHtml(label.primary)}</span>
+              ${label.secondary ? `<span class="plot-legend-detail">${escapeHtml(label.secondary)}</span>` : ""}
+            </div>
+          </div>
+          <div class="plot-legend-values">
+            <span class="plot-chip">${escapeHtml(formatCompactValue("ms", item.latencyMs))}</span>
+            <span class="plot-chip">${escapeHtml(formatCompactValue("usd", item.costUsd))}</span>
+            ${typeof item.score === "number" ? `<span class="plot-chip">Score ${escapeHtml(formatCompactValue("score", item.score))}</span>` : ""}
+          </div>
+        </li>
       `;
     })
     .join("");
@@ -285,9 +334,10 @@ function renderScatterChart(input: {
           <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + chartHeight}" class="plot-axis" />
           ${points}
           <text x="${marginLeft + chartWidth / 2}" y="${height - 4}" class="plot-axis-label" text-anchor="middle">Average Latency</text>
-          <text x="20" y="${marginTop + chartHeight / 2}" class="plot-axis-label" text-anchor="middle" transform="rotate(-90 20 ${marginTop + chartHeight / 2})">Average Cost</text>
+          <text x="24" y="${marginTop + chartHeight / 2}" class="plot-axis-label" text-anchor="middle" transform="rotate(-90 24 ${marginTop + chartHeight / 2})">Average Cost</text>
         </svg>
       </div>
+      <ul class="plot-legend" aria-label="${escapeHtml(input.title)} details">${legend}</ul>
     </article>
   `;
 }
@@ -515,7 +565,7 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
       }
       .section-visuals {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
         gap: 16px;
         margin: 0 0 18px;
       }
@@ -537,6 +587,82 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         color: var(--muted);
         font-size: 0.9rem;
       }
+      .metric-bar-list,
+      .plot-legend {
+        list-style: none;
+        margin: 12px 0 0;
+        padding: 0;
+      }
+      .metric-bar-list {
+        display: grid;
+        gap: 12px;
+      }
+      .metric-bar-row {
+        padding: 14px 14px 12px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdfa 0%, #f8f1e4 100%);
+      }
+      .metric-bar-head,
+      .plot-legend-item {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+      }
+      .metric-bar-copy,
+      .plot-legend-copy {
+        display: flex;
+        gap: 12px;
+        min-width: 0;
+      }
+      .metric-rank {
+        min-width: 2.2rem;
+        padding-top: 1px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .metric-labels {
+        min-width: 0;
+      }
+      .metric-label,
+      .plot-legend-label {
+        display: block;
+        font-size: 0.98rem;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .metric-detail,
+      .plot-legend-detail {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .metric-value {
+        flex: 0 0 auto;
+        padding-top: 1px;
+        font-size: 1.02rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .metric-track {
+        margin-top: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: #eadfce;
+        overflow: hidden;
+      }
+      .metric-fill {
+        display: block;
+        height: 100%;
+        min-width: 0;
+        border-radius: inherit;
+        box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+      }
       .chart-frame {
         margin-top: 12px;
         border: 1px solid var(--rule);
@@ -551,13 +677,17 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         stroke: #ddd3c5;
         stroke-width: 1;
       }
+      .plot-guide {
+        stroke: rgba(99, 89, 73, 0.28);
+        stroke-dasharray: 5 5;
+        stroke-width: 1;
+      }
       .plot-axis {
         stroke: #776a58;
         stroke-width: 1.4;
       }
       .plot-axis-label,
-      .plot-value,
-      .plot-label,
+      .plot-point-label,
       .plot-tick {
         fill: #181410;
         font-family: Georgia, "Times New Roman", serif;
@@ -566,18 +696,55 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-size: 13px;
         font-weight: 700;
       }
-      .plot-label,
-      .plot-value {
+      .plot-point-label {
         font-size: 12px;
+        font-weight: 700;
       }
       .plot-tick {
         font-size: 11px;
         fill: #635949;
       }
       .plot-point {
-        fill: rgba(139, 108, 50, 0.78);
-        stroke: #4f4020;
         stroke-width: 1.5;
+        fill-opacity: 0.82;
+      }
+      .plot-legend {
+        display: grid;
+        gap: 10px;
+      }
+      .plot-legend-item {
+        padding-top: 10px;
+        border-top: 1px solid rgba(119, 106, 88, 0.18);
+      }
+      .plot-legend-item:first-child {
+        padding-top: 0;
+        border-top: 0;
+      }
+      .plot-legend-swatch {
+        flex: 0 0 auto;
+        width: 12px;
+        height: 12px;
+        margin-top: 4px;
+        border: 2px solid transparent;
+        border-radius: 999px;
+      }
+      .plot-legend-values {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .plot-chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 1.9rem;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: #f2ead8;
+        color: #4f4020;
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
       }
       .table-wrap {
         overflow-x: auto;
@@ -648,6 +815,17 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
           width: calc(100vw - 16px);
           margin: 8px auto 18px;
           padding: 18px 14px 24px;
+        }
+        .section-visuals {
+          grid-template-columns: 1fr;
+        }
+        .metric-bar-head,
+        .plot-legend-item {
+          flex-direction: column;
+        }
+        .metric-value,
+        .plot-legend-values {
+          justify-content: flex-start;
         }
         .matrix-table thead th,
         .matrix-table tbody td,

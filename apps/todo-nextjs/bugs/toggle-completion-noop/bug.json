@@ -1,0 +1,9 @@
+{
+  "bugId": "toggle-completion-noop",
+  "title": "Completion toggle does not update todo state",
+  "description": "Clicking the checkbox leaves todo completion unchanged, so progress and active filtering remain incorrect.",
+  "category": "state",
+  "severity": "high",
+  "patchPath": "patch.diff",
+  "expectedFailureTaskIds": ["guided-complete-task", "guided-filter-active"]
+}

@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { summarizeCacheTelemetry } from "../cache/summary.js";
 import { isOpenRouterCostTrackingEnabled } from "../ai/openrouter.js";
 import { emptyAiUsageSummary, summarizeAiUsage, sumAiUsageSummaries } from "../ai/usage.js";
@@ -41,6 +42,160 @@ type StagehandLogLine = {
   level?: number;
   timestamp?: string;
 };
+
+const GENERIC_PROVIDER_ERROR_PATTERNS = [
+  /^provider returned error$/i,
+  /^failed after \d+ attempts(?: with non-retryable error)?: ['"]?provider returned error['"]?$/i,
+  /^failed after \d+ attempts\. last error: provider returned error$/i
+];
+
+function isGenericProviderError(message: string): boolean {
+  return GENERIC_PROVIDER_ERROR_PATTERNS.some((pattern) => pattern.test(message.trim()));
+}
+
+function tryParseJson(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function collectErrorMessages(
+  value: unknown,
+  messages: string[],
+  seen: Set<unknown>,
+  depth = 0
+): void {
+  if (value === undefined || value === null || depth > 4) {
+    return;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    if (!normalized) {
+      return;
+    }
+    messages.push(normalized);
+    const parsed = normalized.startsWith("{") || normalized.startsWith("[") ? tryParseJson(normalized) : undefined;
+    if (parsed && !seen.has(parsed)) {
+      collectErrorMessages(parsed, messages, seen, depth + 1);
+    }
+    return;
+  }
+
+  if (typeof value !== "object") {
+    return;
+  }
+
+  if (seen.has(value)) {
+    return;
+  }
+  seen.add(value);
+
+  if (value instanceof Error) {
+    collectErrorMessages(value.message, messages, seen, depth + 1);
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of [
+    "message",
+    "error",
+    "cause",
+    "description",
+    "details",
+    "responseBody",
+    "body",
+    "data",
+    "value"
+  ]) {
+    if (key in record) {
+      collectErrorMessages(record[key], messages, seen, depth + 1);
+    }
+  }
+
+  if (Array.isArray(record.errors)) {
+    for (const item of record.errors) {
+      collectErrorMessages(item, messages, seen, depth + 1);
+    }
+  }
+}
+
+function scoreErrorMessage(message: string): number {
+  let score = Math.min(message.length, 240);
+  if (isGenericProviderError(message)) {
+    score -= 10_000;
+  }
+  if (/rate limit|too many requests|free-models-per-min|429/i.test(message)) {
+    score += 1_000;
+  }
+  if (/no endpoints available|guardrail restrictions|data policy/i.test(message)) {
+    score += 900;
+  }
+  if (/provider returned error/i.test(message)) {
+    score -= 200;
+  }
+  return score;
+}
+
+export function normalizeExecutionError(error: unknown): string {
+  const messages: string[] = [];
+  collectErrorMessages(error, messages, new Set());
+  const uniqueMessages = [...new Set(messages.map((message) => message.replace(/\s+/g, " ").trim()).filter(Boolean))];
+  if (!uniqueMessages.length) {
+    return String(error);
+  }
+
+  return uniqueMessages.sort((left, right) => scoreErrorMessage(right) - scoreErrorMessage(left))[0]!;
+}
+
+function readNumberEnv(name: string, env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const rawValue = env[name];
+  if (!rawValue?.trim()) {
+    return undefined;
+  }
+
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function isRateLimitError(message: string): boolean {
+  return /rate limit|too many requests|free-models-per-min|429/i.test(message);
+}
+
+function isProviderAvailabilityError(message: string): boolean {
+  return /provider returned error|no endpoints available|guardrail restrictions|data policy/i.test(message);
+}
+
+function isTransientExecutionError(message: string): boolean {
+  return (
+    isRateLimitError(message) ||
+    isProviderAvailabilityError(message) ||
+    /service unavailable|gateway timeout|bad gateway|temporarily unavailable|connection closed|timed out/i.test(message)
+  );
+}
+
+export function computeRetryDelayMs(input: {
+  attempt: number;
+  modelId: string;
+  errorMessage: string;
+  env?: NodeJS.ProcessEnv;
+}): number {
+  const env = input.env ?? process.env;
+  if (!isTransientExecutionError(input.errorMessage)) {
+    return 0;
+  }
+
+  const isFreeModel = input.modelId.includes(":free");
+  const rateLimitDelayMs =
+    readNumberEnv("STAGEHAND_RATE_LIMIT_DELAY_MS", env) ??
+    (isFreeModel ? 20_000 : 7_500);
+  const providerDelayMs =
+    readNumberEnv("STAGEHAND_PROVIDER_ERROR_DELAY_MS", env) ??
+    (isFreeModel ? 4_000 : 2_000);
+  const baseDelayMs = isRateLimitError(input.errorMessage) ? rateLimitDelayMs : providerDelayMs;
+  return baseDelayMs * (input.attempt + 1);
+}
 
 function estimateAiInvocation(metrics: any): boolean {
   if (!metrics) {
@@ -620,6 +775,8 @@ function pickReplacementAction(
 }
 
 export class StagehandAutomationRunner implements AutomationRunner {
+  private readonly modelCooldowns = new Map<string, number>();
+
   constructor(private readonly stagehandEnv: string = "LOCAL") {}
 
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
@@ -631,6 +788,21 @@ export class StagehandAutomationRunner implements AutomationRunner {
     let stagehand: any | undefined;
 
     for (let attempt = 0; attempt <= input.runConfig.retryCount; attempt += 1) {
+      const cooldownUntil = this.modelCooldowns.get(input.model.id) ?? 0;
+      const cooldownDelayMs = Math.max(0, cooldownUntil - Date.now());
+      if (cooldownDelayMs > 0) {
+        trace.push({
+          timestamp: nowIso(),
+          action: "model.cooldown_wait",
+          details: {
+            attempt,
+            modelId: input.model.id,
+            delayMs: cooldownDelayMs
+          }
+        });
+        await delay(cooldownDelayMs);
+      }
+
       const stagehandLogs: StagehandLogLine[] = [];
       const attemptAiCalls: AiUsageRecord[] = [];
       let history: StagehandHistoryEntry[] = [];
@@ -742,13 +914,22 @@ export class StagehandAutomationRunner implements AutomationRunner {
         });
         allAiCalls.push(...attemptAiCalls);
         usageSummaries.push(attemptUsageSummary);
+        const errorMessage = normalizeExecutionError(error);
+        const retryDelayMs = computeRetryDelayMs({
+          attempt,
+          modelId: input.model.id,
+          errorMessage
+        });
+        if (retryDelayMs > 0) {
+          this.modelCooldowns.set(input.model.id, Date.now() + retryDelayMs);
+        }
 
         trace.push({
           timestamp: nowIso(),
           action: "error",
           details: {
             attempt,
-            message: error instanceof Error ? error.message : String(error)
+            message: errorMessage
           }
         });
         await stagehand?.close?.();
@@ -767,8 +948,21 @@ export class StagehandAutomationRunner implements AutomationRunner {
             trace,
             historyEntries: history,
             cache,
-            error: error instanceof Error ? error.message : String(error)
+            error: errorMessage
           };
+        }
+
+        if (retryDelayMs > 0) {
+          trace.push({
+            timestamp: nowIso(),
+            action: "retry_backoff",
+            details: {
+              attempt,
+              delayMs: retryDelayMs,
+              reason: errorMessage
+            }
+          });
+          await delay(retryDelayMs);
         }
       }
     }

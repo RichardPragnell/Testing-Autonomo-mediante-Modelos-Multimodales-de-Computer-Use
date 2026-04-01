@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 async function readJson<T>(path: string): Promise<T> {
@@ -7,13 +8,41 @@ async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(raw) as T;
 }
 
+const todoApps = [
+  {
+    appId: "todo-react",
+    sourcePath: ["template", "src", "App.jsx"],
+    seedPath: ["template", "src", "todo-store.js"],
+    titlePath: ["template", "index.html"],
+    expectedGoldTouchedFiles: ["src/todo-store.js"]
+  },
+  {
+    appId: "todo-nextjs",
+    sourcePath: ["template", "app", "page.js"],
+    seedPath: ["template", "app", "todo-store.js"],
+    titlePath: ["template", "app", "layout.js"],
+    expectedGoldTouchedFiles: ["app/todo-store.js"]
+  },
+  {
+    appId: "todo-angular",
+    sourcePath: ["template", "src", "app", "app.component.ts"],
+    seedPath: ["template", "src", "app", "todo-store.ts"],
+    titlePath: ["template", "src", "index.html"],
+    expectedGoldTouchedFiles: ["src/app/todo-store.ts"]
+  }
+] as const;
+
+const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+
 describe("todo benchmark contract parity", () => {
-  it("keeps the todo-react benchmark manifests aligned with the canonical todo-web contract", async () => {
-    const root = process.cwd();
-    const contract = await readJson<any>(join(root, "..", "..", "specs", "todo-web", "contract.json"));
-    const benchmark = await readJson<any>(join(root, "..", "..", "apps", "todo-react", "benchmark.json"));
-    const smokeScenario = await readJson<any>(join(root, "..", "..", "apps", "todo-react", "scenarios", "smoke.json"));
-    const guidedScenario = await readJson<any>(join(root, "..", "..", "apps", "todo-react", "scenarios", "guided.json"));
+  it.each(todoApps)("keeps $appId benchmark manifests aligned with the canonical todo-web contract", async ({
+    appId,
+    expectedGoldTouchedFiles
+  }) => {
+    const contract = await readJson<any>(join(repoRoot, "specs", "todo-web", "contract.json"));
+    const benchmark = await readJson<any>(join(repoRoot, "apps", appId, "benchmark.json"));
+    const smokeScenario = await readJson<any>(join(repoRoot, "apps", appId, "scenarios", "smoke.json"));
+    const guidedScenario = await readJson<any>(join(repoRoot, "apps", appId, "scenarios", "guided.json"));
 
     expect(smokeScenario).toEqual(contract.scenarios.smoke);
     expect(guidedScenario).toEqual(contract.scenarios.guided);
@@ -24,15 +53,20 @@ describe("todo benchmark contract parity", () => {
       probeTaskIds: contract.benchmark.explore.probeTaskIds,
       heuristicTargets: contract.benchmark.explore.heuristicTargets
     });
-    expect(benchmark.heal).toEqual(contract.benchmark.heal);
+    expect(benchmark.heal.caseIds).toEqual(contract.benchmark.heal.caseIds);
+    expect(benchmark.heal.cases).toEqual(
+      contract.benchmark.heal.cases.map((candidate: any) => ({
+        ...candidate,
+        goldTouchedFiles: expectedGoldTouchedFiles
+      }))
+    );
   });
 
-  it("keeps the todo-react bug manifests aligned with the canonical bug pack contract", async () => {
-    const root = process.cwd();
-    const contract = await readJson<any>(join(root, "..", "..", "specs", "todo-web", "contract.json"));
+  it.each(todoApps)("keeps $appId bug manifests aligned with the canonical bug pack contract", async ({ appId }) => {
+    const contract = await readJson<any>(join(repoRoot, "specs", "todo-web", "contract.json"));
 
     for (const bug of contract.bugPacks) {
-      const manifest = await readJson<any>(join(root, "..", "..", "apps", "todo-react", "bugs", bug.bugId, "bug.json"));
+      const manifest = await readJson<any>(join(repoRoot, "apps", appId, "bugs", bug.bugId, "bug.json"));
       expect(manifest).toEqual({
         bugId: bug.bugId,
         title: bug.title,
@@ -45,34 +79,36 @@ describe("todo benchmark contract parity", () => {
     }
   });
 
-  it("keeps the todo-react template copy, seed data, and automation hooks aligned with the contract", async () => {
-    const root = process.cwd();
-    const contract = await readJson<any>(join(root, "..", "..", "specs", "todo-web", "contract.json"));
-    const indexHtml = await readFile(join(root, "..", "..", "apps", "todo-react", "template", "index.html"), "utf8");
-    const appSource = await readFile(join(root, "..", "..", "apps", "todo-react", "template", "src", "App.jsx"), "utf8");
-    const storeSource = await readFile(join(root, "..", "..", "apps", "todo-react", "template", "src", "todo-store.js"), "utf8");
+  it.each(todoApps)(
+    "keeps $appId template copy, seed data, and automation hooks aligned with the contract",
+    async ({ appId, sourcePath, seedPath, titlePath }) => {
+      const contract = await readJson<any>(join(repoRoot, "specs", "todo-web", "contract.json"));
+      const titleSource = await readFile(join(repoRoot, "apps", appId, ...titlePath), "utf8");
+      const appSource = await readFile(join(repoRoot, "apps", appId, ...sourcePath), "utf8");
+      const storeSource = await readFile(join(repoRoot, "apps", appId, ...seedPath), "utf8");
 
-    expect(indexHtml).toContain(`<title>${contract.ui.documentTitle}</title>`);
-    expect(appSource).toContain(contract.ui.pageHeading);
-    expect(appSource).toContain(contract.ui.heroLead);
-    expect(appSource).toContain(contract.ui.newTaskPlaceholder);
-    expect(appSource).toContain(contract.ui.listAriaLabel);
-    expect(storeSource).toContain(contract.seed.initialTodos[0].text);
-    expect(storeSource).toContain(contract.seed.initialTodos[1].text);
+      expect(titleSource).toContain(contract.ui.documentTitle);
+      expect(appSource).toContain(contract.ui.pageHeading);
+      expect(appSource).toContain(contract.ui.heroLead);
+      expect(appSource).toContain(contract.ui.newTaskPlaceholder);
+      expect(appSource).toContain(contract.ui.listAriaLabel);
+      expect(storeSource).toContain(contract.seed.initialTodos[0].text);
+      expect(storeSource).toContain(contract.seed.initialTodos[1].text);
 
-    for (const hook of contract.automationHooks.requiredAttributes) {
-      if (hook.value) {
-        expect(appSource).toContain(`${hook.attribute}="${hook.value}"`);
-      }
-      if (hook.valueSet) {
-        expect(appSource).toContain(hook.attribute);
-        for (const value of hook.valueSet) {
-          expect(appSource).toContain(value);
+      for (const hook of contract.automationHooks.requiredAttributes) {
+        if (hook.value) {
+          expect(appSource).toContain(`${hook.attribute}="${hook.value}"`);
+        }
+        if (hook.valueSet) {
+          expect(appSource).toContain(hook.attribute);
+          for (const value of hook.valueSet) {
+            expect(appSource).toContain(value);
+          }
+        }
+        if (hook.dynamic) {
+          expect(appSource).toContain(hook.attribute);
         }
       }
-      if (hook.dynamic) {
-        expect(appSource).toContain(hook.attribute);
-      }
     }
-  });
+  );
 });

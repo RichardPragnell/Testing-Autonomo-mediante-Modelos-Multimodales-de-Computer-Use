@@ -1,0 +1,13 @@
+diff --git a/app/todo-store.js b/app/todo-store.js
+index cbd309f..fd2163f 100644
+--- a/app/todo-store.js
++++ b/app/todo-store.js
+@@ -6,7 +6,7 @@ export const initialTodos = [
+ export function createTodo(text) {
+   return {
+     id: `todo-${Math.random().toString(36).slice(2, 10)}`,
+-    text: text.trim(),
++    text: "New task",
+     done: false
+   };
+ }

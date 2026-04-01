@@ -1,0 +1,13 @@
+diff --git a/src/app/todo-store.ts b/src/app/todo-store.ts
+index 0000000..1111111 100644
+--- a/src/app/todo-store.ts
++++ b/src/app/todo-store.ts
+@@ -29,7 +29,7 @@ export function updateTodoText(todos, id, text) {
+     return todos;
+   }
+ 
+-  return todos.map((todo) => (todo.id === id ? { ...todo, text: trimmed } : todo));
++  return todos;
+ }
+ 
+ export function removeTodo(todos, id) {

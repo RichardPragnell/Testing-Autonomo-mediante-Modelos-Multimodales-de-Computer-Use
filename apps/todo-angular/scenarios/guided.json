@@ -1,0 +1,47 @@
+{
+  "scenarioId": "guided",
+  "title": "Todo Bench guided interactions",
+  "source": "generated",
+  "tasks": [
+    {
+      "id": "guided-add-task",
+      "instruction": "Add a new task called Review benchmark notes and verify it appears in the task list.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Review benchmark notes"
+      }
+    },
+    {
+      "id": "guided-complete-task",
+      "instruction": "Mark the task Draft Stagehand checklist as completed and verify the summary shows 1 of 2 tasks done.",
+      "expected": {
+        "type": "text_visible",
+        "value": "1 of 2 tasks done"
+      }
+    },
+    {
+      "id": "guided-filter-active",
+      "instruction": "Switch to the Active filter and verify the completed task Draft Stagehand checklist is no longer visible.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Plan todo benchmark"
+      }
+    },
+    {
+      "id": "guided-edit-task",
+      "instruction": "Edit the existing task Plan todo benchmark so it reads Plan todo benchmark outline and verify the updated text is visible.",
+      "expected": {
+        "type": "text_visible",
+        "value": "Plan todo benchmark outline"
+      }
+    },
+    {
+      "id": "guided-create-delete-task",
+      "instruction": "Create a new task called Remove benchmark draft, delete it, and verify it is no longer visible in the task list.",
+      "expected": {
+        "type": "text_not_visible",
+        "value": "Remove benchmark draft"
+      }
+    }
+  ]
+}

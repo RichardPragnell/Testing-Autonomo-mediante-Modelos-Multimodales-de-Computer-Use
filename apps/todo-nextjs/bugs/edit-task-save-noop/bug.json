@@ -1,0 +1,9 @@
+{
+  "bugId": "edit-task-save-noop",
+  "title": "Editing a todo does not persist the updated text",
+  "description": "Saving an edited task leaves the original label unchanged, so the updated text never appears in the list.",
+  "category": "state",
+  "severity": "medium",
+  "patchPath": "patch.diff",
+  "expectedFailureTaskIds": ["guided-edit-task"]
+}

@@ -1,0 +1,13 @@
+diff --git a/app/todo-store.js b/app/todo-store.js
+index 0000000..1111111 100644
+--- a/app/todo-store.js
++++ b/app/todo-store.js
+@@ -19,7 +19,7 @@ export function addTodo(todos, text) {
+ }
+ 
+ export function toggleTodo(todos, id) {
+-  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));
++  return todos;
+ }
+ 
+ export function updateTodoText(todos, id, text) {
