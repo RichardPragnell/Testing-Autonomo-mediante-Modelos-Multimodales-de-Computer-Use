@@ -432,6 +432,11 @@ export interface CompareLeaderboardEntry {
   runs: number;
 }
 
+export interface ModeComparisonBuildResult {
+  aggregateLeaderboard: CompareLeaderboardEntry[];
+  modeSection: BenchmarkComparisonSection;
+}
+
 export interface BenchmarkMetricColumn {
   key: string;
   label: string;
@@ -470,6 +475,90 @@ export interface BenchmarkComparisonSection {
   audit: BenchmarkAuditTable;
 }
 
+export interface BenchmarkSummaryFigures {
+  rankMatrix: BenchmarkRankMatrixFigure;
+  efficiencyFrontier: BenchmarkEfficiencyFrontierFigure;
+}
+
+export interface BenchmarkRankMatrixFigure {
+  title: string;
+  caption: string;
+  modeOrder: ExperimentKind[];
+  columns: BenchmarkRankMatrixColumn[];
+  rows: BenchmarkRankMatrixRow[];
+}
+
+export interface BenchmarkRankMatrixColumn {
+  key: string;
+  kind: ExperimentKind;
+  modeTitle: string;
+  appId: string;
+  label: string;
+}
+
+export interface BenchmarkRankMatrixRow {
+  modelId: string;
+  provider: string;
+  meanRank: number | null;
+  meanScore: number | null;
+  meanTotalCost: number | null;
+  meanAvgCost: number | null;
+  meanAvgLatency: number | null;
+  cells: BenchmarkRankMatrixCell[];
+}
+
+export interface BenchmarkRankMatrixCell {
+  columnKey: string;
+  kind: ExperimentKind;
+  appId: string;
+  runIds: string[];
+  missing: boolean;
+  rank: number | null;
+  rankPercentile: number | null;
+  score: number | null;
+  avgLatency: number | null;
+  avgCost: number | null;
+  totalCost: number | null;
+}
+
+export interface BenchmarkEfficiencyFrontierFigure {
+  title: string;
+  caption: string;
+  modeOrder: ExperimentKind[];
+  xDomain: {
+    min: number;
+    max: number;
+  };
+  yDomain: {
+    min: number;
+    max: number;
+  };
+  legend: BenchmarkEfficiencyFrontierLegendEntry[];
+  panels: BenchmarkEfficiencyFrontierPanel[];
+}
+
+export interface BenchmarkEfficiencyFrontierLegendEntry {
+  modelId: string;
+  provider: string;
+  color: string;
+}
+
+export interface BenchmarkEfficiencyFrontierPanel {
+  kind: ExperimentKind;
+  title: string;
+  points: BenchmarkEfficiencyFrontierPoint[];
+}
+
+export interface BenchmarkEfficiencyFrontierPoint {
+  modelId: string;
+  provider: string;
+  color: string;
+  avgLatency: number;
+  avgCost: number;
+  avgScore: number;
+  paretoOptimal: boolean;
+}
+
 export interface CompareResult<TReport> {
   kind: ExperimentKind;
   reports: TReport[];
@@ -486,8 +575,24 @@ export interface BenchmarkComparisonReport {
   runIds: string[];
   appIds: string[];
   modeSections: BenchmarkComparisonSection[];
+  summaryFigures?: BenchmarkSummaryFigures;
   finalReportPath: string;
   finalJsonPath: string;
+  provenance?: BenchmarkComparisonProvenance;
+}
+
+export interface BenchmarkComparisonProvenanceEntry {
+  kind: ExperimentKind;
+  appId: string;
+  runId: string;
+  generatedAt: string;
+  reportPath: string;
+}
+
+export interface BenchmarkComparisonProvenance {
+  selectionPolicy: "latest-per-app-mode";
+  note: string;
+  selectedReports: BenchmarkComparisonProvenanceEntry[];
 }
 
 export interface RepairPromptContext {

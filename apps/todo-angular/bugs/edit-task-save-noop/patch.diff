@@ -2,7 +2,7 @@ diff --git a/src/app/todo-store.ts b/src/app/todo-store.ts
 index 0000000..1111111 100644
 --- a/src/app/todo-store.ts
 +++ b/src/app/todo-store.ts
-@@ -29,7 +29,7 @@ export function updateTodoText(todos, id, text) {
+@@ -37,7 +37,7 @@ export function updateTodoText(todos: Todo[], id: string, text: string): Todo[]
      return todos;
    }
  
@@ -10,4 +10,4 @@ index 0000000..1111111 100644
 +  return todos;
  }
  
- export function removeTodo(todos, id) {
+ export function removeTodo(todos: Todo[], id: string): Todo[] {

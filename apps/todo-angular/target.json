@@ -2,10 +2,10 @@
   "targetId": "todo-angular",
   "displayName": "Todo Angular",
   "baseUrl": "http://127.0.0.1:3103",
-  "devCommand": "powershell -NoProfile -Command \"if (-not (Test-Path node_modules)) { New-Item -ItemType Junction -Path node_modules -Target '{{repoRoot}}/node_modules' | Out-Null }; node '{{repoRoot}}/node_modules/@angular/cli/bin/ng.js' serve --host 127.0.0.1 --port 3103\"",
+  "devCommand": "powershell -NoProfile -Command \"if (-not (Test-Path node_modules)) { New-Item -ItemType Junction -Path node_modules -Target '{{repoRoot}}/node_modules' | Out-Null }; node '{{repoRoot}}/node_modules/@angular/cli/bin/ng.js' serve --host {{autHost}} --port {{autPort}}\"",
   "devEnv": {
     "NG_CLI_ANALYTICS": "false",
-    "PORT": "3103"
+    "PORT": "{{autPort}}"
   },
   "defaultValidationCommand": "node \"{{repoRoot}}/node_modules/tsx/dist/cli.mjs\" --test tests/*.test.ts",
   "templateDir": "template",

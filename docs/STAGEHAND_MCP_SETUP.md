@@ -32,7 +32,7 @@ These are passed into Stagehand local browser launch options when defined.
 1. Start the pristine benchmark target directly:
    `pnpm app:todo-react`
 2. Run the guided QA experiment through the harness:
-   `pnpm bench qa todo-react`
+   `pnpm qa todo-react`
 
 ## Optional docs MCP
 Stagehand documentation can still be attached to your coding client through the public MCP endpoint:

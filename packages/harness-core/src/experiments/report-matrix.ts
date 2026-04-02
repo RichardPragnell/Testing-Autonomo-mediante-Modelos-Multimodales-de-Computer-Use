@@ -1,6 +1,8 @@
 import type {
   BenchmarkComparisonReport,
   BenchmarkComparisonSection,
+  BenchmarkEfficiencyFrontierFigure,
+  BenchmarkEfficiencyFrontierPoint,
   BenchmarkMetricColumn
 } from "./types.js";
 import type { UsageCostSummary } from "../types.js";
@@ -76,6 +78,321 @@ function renderMeta(report: BenchmarkComparisonReport): string {
       <div><dt>Apps</dt><dd>${String(report.appIds.length)}</dd></div>
       <div><dt>Modes</dt><dd>${String(report.modeSections.length)}</dd></div>
     </dl>
+  `;
+}
+
+function renderProvenance(report: BenchmarkComparisonReport): string {
+  if (!report.provenance) {
+    return "";
+  }
+
+  return `
+    <section class="provenance-block">
+      <h2>Rebuild Provenance</h2>
+      <p class="section-summary">
+        Selection policy <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
+        ${escapeHtml(report.provenance.note)}
+      </p>
+      <div class="table-wrap audit-wrap">
+        <table class="audit-table">
+          <caption>Selected Latest Reports</caption>
+          <thead>
+            <tr>
+              <th>Mode</th>
+              <th>App</th>
+              <th>Run</th>
+              <th>Generated</th>
+              <th>Report</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${report.provenance.selectedReports
+              .map(
+                (entry) => `
+                  <tr>
+                    <td>${escapeHtml(entry.kind)}</td>
+                    <td>${escapeHtml(entry.appId)}</td>
+                    <td>${escapeHtml(entry.runId)}</td>
+                    <td>${escapeHtml(entry.generatedAt)}</td>
+                    <td>${escapeHtml(entry.reportPath)}</td>
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function formatOverviewValue(kind: "rank" | "score" | "ms" | "usd", value: number | null): string {
+  if (value === null) {
+    return "&mdash;";
+  }
+
+  if (kind === "rank") {
+    return value.toFixed(2);
+  }
+
+  return escapeHtml(formatCompactValue(kind, value));
+}
+
+function renderRankMatrixFigure(report: BenchmarkComparisonReport): string {
+  const rankMatrix = report.summaryFigures?.rankMatrix;
+  if (!rankMatrix || !rankMatrix.columns.length || !rankMatrix.rows.length) {
+    return "";
+  }
+
+  const groupedColumns = rankMatrix.modeOrder
+    .map((kind) => ({
+      kind,
+      columns: rankMatrix.columns.filter((column) => column.kind === kind)
+    }))
+    .filter((group) => group.columns.length > 0);
+
+  const summaryHeaders: Array<{
+    key: "meanRank" | "meanScore" | "meanAvgCost" | "meanAvgLatency";
+    label: string;
+    kind: "rank" | "score" | "usd" | "ms";
+  }> = [
+    { key: "meanRank", label: "Mean Rank", kind: "rank" as const },
+    { key: "meanScore", label: "Mean Score", kind: "score" as const },
+    { key: "meanAvgCost", label: "Mean Avg Cost", kind: "usd" as const },
+    { key: "meanAvgLatency", label: "Mean Avg Latency", kind: "ms" as const }
+  ];
+
+  const body = rankMatrix.rows
+    .map((row) => {
+      const label = describeModelLabel(row.modelId);
+      const cells = row.cells
+        .map((cell) => {
+          if (cell.missing) {
+            return `
+              <td class="rank-cell rank-cell-missing">
+                <span class="rank-cell-main">N/A</span>
+                <span class="rank-cell-detail">Missing</span>
+              </td>
+            `;
+          }
+
+          const intensity = (cell.rankPercentile ?? 0) * 0.72 + 0.14;
+          const strong = (cell.rankPercentile ?? 0) >= 0.6;
+          return `
+            <td class="rank-cell${strong ? " rank-cell-strong" : ""}" style="background: rgba(79, 64, 32, ${intensity.toFixed(3)});">
+              <span class="rank-cell-main">#${String(cell.rank)}</span>
+              <span class="rank-cell-detail">${escapeHtml(formatCompactValue("score", cell.score ?? 0))}</span>
+            </td>
+          `;
+        })
+        .join("");
+      const summaryValues = summaryHeaders
+        .map((header) => {
+          const value = row[header.key];
+          return `<td class="rank-summary-cell">${formatOverviewValue(header.kind, value)}</td>`;
+        })
+        .join("");
+
+      return `
+        <tr>
+          <th class="rank-model-cell">
+            <span class="rank-model-label">${escapeHtml(label.primary)}</span>
+            ${label.secondary ? `<span class="rank-model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+          </th>
+          ${cells}
+          ${summaryValues}
+        </tr>
+      `;
+    })
+    .join("");
+
+  return `
+    <article class="overview-figure">
+      <header class="overview-header">
+        <h3>${escapeHtml(rankMatrix.title)}</h3>
+        <p>${escapeHtml(rankMatrix.caption)}</p>
+      </header>
+      <div class="table-wrap">
+        <table class="rank-matrix-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="rank-model-head">Model</th>
+              ${groupedColumns
+                .map(
+                  (group) =>
+                    `<th colspan="${String(group.columns.length)}" class="rank-group-head">${escapeHtml(group.columns[0]!.modeTitle)}</th>`
+                )
+                .join("")}
+              <th colspan="${String(summaryHeaders.length)}" class="rank-group-head">Row Summary</th>
+            </tr>
+            <tr>
+              ${groupedColumns
+                .map((group) => group.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join(""))
+                .join("")}
+              ${summaryHeaders.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+      <p class="overview-legend">Rank is computed independently within each mode/app column. Missing cells are excluded from mean rank, score, cost, and latency summaries.</p>
+    </article>
+  `;
+}
+
+function frontierPointRadius(
+  point: BenchmarkEfficiencyFrontierPoint,
+  panel: BenchmarkEfficiencyFrontierFigure["panels"][number]
+): number {
+  const min = Math.min(...panel.points.map((item) => item.avgScore));
+  const max = Math.max(...panel.points.map((item) => item.avgScore));
+  if (min === max) {
+    return 11;
+  }
+
+  return 7 + ((point.avgScore - min) / (max - min)) * 9;
+}
+
+function renderEfficiencyFrontierFigure(report: BenchmarkComparisonReport): string {
+  const frontier = report.summaryFigures?.efficiencyFrontier;
+  if (!frontier || !frontier.panels.length) {
+    return "";
+  }
+
+  const ticks = [0, 0.25, 0.5, 0.75, 1];
+  const width = 360;
+  const height = 280;
+  const marginLeft = 68;
+  const marginRight = 22;
+  const marginTop = 18;
+  const marginBottom = 52;
+  const chartWidth = width - marginLeft - marginRight;
+  const chartHeight = height - marginTop - marginBottom;
+
+  const panels = frontier.panels
+    .map((panel) => {
+      const grid = ticks
+        .map((tick) => {
+          const x = marginLeft + chartWidth * tick;
+          const y = marginTop + chartHeight * (1 - tick);
+          return `
+            <line x1="${x}" y1="${marginTop}" x2="${x}" y2="${marginTop + chartHeight}" class="frontier-gridline" />
+            <line x1="${marginLeft}" y1="${y}" x2="${marginLeft + chartWidth}" y2="${y}" class="frontier-gridline" />
+            <text x="${x}" y="${height - 14}" class="frontier-tick" text-anchor="${
+              tick === 0 ? "start" : tick === 1 ? "end" : "middle"
+            }">${escapeHtml(formatCompactValue("ms", frontier.xDomain.max * tick))}</text>
+            <text x="${marginLeft - 10}" y="${y + 4}" class="frontier-tick" text-anchor="end">${escapeHtml(
+              formatCompactValue("usd", frontier.yDomain.max * tick)
+            )}</text>
+          `;
+        })
+        .join("");
+
+      const pareto = panel.points
+        .filter((point) => point.paretoOptimal)
+        .sort(
+          (left, right) =>
+            left.avgLatency - right.avgLatency || left.avgCost - right.avgCost || left.modelId.localeCompare(right.modelId)
+        );
+      const paretoPath =
+        pareto.length > 1
+          ? pareto
+              .map((point) => {
+                const x = marginLeft + (point.avgLatency / frontier.xDomain.max) * chartWidth;
+                const y = marginTop + (1 - point.avgCost / frontier.yDomain.max) * chartHeight;
+                return `${x.toFixed(2)},${y.toFixed(2)}`;
+              })
+              .join(" ")
+          : "";
+
+      const points = panel.points
+        .map((point) => {
+          const x = marginLeft + (point.avgLatency / frontier.xDomain.max) * chartWidth;
+          const y = marginTop + (1 - point.avgCost / frontier.yDomain.max) * chartHeight;
+          const radius = frontierPointRadius(point, panel);
+          return `
+            <circle
+              cx="${x.toFixed(2)}"
+              cy="${y.toFixed(2)}"
+              r="${radius.toFixed(2)}"
+              class="frontier-point${point.paretoOptimal ? " frontier-point-pareto" : ""}"
+              fill="${point.color}"
+              stroke="${point.paretoOptimal ? "#1f1a14" : "#4f4020"}"
+            />
+          `;
+        })
+        .join("");
+
+      return `
+        <article class="frontier-panel-card">
+          <header class="frontier-panel-header">
+            <h4>${escapeHtml(panel.title)}</h4>
+            <p>${escapeHtml(panel.kind.toUpperCase())}</p>
+          </header>
+          <div class="chart-frame frontier-frame">
+            <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(panel.title)} efficiency frontier" xmlns="http://www.w3.org/2000/svg">
+              <rect width="${width}" height="${height}" fill="#fffdfa" />
+              ${grid}
+              <line x1="${marginLeft}" y1="${marginTop + chartHeight}" x2="${marginLeft + chartWidth}" y2="${marginTop + chartHeight}" class="frontier-axis" />
+              <line x1="${marginLeft}" y1="${marginTop}" x2="${marginLeft}" y2="${marginTop + chartHeight}" class="frontier-axis" />
+              ${paretoPath ? `<polyline points="${paretoPath}" class="frontier-line" />` : ""}
+              ${points}
+              <text x="${marginLeft + chartWidth / 2}" y="${height - 2}" class="frontier-axis-label" text-anchor="middle">Mean Latency</text>
+              <text x="20" y="${marginTop + chartHeight / 2}" class="frontier-axis-label" text-anchor="middle" transform="rotate(-90 20 ${marginTop + chartHeight / 2})">Mean Cost</text>
+            </svg>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  const legend = frontier.legend
+    .map((entry) => {
+      const label = describeModelLabel(entry.modelId);
+      return `
+        <li class="frontier-legend-item">
+          <span class="frontier-legend-swatch" style="background: ${entry.color};"></span>
+          <div class="frontier-legend-copy">
+            <span class="frontier-legend-label">${escapeHtml(label.primary)}</span>
+            ${label.secondary ? `<span class="frontier-legend-detail">${escapeHtml(label.secondary)}</span>` : ""}
+          </div>
+        </li>
+      `;
+    })
+    .join("");
+
+  return `
+    <article class="overview-figure">
+      <header class="overview-header">
+        <h3>${escapeHtml(frontier.title)}</h3>
+        <p>${escapeHtml(frontier.caption)}</p>
+      </header>
+      <div class="frontier-panel-grid">${panels}</div>
+      <ul class="frontier-legend" aria-label="${escapeHtml(frontier.title)} legend">${legend}</ul>
+    </article>
+  `;
+}
+
+function renderSummaryFigures(report: BenchmarkComparisonReport): string {
+  if (!report.summaryFigures || report.modeSections.length < 2) {
+    return "";
+  }
+
+  const rankMatrix = renderRankMatrixFigure(report);
+  const frontier = renderEfficiencyFrontierFigure(report);
+  if (!rankMatrix && !frontier) {
+    return "";
+  }
+
+  return `
+    <section class="overview-section">
+      <h2>Cross-Benchmark Overview</h2>
+      <p class="section-summary">These top-level figures summarize all available benchmark modes and apps in one paper-oriented view before the per-mode detail sections.</p>
+      <div class="overview-stack">
+        ${rankMatrix}
+        ${frontier}
+      </div>
+    </section>
   `;
 }
 
@@ -169,7 +486,7 @@ function renderHorizontalBarChart(input: {
   title: string;
   subtitle: string;
   color: string;
-  kind: "ms" | "usd";
+  kind: "ms" | "usd" | "score";
   sort: "asc" | "desc";
   data: Array<{ label: string; value: number }>;
 }): string {
@@ -402,6 +719,110 @@ function renderSectionVisuals(section: BenchmarkComparisonSection): string {
   return `<div class="section-visuals">${charts.join("")}</div>`;
 }
 
+function collectAppVisualData(section: BenchmarkComparisonSection, appId: string): Array<{
+  modelId: string;
+  score?: number;
+  avgLatency?: number;
+  avgCost?: number;
+}> {
+  return section.rows
+    .flatMap((row) => {
+      const cell = row.cells.find((item) => item.appId === appId);
+      if (!cell) {
+        return [];
+      }
+
+      return [
+        {
+          modelId: row.modelId,
+          score: typeof cell.metrics.score === "number" ? cell.metrics.score : undefined,
+          avgLatency: typeof cell.metrics.avgLatency === "number" ? cell.metrics.avgLatency : undefined,
+          avgCost: typeof cell.metrics.avgCost === "number" ? cell.metrics.avgCost : undefined
+        }
+      ];
+    })
+    .filter(
+      (item) =>
+        typeof item.score === "number" ||
+        typeof item.avgLatency === "number" ||
+        typeof item.avgCost === "number"
+    );
+}
+
+function renderPerAppVisuals(section: BenchmarkComparisonSection): string {
+  if (section.appIds.length <= 1) {
+    return "";
+  }
+
+  const blocks = section.appIds
+    .map((appId) => {
+      const data = collectAppVisualData(section, appId);
+      if (!data.length) {
+        return "";
+      }
+
+      const scoreData = data
+        .map((item) => ({
+          label: item.modelId,
+          value: item.score
+        }))
+        .filter((item): item is { label: string; value: number } => typeof item.value === "number");
+      const scatterData = data
+        .filter(
+          (item): item is { modelId: string; score?: number; avgLatency: number; avgCost: number } =>
+            typeof item.avgLatency === "number" && typeof item.avgCost === "number"
+        )
+        .map((item) => ({
+          label: item.modelId,
+          latencyMs: item.avgLatency,
+          costUsd: item.avgCost,
+          score: item.score
+        }));
+
+      const charts = [
+        renderHorizontalBarChart({
+          title: `${appId} Score by Model`,
+          subtitle: "Per-app score ranking for the models that ran on this app.",
+          color: "#5f8065",
+          kind: "score",
+          sort: "desc",
+          data: scoreData
+        }),
+        renderScatterChart({
+          title: `${appId} Price vs Speed`,
+          subtitle: "Per-app latency and cost frontier; larger points indicate higher score.",
+          data: scatterData
+        })
+      ].filter(Boolean);
+
+      if (!charts.length) {
+        return "";
+      }
+
+      return `
+        <article class="app-compare-block">
+          <header class="app-compare-header">
+            <h4>${escapeHtml(appId)}</h4>
+            <p>Model comparison on this app only.</p>
+          </header>
+          <div class="section-visuals">${charts.join("")}</div>
+        </article>
+      `;
+    })
+    .filter(Boolean);
+
+  if (!blocks.length) {
+    return "";
+  }
+
+  return `
+    <div class="per-app-visuals">
+      <h3>Per-App Model Comparison</h3>
+      ${blocks.join("")}
+    </div>
+  `;
+}
+
 function renderMatrix(section: BenchmarkComparisonSection): string {
   const columnCount = section.metricColumns.length;
 
@@ -549,6 +970,11 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         margin: 0;
         font-size: 0.98rem;
       }
+      .provenance-block {
+        margin-top: 22px;
+        padding-top: 18px;
+        border-top: 1px solid var(--rule);
+      }
       section {
         margin-top: 26px;
         padding-top: 18px;
@@ -563,11 +989,43 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         color: var(--muted);
         max-width: 1000px;
       }
+      .provenance-chip {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
       .section-visuals {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
         gap: 16px;
         margin: 0 0 18px;
+      }
+      .per-app-visuals {
+        margin: 4px 0 18px;
+      }
+      .per-app-visuals h3 {
+        margin: 0 0 12px;
+        font-size: 1.1rem;
+      }
+      .app-compare-block + .app-compare-block {
+        margin-top: 18px;
+      }
+      .app-compare-header {
+        margin-bottom: 10px;
+      }
+      .app-compare-header h4 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .app-compare-header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
       }
       .chart-card {
         background: #fff;
@@ -746,6 +1204,204 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-weight: 700;
         white-space: nowrap;
       }
+      .overview-stack {
+        display: grid;
+        gap: 18px;
+      }
+      .overview-figure {
+        padding: 18px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdf8 0%, #f7f0e3 100%);
+      }
+      .overview-header h3 {
+        margin: 0;
+        font-size: 1.15rem;
+      }
+      .overview-header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        max-width: 1100px;
+      }
+      .overview-legend {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+      }
+      .rank-matrix-table thead th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule-strong);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      .rank-matrix-table tbody th,
+      .rank-matrix-table tbody td {
+        padding: 0;
+        border-bottom: 1px solid var(--rule);
+        text-align: center;
+      }
+      .rank-model-head,
+      .rank-model-cell {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 220px;
+        padding: 12px 14px !important;
+        text-align: left !important;
+        background: #fcfaf6;
+      }
+      .rank-group-head {
+        font-size: 0.96rem !important;
+      }
+      .rank-model-label {
+        display: block;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .rank-model-detail {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .rank-cell,
+      .rank-summary-cell {
+        min-width: 104px;
+      }
+      .rank-cell {
+        padding: 10px 8px !important;
+        color: #241c14;
+      }
+      .rank-cell-strong {
+        color: #fffdf8;
+      }
+      .rank-cell-missing {
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(208, 199, 187, 0.65) 0,
+            rgba(208, 199, 187, 0.65) 8px,
+            rgba(255, 253, 248, 0.96) 8px,
+            rgba(255, 253, 248, 0.96) 16px
+          );
+        color: var(--muted);
+      }
+      .rank-cell-main,
+      .rank-cell-detail {
+        display: block;
+      }
+      .rank-cell-main {
+        font-size: 0.98rem;
+        font-weight: 700;
+      }
+      .rank-cell-detail {
+        margin-top: 4px;
+        font-size: 0.76rem;
+      }
+      .rank-summary-cell {
+        padding: 10px 12px !important;
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+      .frontier-panel-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .frontier-panel-card {
+        padding: 14px;
+        border: 1px solid rgba(119, 106, 88, 0.25);
+        background: rgba(255, 255, 255, 0.7);
+      }
+      .frontier-panel-header h4 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .frontier-panel-header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+      }
+      .frontier-frame {
+        margin-top: 12px;
+      }
+      .frontier-gridline {
+        stroke: #ddd3c5;
+        stroke-width: 1;
+      }
+      .frontier-axis {
+        stroke: #776a58;
+        stroke-width: 1.4;
+      }
+      .frontier-line {
+        fill: none;
+        stroke: #4f4020;
+        stroke-width: 2;
+        stroke-dasharray: 5 4;
+      }
+      .frontier-axis-label,
+      .frontier-tick {
+        fill: #181410;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .frontier-axis-label {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .frontier-tick {
+        font-size: 10px;
+        fill: #635949;
+      }
+      .frontier-point {
+        fill-opacity: 0.82;
+        stroke-width: 1.4;
+      }
+      .frontier-point-pareto {
+        stroke-width: 2.2;
+      }
+      .frontier-legend {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px 14px;
+        list-style: none;
+        margin: 14px 0 0;
+        padding: 0;
+      }
+      .frontier-legend-item {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .frontier-legend-swatch {
+        flex: 0 0 auto;
+        width: 12px;
+        height: 12px;
+        margin-top: 4px;
+        border-radius: 999px;
+        border: 1px solid rgba(24, 20, 16, 0.35);
+      }
+      .frontier-legend-copy {
+        min-width: 0;
+      }
+      .frontier-legend-label {
+        display: block;
+        font-size: 0.9rem;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .frontier-legend-detail {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+        word-break: break-word;
+      }
       .table-wrap {
         overflow-x: auto;
       }
@@ -827,9 +1483,19 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         .plot-legend-values {
           justify-content: flex-start;
         }
+        .rank-model-head,
+        .rank-model-cell {
+          min-width: 180px;
+        }
+        .frontier-panel-grid {
+          grid-template-columns: 1fr;
+        }
         .matrix-table thead th,
         .matrix-table tbody td,
         .matrix-table tbody th,
+        .rank-matrix-table thead th,
+        .rank-matrix-table tbody td,
+        .rank-matrix-table tbody th,
         .audit-table th,
         .audit-table td {
           padding: 8px 9px;
@@ -845,6 +1511,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         <p class="subtitle">${escapeHtml(report.subtitle)}</p>
         ${renderMeta(report)}
       </header>
+      ${renderProvenance(report)}
+      ${renderSummaryFigures(report)}
       ${report.modeSections
         .map(
           (section) => `
@@ -852,6 +1520,7 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
               <h2>${escapeHtml(section.title)}</h2>
               <p class="section-summary">${escapeHtml(section.summary)}</p>
               ${renderSectionVisuals(section)}
+              ${renderPerAppVisuals(section)}
               ${renderMatrix(section)}
               ${renderAudit(section)}
               ${renderNotes(section)}

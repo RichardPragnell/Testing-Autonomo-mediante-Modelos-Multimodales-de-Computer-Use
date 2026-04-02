@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type {
   BenchmarkComparisonCell,
+  BenchmarkComparisonProvenance,
   BenchmarkComparisonReport,
   BenchmarkComparisonRow,
   BenchmarkComparisonSection,
@@ -10,6 +11,7 @@ import type {
 import type { UsageCostSummary } from "../types.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
+import { buildBenchmarkSummaryFigures } from "./report-overview.js";
 import { average, formatCostSource, formatCostSummary, mergeCostSources } from "./report-utils.js";
 
 function unique<T>(values: T[]): T[] {
@@ -159,6 +161,7 @@ export async function persistComparisonReport(input: {
   modeSections: BenchmarkComparisonSection[];
   resultsDir: string;
   prefix: string;
+  provenance?: BenchmarkComparisonProvenance;
 }): Promise<BenchmarkComparisonReport> {
   const reportsRoot = join(await resolveWorkspacePath(input.resultsDir), "compare", "reports");
   await ensureDir(reportsRoot);
@@ -172,8 +175,10 @@ export async function persistComparisonReport(input: {
     runIds: [...input.runIds].sort((left, right) => left.localeCompare(right)),
     appIds: unique(input.modeSections.flatMap((section) => section.appIds)).sort((left, right) => left.localeCompare(right)),
     modeSections: input.modeSections,
+    summaryFigures: buildBenchmarkSummaryFigures(input.modeSections),
     finalReportPath,
-    finalJsonPath
+    finalJsonPath,
+    provenance: input.provenance
   };
 
   await writeJson(finalJsonPath, report);

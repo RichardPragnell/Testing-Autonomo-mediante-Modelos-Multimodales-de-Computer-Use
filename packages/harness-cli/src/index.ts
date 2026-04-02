@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import {
-  compareBenchmarkRuns,
   loadProjectEnv,
-  runBenchmarkSuite,
+  rebuildBenchmarkReports,
+  runExploreAcrossApps,
   runExploreExperiment,
+  runHealAcrossApps,
   runHealExperiment,
+  runQaAcrossApps,
   runQaExperiment
 } from "@agentic-qa/harness-core";
 
@@ -19,6 +21,72 @@ function parsePositiveInt(value: string): number {
 
 function print(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function printSingleRun(result: {
+  artifact: {
+    runId: string;
+  };
+  artifactPath: string;
+  reportPath: string;
+  htmlPath: string;
+}): void {
+  print({
+    runId: result.artifact.runId,
+    artifactPath: result.artifactPath,
+    reportPath: result.reportPath,
+    htmlPath: result.htmlPath
+  });
+}
+
+function printMultiRun(result: {
+  mode: string;
+  appIds: string[];
+  runs: Array<{
+    appId: string;
+    runId: string;
+    artifactPath: string;
+    reportPath: string;
+    htmlPath: string;
+  }>;
+  finalReportPath: string;
+  finalJsonPath: string;
+}): void {
+  print({
+    mode: result.mode,
+    appIds: result.appIds,
+    runs: result.runs,
+    finalReportPath: result.finalReportPath,
+    finalJsonPath: result.finalJsonPath
+  });
+}
+
+function printReportRebuild(result: {
+  selectionPolicy: string;
+  selectedReports: Array<{
+    kind: string;
+    appId: string;
+    runId: string;
+    generatedAt: string;
+    reportPath: string;
+  }>;
+  modeReports: Array<{
+    kind: string;
+    appIds: string[];
+    runIds: string[];
+    finalReportPath: string;
+    finalJsonPath: string;
+  }>;
+  finalReportPath?: string;
+  finalJsonPath?: string;
+}): void {
+  print({
+    selectionPolicy: result.selectionPolicy,
+    selectedReports: result.selectedReports,
+    rebuiltReports: result.modeReports,
+    finalReportPath: result.finalReportPath,
+    finalJsonPath: result.finalJsonPath
+  });
 }
 
 function createProgressLogger(): ((message: string) => void) | undefined {
@@ -37,21 +105,21 @@ async function main(): Promise<void> {
 
   const program = new Command();
   program
-    .name("bench")
-    .description("Production benchmark CLI for QA, exploration, and self-healing")
+    .name("agentic-qa")
+    .description("Production benchmark CLI for QA, exploration, self-healing, and report rebuilds")
     .showHelpAfterError();
 
   program
     .command("qa")
-    .description("Run the guided QA benchmark")
+    .description("Run the guided QA benchmark; omit app to run all benchmark apps")
     .option("--profile <profile>", "QA runtime profile (fast or full)", "fast")
     .option("--models <ids...>", "Explicit OpenRouter model IDs to run")
     .option("--trials <n>", "Override trial count", parsePositiveInt)
     .option("--max-steps <n>", "Override guided step budget", parsePositiveInt)
     .option("--timeout-ms <n>", "Override per-task timeout in milliseconds", parsePositiveInt)
     .option("--max-output-tokens <n>", "Cap output tokens per model call", parsePositiveInt)
-    .argument("<app>", "Benchmark app identifier")
-    .action(async (app: string, options: {
+    .argument("[app]", "Benchmark app identifier")
+    .action(async (app: string | undefined, options: {
       profile: "fast" | "full";
       models?: string[];
       trials?: number;
@@ -59,8 +127,22 @@ async function main(): Promise<void> {
       timeoutMs?: number;
       maxOutputTokens?: number;
     }) => {
-      const result = await runQaExperiment({
-        appId: app,
+      if (app) {
+        const result = await runQaExperiment({
+          appId: app,
+          profile: options.profile,
+          models: options.models,
+          trials: options.trials,
+          maxSteps: options.maxSteps,
+          timeoutMs: options.timeoutMs,
+          maxOutputTokens: options.maxOutputTokens,
+          onLog
+        });
+        printSingleRun(result);
+        return;
+      }
+
+      const result = await runQaAcrossApps({
         profile: options.profile,
         models: options.models,
         trials: options.trials,
@@ -69,88 +151,69 @@ async function main(): Promise<void> {
         maxOutputTokens: options.maxOutputTokens,
         onLog
       });
-      print({
-        runId: result.artifact.runId,
-        artifactPath: result.artifactPath,
-        reportPath: result.reportPath,
-        htmlPath: result.htmlPath
-      });
+      printMultiRun(result);
     });
 
   program
     .command("explore")
-    .description("Run the autonomous exploration benchmark")
-    .argument("<app>", "Benchmark app identifier")
-    .action(async (app: string) => {
-      const result = await runExploreExperiment({
-        appId: app,
+    .description("Run the autonomous exploration benchmark; omit app to run all benchmark apps")
+    .argument("[app]", "Benchmark app identifier")
+    .action(async (app: string | undefined) => {
+      if (app) {
+        const result = await runExploreExperiment({
+          appId: app,
+          onLog
+        });
+        printSingleRun(result);
+        return;
+      }
+
+      const result = await runExploreAcrossApps({
         onLog
       });
-      print({
-        runId: result.artifact.runId,
-        artifactPath: result.artifactPath,
-        reportPath: result.reportPath,
-        htmlPath: result.htmlPath
-      });
+      printMultiRun(result);
     });
 
   program
     .command("heal")
-    .description("Run the self-healing benchmark")
-    .argument("<app>", "Benchmark app identifier")
-    .action(async (app: string) => {
-      const result = await runHealExperiment({
-        appId: app,
+    .description("Run the self-healing benchmark; omit app to run all benchmark apps")
+    .argument("[app]", "Benchmark app identifier")
+    .action(async (app: string | undefined) => {
+      if (app) {
+        const result = await runHealExperiment({
+          appId: app,
+          onLog
+        });
+        printSingleRun(result);
+        return;
+      }
+
+      const result = await runHealAcrossApps({
         onLog
       });
-      print({
-        runId: result.artifact.runId,
-        artifactPath: result.artifactPath,
-        reportPath: result.reportPath,
-        htmlPath: result.htmlPath
-      });
+      printMultiRun(result);
     });
 
   program
-    .command("suite")
-    .description("Run all benchmark modes for an app and generate the final matrix report")
-    .argument("<app>", "Benchmark app identifier")
-    .action(async (app: string) => {
-      const result = await runBenchmarkSuite({
-        suitePath: `apps/${app}/benchmark.json`,
-        onLog
-      });
-      print({
-        appId: result.appId,
-        qa: result.qa,
-        explore: result.explore,
-        heal: result.heal,
-        finalReportPath: result.finalReportPath,
-        finalJsonPath: result.finalJsonPath
-      });
-    });
+    .command("report")
+    .description("Rebuild comparison reports from saved benchmark report JSON files")
+    .argument("[mode]", "Benchmark mode to rebuild (qa, explore, or heal)")
+    .action(async (mode: string | undefined) => {
+      if (mode && mode !== "qa" && mode !== "explore" && mode !== "heal") {
+        throw new Error(`unsupported report mode ${mode}`);
+      }
+      const reportMode = mode as "qa" | "explore" | "heal" | undefined;
 
-  program
-    .command("compare")
-    .description("Generate the final matrix report from existing benchmark run IDs")
-    .argument("<runIds...>", "Benchmark run identifiers to compare")
-    .action(async (runIds: string[]) => {
-      onLog?.(`[compare] Comparing ${runIds.length} run(s)`);
-      const result = await compareBenchmarkRuns(runIds);
-      onLog?.(`[compare] Completed. Final report: ${result.finalReportPath}`);
-      print({
-        runIds: result.runIds,
-        appIds: result.appIds,
-        modeCount: result.modeSections.length,
-        finalReportPath: result.finalReportPath,
-        finalJsonPath: result.finalJsonPath
+      const result = await rebuildBenchmarkReports({
+        mode: reportMode
       });
+      printReportRebuild(result);
     });
 
   await program.parseAsync(process.argv);
 }
 
 main().catch((error) => {
-  process.stderr.write(`bench failed: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(`benchmark command failed: ${error instanceof Error ? error.message : String(error)}\n`);
   process.exit(1);
 });

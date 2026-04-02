@@ -6,13 +6,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   compareBenchmarkRuns,
   compareQaRuns,
+  rebuildBenchmarkReports,
   runBenchmarkSuite,
+  runExploreAcrossApps,
   runExploreExperiment,
+  runHealAcrossApps,
   runHealExperiment,
+  runQaAcrossApps,
   runQaExperiment
 } from "../../src/index.js";
 import { MockAutomationRunner } from "../../src/runner/mock-runner.js";
-import { MockRepairModelClient } from "../../src/self-heal/model-client.js";
+import { MockRepairModelClient, type RepairModelClient } from "../../src/self-heal/model-client.js";
 import { nowIso } from "../../src/utils/time.js";
 import type { AutomationRunner, ExplorationArtifact, RunTaskInput, TaskRunResult } from "../../src/types.js";
 
@@ -62,6 +66,113 @@ async function writeRegistry(dir: string, models: string[]): Promise<string> {
   }
   await writeFile(path, lines.join("\n"), "utf8");
   return path;
+}
+
+const TODO_STORE_PATHS = ["src/todo-store.js", "app/todo-store.js", "src/app/todo-store.ts"];
+
+async function readTodoStore(workspacePath: string): Promise<{
+  path: string;
+  content: string;
+}> {
+  for (const relativePath of TODO_STORE_PATHS) {
+    try {
+      const content = (await readFile(join(workspacePath, relativePath), "utf8")).replaceAll("\r\n", "\n");
+      return {
+        path: relativePath,
+        content
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`todo store not found in ${workspacePath}`);
+}
+
+function inferBugId(taskIds: Set<string>): string | undefined {
+  if (taskIds.has("guided-add-task")) {
+    return "new-task-label-lost";
+  }
+  if (taskIds.has("guided-edit-task")) {
+    return "edit-task-save-noop";
+  }
+  if (taskIds.has("guided-complete-task") || taskIds.has("guided-filter-active")) {
+    return "toggle-completion-noop";
+  }
+  return undefined;
+}
+
+function reverseUnifiedDiff(patch: string): string {
+  return patch
+    .split("\n")
+    .map((line) => {
+      if (
+        line.startsWith("diff --git ") ||
+        line.startsWith("index ") ||
+        line.startsWith("--- ") ||
+        line.startsWith("+++ ") ||
+        line.startsWith("@@") ||
+        line === "\\ No newline at end of file"
+      ) {
+        return line;
+      }
+      if (line.startsWith("+")) {
+        return `-${line.slice(1)}`;
+      }
+      if (line.startsWith("-")) {
+        return `+${line.slice(1)}`;
+      }
+      return line;
+    })
+    .join("\n");
+}
+
+function createCrossFrameworkRepairClient(): RepairModelClient {
+  return {
+    async repair(input) {
+      const failingTaskIds = new Set(input.context.findings.map((finding) => finding.taskId));
+      const bugId = inferBugId(failingTaskIds);
+      let patch: string | undefined;
+      let suspectedFiles: string[] = [];
+      let summary = "No likely fix found.";
+
+      if (bugId) {
+        const bugPatch = await readFile(
+          new URL(`../../../../apps/${input.context.appId}/bugs/${bugId}/patch.diff`, import.meta.url),
+          "utf8"
+        );
+        patch = reverseUnifiedDiff(bugPatch);
+        suspectedFiles = [...new Set([...patch.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((match) => match[1]))];
+        summary = `Revert benchmark bug ${bugId} in the shared todo store.`;
+      }
+
+      return {
+        diagnosis: {
+          summary,
+          suspectedFiles
+        },
+        patch,
+        usage: {
+          latencyMs: 20,
+          inputTokens: 120,
+          outputTokens: 240,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 360,
+          costUsd: 0.00036,
+          resolvedCostUsd: 0.00036,
+          costSource: "estimated",
+          callCount: 1,
+          unavailableCalls: 0
+        },
+        rawResponse: JSON.stringify({
+          diagnosisSummary: summary,
+          suspectedFiles,
+          patch
+        })
+      };
+    }
+  };
 }
 
 class RichExploreRunner implements AutomationRunner {
@@ -392,7 +503,7 @@ class RichExploreRunner implements AutomationRunner {
 class BugAwareRunner implements AutomationRunner {
   async runTask(input: RunTaskInput): Promise<TaskRunResult> {
     const cwd = input.aut.cwd!;
-    const store = (await readFile(join(cwd, "src", "todo-store.js"), "utf8")).replaceAll("\r\n", "\n");
+    const { content: store } = await readTodoStore(cwd);
     const addBroken = store.includes('text: "New task"');
     const toggleBlock = store.slice(
       store.indexOf("export function toggleTodo"),
@@ -944,6 +1055,65 @@ describe("three experiment flows", () => {
   });
 
   it(
+    "runs guided QA across all discoverable benchmark apps when no app is specified",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "qa-all-apps-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const result = await runQaAcrossApps({
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        profile: "full",
+        runner: new MockAutomationRunner(11)
+      });
+
+      expect(result.mode).toBe("qa");
+      expect(result.appIds).toEqual(["todo-angular", "todo-nextjs", "todo-react"]);
+      expect(result.runs.map((run) => run.appId)).toEqual(result.appIds);
+      expect(result.runs).toHaveLength(3);
+      await expect(access(result.finalReportPath)).resolves.toBeUndefined();
+      await expect(access(result.finalJsonPath)).resolves.toBeUndefined();
+      const html = await readFile(result.finalReportPath, "utf8");
+      expect(html).toContain("Guided Mode Comparison");
+      expect(html).toContain("todo-angular");
+      expect(html).toContain("todo-nextjs");
+      expect(html).toContain("todo-react");
+    },
+    60_000
+  );
+
+  it(
+    "runs exploration across all discoverable benchmark apps when no app is specified",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "explore-all-apps-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const result = await runExploreAcrossApps({
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new RichExploreRunner()
+      });
+
+      expect(result.mode).toBe("explore");
+      expect(result.appIds).toEqual(["todo-angular", "todo-nextjs", "todo-react"]);
+      expect(result.runs.map((run) => run.appId)).toEqual(result.appIds);
+      expect(result.runs).toHaveLength(3);
+      await expect(access(result.finalReportPath)).resolves.toBeUndefined();
+      await expect(access(result.finalJsonPath)).resolves.toBeUndefined();
+      const html = await readFile(result.finalReportPath, "utf8");
+      expect(html).toContain("Explore Mode Comparison");
+      expect(html).toContain("todo-angular");
+      expect(html).toContain("todo-nextjs");
+      expect(html).toContain("todo-react");
+    },
+    60_000
+  );
+
+  it(
     "runs the self-heal experiment end to end with integrated repair evaluation",
     async () => {
       const dir = await mkdtemp(join(tmpdir(), "heal-exp-"));
@@ -992,6 +1162,35 @@ describe("three experiment flows", () => {
   });
 
   it(
+    "runs self-heal across all discoverable benchmark apps when no app is specified",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "heal-all-apps-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["openai/gpt-4o-mini"]);
+
+      const result = await runHealAcrossApps({
+        modelsPath,
+        resultsDir: dir,
+        runner: new BugAwareRunner(),
+        repairClient: createCrossFrameworkRepairClient()
+      });
+
+      expect(result.mode).toBe("heal");
+      expect(result.appIds).toEqual(["todo-angular", "todo-nextjs", "todo-react"]);
+      expect(result.runs.map((run) => run.appId)).toEqual(result.appIds);
+      expect(result.runs).toHaveLength(3);
+      await expect(access(result.finalReportPath)).resolves.toBeUndefined();
+      await expect(access(result.finalJsonPath)).resolves.toBeUndefined();
+      const html = await readFile(result.finalReportPath, "utf8");
+      expect(html).toContain("Self-Heal Comparison");
+      expect(html).toContain("todo-angular");
+      expect(html).toContain("todo-nextjs");
+      expect(html).toContain("todo-react");
+    },
+    120_000
+  );
+
+  it(
     "generates one combined final report for mixed qa, explore, and heal runs",
     async () => {
       const dir = await mkdtemp(join(tmpdir(), "final-compare-"));
@@ -1025,14 +1224,107 @@ describe("three experiment flows", () => {
       );
 
       expect(finalReport.modeSections).toHaveLength(3);
+      expect(finalReport.summaryFigures?.rankMatrix.columns.length).toBeGreaterThan(0);
+      expect(finalReport.summaryFigures?.efficiencyFrontier.panels.map((panel) => panel.kind)).toEqual([
+        "qa",
+        "explore",
+        "heal"
+      ]);
       await expect(access(finalReport.finalReportPath)).resolves.toBeUndefined();
       await expect(access(finalReport.finalJsonPath)).resolves.toBeUndefined();
       const html = await readFile(finalReport.finalReportPath, "utf8");
       expect(html).toContain("Benchmark Final Report");
+      expect(html).toContain("Cross-Benchmark Rank Matrix");
+      expect(html).toContain("Efficiency Frontier by Mode");
       expect(html).toContain("Guided");
       expect(html).toContain("Explore");
       expect(html).toContain("Self-Heal");
       expect(html).toContain("todo-react");
+    },
+    60_000
+  );
+
+  it(
+    "rebuilds the latest mode reports and benchmark mega report from saved benchmark report JSON files",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "latest-report-rebuild-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const qa = await runQaExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new MockAutomationRunner(11)
+      });
+      const explore = await runExploreExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        runner: new RichExploreRunner()
+      });
+      const heal = await runHealExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        runner: new BugAwareRunner(),
+        repairClient: new MockRepairModelClient()
+      });
+
+      const rebuilt = await rebuildBenchmarkReports({
+        resultsDir: dir
+      });
+
+      expect(rebuilt.selectionPolicy).toBe("latest-per-app-mode");
+      expect(rebuilt.selectedReports.map((item) => item.runId).sort()).toEqual(
+        [qa.artifact.runId, explore.artifact.runId, heal.artifact.runId].sort()
+      );
+      expect(rebuilt.modeReports.map((item) => item.kind)).toEqual(["qa", "explore", "heal"]);
+      await expect(access(rebuilt.modeReports[0]!.finalReportPath)).resolves.toBeUndefined();
+      await expect(access(rebuilt.finalReportPath!)).resolves.toBeUndefined();
+      const html = await readFile(rebuilt.finalReportPath!, "utf8");
+      const json = JSON.parse(await readFile(rebuilt.finalJsonPath!, "utf8")) as {
+        summaryFigures?: {
+          rankMatrix?: { rows: unknown[] };
+          efficiencyFrontier?: { panels: unknown[] };
+        };
+      };
+      expect(html).toContain("Benchmark Final Report");
+      expect(html).toContain("Cross-Benchmark Rank Matrix");
+      expect(html).toContain("latest-per-app-mode");
+      expect(json.summaryFigures?.rankMatrix?.rows.length).toBeGreaterThan(0);
+      expect(json.summaryFigures?.efficiencyFrontier?.panels.length).toBe(3);
+    },
+    60_000
+  );
+
+  it(
+    "rebuilds only the requested mode when report rebuild is scoped to qa",
+    async () => {
+      const dir = await mkdtemp(join(tmpdir(), "latest-report-rebuild-qa-"));
+      tempDirs.push(dir);
+      const modelsPath = await writeRegistry(dir, ["google/gemini-2.5-flash"]);
+
+      const qa = await runQaExperiment({
+        appId: "todo-react",
+        modelsPath,
+        resultsDir: dir,
+        trials: 1,
+        runner: new MockAutomationRunner(11)
+      });
+
+      const rebuilt = await rebuildBenchmarkReports({
+        mode: "qa",
+        resultsDir: dir
+      });
+
+      expect(rebuilt.selectedReports.map((item) => item.runId)).toEqual([qa.artifact.runId]);
+      expect(rebuilt.modeReports).toHaveLength(1);
+      expect(rebuilt.modeReports[0]?.kind).toBe("qa");
+      expect(rebuilt.finalReportPath).toBeUndefined();
+      expect(rebuilt.finalJsonPath).toBeUndefined();
+      await expect(access(rebuilt.modeReports[0]!.finalReportPath)).resolves.toBeUndefined();
     },
     60_000
   );

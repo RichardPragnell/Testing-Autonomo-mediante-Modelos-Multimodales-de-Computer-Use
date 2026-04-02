@@ -4,7 +4,7 @@ This directory is the framework-agnostic source of truth for the benchmark todo 
 
 Use [contract.json](/c:/Projects/master/specs/todo-web/contract.json) when building another implementation in Vue, Svelte, Angular, Next, Solid, or any other web stack.
 
-What must stay identical across implementations:
+Keep these identical across implementations:
 
 - seeded todo data and summary text
 - scenario ids, task instructions, and expected outcomes
@@ -12,7 +12,7 @@ What must stay identical across implementations:
 - logical bug pack ids and their expected failing tasks
 - accessible labels, button text, and automation hook attributes
 
-What can vary:
+These can vary:
 
 - component/file structure
 - CSS and layout details
@@ -26,7 +26,7 @@ Porting rules:
 3. Preserve the exact visible copy in the contract unless a future spec version changes it for every framework.
 4. Recreate each bug pack as the same logical defect, even if the patch touches different files in different frameworks.
 
-Practical split of responsibilities:
+Responsibility split:
 
 - `specs/todo-web/contract.json`: canonical behavior and benchmark contract
 - `apps/<framework-app>/target.json`: local dev server and validation command for one implementation

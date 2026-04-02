@@ -34,6 +34,7 @@ import type {
   BenchmarkMetricColumn,
   CompareResult,
   CostGraph,
+  ModeComparisonBuildResult,
   QaExecutionProfile,
   QaExperimentSpec,
   QaLeaderboardEntry,
@@ -621,8 +622,7 @@ export async function getQaReport(runId: string, resultsDir = "results"): Promis
   return JSON.parse(raw) as QaReport;
 }
 
-export async function compareQaRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<QaReport>> {
-  const reports = await Promise.all(runIds.map((runId) => getQaReport(runId, resultsDir)));
+export function buildQaComparison(reports: QaReport[]): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Guided matrix across ${reports.length} run(s).`
@@ -635,6 +635,16 @@ export async function compareQaRuns(runIds: string[], resultsDir = "results"): P
       ? `${topModel.modelId} leads guided comparison with ${topModel.avgScore.toFixed(3)} average score across ${topModel.runs} run(s).`
       : initialSection.summary
   };
+
+  return {
+    aggregateLeaderboard,
+    modeSection
+  };
+}
+
+export async function compareQaRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<QaReport>> {
+  const reports = await Promise.all(runIds.map((runId) => getQaReport(runId, resultsDir)));
+  const { aggregateLeaderboard, modeSection } = buildQaComparison(reports);
   const finalReport = await persistComparisonReport({
     title: "Guided Mode Comparison",
     subtitle: `Matrix comparison across ${reports.length} guided run(s).`,

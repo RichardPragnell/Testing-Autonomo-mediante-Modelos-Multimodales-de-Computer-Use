@@ -2,12 +2,12 @@ diff --git a/src/app/todo-store.ts b/src/app/todo-store.ts
 index 0000000..1111111 100644
 --- a/src/app/todo-store.ts
 +++ b/src/app/todo-store.ts
-@@ -19,7 +19,7 @@ export function addTodo(todos, text) {
+@@ -28,7 +28,7 @@ export function addTodo(todos: Todo[], text: string): Todo[] {
  }
  
- export function toggleTodo(todos, id) {
+ export function toggleTodo(todos: Todo[], id: string): Todo[] {
 -  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));
 +  return todos;
  }
  
- export function updateTodoText(todos, id, text) {
+ export function updateTodoText(todos: Todo[], id: string, text: string): Todo[] {

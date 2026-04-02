@@ -12,13 +12,28 @@ import {
   formatDurationMs,
   readCandidateFileSnippets
 } from "./experiments/common.js";
-import { compareExploreRuns, getExploreReport, runExploreExperiment } from "./experiments/explore.js";
-import { compareHealRuns, getHealReport, runHealExperiment } from "./experiments/heal.js";
-import { compareQaRuns, getQaReport, runQaExperiment } from "./experiments/qa.js";
+import {
+  buildExploreComparison,
+  compareExploreRuns,
+  getExploreReport,
+  runExploreExperiment,
+  type RunExploreExperimentInput
+} from "./experiments/explore.js";
+import {
+  buildHealComparison,
+  compareHealRuns,
+  getHealReport,
+  runHealExperiment,
+  type RunHealExperimentInput
+} from "./experiments/heal.js";
+import { buildQaComparison, compareQaRuns, getQaReport, runQaExperiment, type RunQaExperimentInput } from "./experiments/qa.js";
 import type {
   AppBenchmarkManifest,
+  BenchmarkComparisonProvenance,
+  BenchmarkComparisonProvenanceEntry,
   BenchmarkComparisonReport,
   CompareResult,
+  ExperimentKind,
   ExperimentLogFn,
   ExploreReport,
   HealReport,
@@ -130,6 +145,78 @@ export interface RunBenchmarkSuiteInput {
   healRunner?: AutomationRunner;
   repairClient?: RepairModelClient;
   onLog?: ExperimentLogFn;
+}
+
+export interface RunQaAcrossAppsInput extends Omit<RunQaExperimentInput, "appId"> {
+  appsRoot?: string;
+}
+
+export interface RunExploreAcrossAppsInput extends Omit<RunExploreExperimentInput, "appId"> {
+  appsRoot?: string;
+}
+
+export interface RunHealAcrossAppsInput extends Omit<RunHealExperimentInput, "appId"> {
+  appsRoot?: string;
+}
+
+export interface MultiAppExperimentRunEntry {
+  appId: string;
+  runId: string;
+  artifactPath: string;
+  reportPath: string;
+  htmlPath: string;
+}
+
+export interface MultiAppExperimentRunResult {
+  mode: ExperimentKind;
+  appIds: string[];
+  runs: MultiAppExperimentRunEntry[];
+  finalReportPath: string;
+  finalJsonPath: string;
+}
+
+export interface RunQaAcrossAppsResult extends MultiAppExperimentRunResult {
+  mode: "qa";
+  comparison: CompareResult<QaReport>;
+}
+
+export interface RunExploreAcrossAppsResult extends MultiAppExperimentRunResult {
+  mode: "explore";
+  comparison: CompareResult<ExploreReport>;
+}
+
+export interface RunHealAcrossAppsResult extends MultiAppExperimentRunResult {
+  mode: "heal";
+  comparison: CompareResult<HealReport>;
+}
+
+export interface RebuiltBenchmarkReportSelection {
+  kind: ExperimentKind;
+  appId: string;
+  runId: string;
+  generatedAt: string;
+  reportPath: string;
+}
+
+export interface RebuiltModeReport {
+  kind: ExperimentKind;
+  appIds: string[];
+  runIds: string[];
+  finalReportPath: string;
+  finalJsonPath: string;
+}
+
+export interface RebuildBenchmarkReportsInput {
+  mode?: ExperimentKind;
+  resultsDir?: string;
+}
+
+export interface RebuildBenchmarkReportsResult {
+  selectionPolicy: "latest-per-app-mode";
+  selectedReports: RebuiltBenchmarkReportSelection[];
+  modeReports: RebuiltModeReport[];
+  finalReportPath?: string;
+  finalJsonPath?: string;
 }
 
 export interface ExploreTargetInput {
@@ -384,18 +471,209 @@ async function findExplorationArtifact(
   return undefined;
 }
 
-async function compareByKind(
+function compareByKind(
   kind: BenchmarkRunKind,
-  runIds: string[],
-  resultsDir: string
-): Promise<CompareResult<BenchmarkReport>> {
+  reports: BenchmarkReport[]
+): Pick<CompareResult<BenchmarkReport>, "aggregateLeaderboard" | "modeSection"> {
   if (kind === "qa") {
-    return (await compareQaRuns(runIds, resultsDir)) as CompareResult<BenchmarkReport>;
+    return buildQaComparison(reports as QaReport[]);
   }
   if (kind === "explore") {
-    return (await compareExploreRuns(runIds, resultsDir)) as CompareResult<BenchmarkReport>;
+    return buildExploreComparison(reports as ExploreReport[]);
   }
-  return (await compareHealRuns(runIds, resultsDir)) as CompareResult<BenchmarkReport>;
+  return buildHealComparison(reports as HealReport[]);
+}
+
+async function getBenchmarkReportByKind(
+  kind: BenchmarkRunKind,
+  runId: string,
+  resultsDir: string
+): Promise<BenchmarkReport> {
+  if (kind === "qa") {
+    return getQaReport(runId, resultsDir);
+  }
+  if (kind === "explore") {
+    return getExploreReport(runId, resultsDir);
+  }
+  return getHealReport(runId, resultsDir);
+}
+
+function comparisonConfig(kind: BenchmarkRunKind): {
+  title: string;
+  subtitleNoun: string;
+  prefix: string;
+} {
+  if (kind === "qa") {
+    return {
+      title: "Guided Mode Comparison",
+      subtitleNoun: "guided",
+      prefix: "qa-compare"
+    };
+  }
+  if (kind === "explore") {
+    return {
+      title: "Explore Mode Comparison",
+      subtitleNoun: "exploration",
+      prefix: "explore-compare"
+    };
+  }
+  return {
+    title: "Self-Heal Comparison",
+    subtitleNoun: "self-heal",
+    prefix: "heal-compare"
+  };
+}
+
+function reportTimestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sortSelections<T extends {
+  kind: ExperimentKind;
+  appId: string;
+  runId: string;
+}>(entries: T[]): T[] {
+  return [...entries].sort((left, right) => {
+    return (
+      left.kind.localeCompare(right.kind) ||
+      left.appId.localeCompare(right.appId) ||
+      left.runId.localeCompare(right.runId)
+    );
+  });
+}
+
+type LatestBenchmarkReportRecord = {
+  kind: BenchmarkRunKind;
+  report: BenchmarkReport;
+  reportPath: string;
+};
+
+type SelectedBenchmarkReportRecord = LatestBenchmarkReportRecord & {
+  appId: string;
+  generatedAt: string;
+  runId: string;
+};
+
+async function listBenchmarkRunReports(
+  kind: BenchmarkRunKind,
+  resultsDir: string
+): Promise<LatestBenchmarkReportRecord[]> {
+  const reportsDir = join(await resolveWorkspacePath(resultsDir), kind, "reports");
+  let entries;
+  try {
+    entries = await readdir(reportsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const reports: LatestBenchmarkReportRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) {
+      continue;
+    }
+
+    const reportPath = join(reportsDir, entry.name);
+    try {
+      const report = await readJsonFile<BenchmarkReport>(reportPath);
+      if (
+        benchmarkRunKind(report.runId) !== kind ||
+        typeof report.appId !== "string" ||
+        typeof report.generatedAt !== "string"
+      ) {
+        continue;
+      }
+      reports.push({
+        kind,
+        report,
+        reportPath
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return reports;
+}
+
+function selectLatestBenchmarkReports(records: LatestBenchmarkReportRecord[]): SelectedBenchmarkReportRecord[] {
+  const latestByApp = new Map<string, SelectedBenchmarkReportRecord>();
+  for (const record of records) {
+    const candidate: SelectedBenchmarkReportRecord = {
+      ...record,
+      appId: record.report.appId,
+      generatedAt: record.report.generatedAt,
+      runId: record.report.runId
+    };
+    const current = latestByApp.get(candidate.appId);
+    if (!current) {
+      latestByApp.set(candidate.appId, candidate);
+      continue;
+    }
+
+    const freshness =
+      reportTimestamp(candidate.generatedAt) - reportTimestamp(current.generatedAt) ||
+      candidate.runId.localeCompare(current.runId);
+    if (freshness > 0) {
+      latestByApp.set(candidate.appId, candidate);
+    }
+  }
+
+  return sortSelections([...latestByApp.values()]);
+}
+
+function toProvenance(
+  selectedReports: RebuiltBenchmarkReportSelection[],
+  note: string
+): BenchmarkComparisonProvenance {
+  return {
+    selectionPolicy: "latest-per-app-mode",
+    note,
+    selectedReports: sortSelections(
+      selectedReports.map<BenchmarkComparisonProvenanceEntry>((entry) => ({
+        kind: entry.kind,
+        appId: entry.appId,
+        runId: entry.runId,
+        generatedAt: entry.generatedAt,
+        reportPath: entry.reportPath
+      }))
+    )
+  };
+}
+
+async function persistModeComparisonForReports(
+  kind: BenchmarkRunKind,
+  reports: BenchmarkReport[],
+  resultsDir: string,
+  provenance?: BenchmarkComparisonProvenance
+): Promise<{
+  kind: ExperimentKind;
+  appIds: string[];
+  runIds: string[];
+  finalReportPath: string;
+  finalJsonPath: string;
+  modeSection: BenchmarkComparisonReport["modeSections"][number];
+}> {
+  const built = compareByKind(kind, reports);
+  const config = comparisonConfig(kind);
+  const finalReport = await persistComparisonReport({
+    title: config.title,
+    subtitle: `Matrix comparison across ${reports.length} ${config.subtitleNoun} run(s).`,
+    runIds: reports.map((report) => report.runId),
+    modeSections: [built.modeSection],
+    resultsDir,
+    prefix: config.prefix,
+    provenance
+  });
+
+  return {
+    kind,
+    appIds: finalReport.appIds,
+    runIds: finalReport.runIds,
+    finalReportPath: finalReport.finalReportPath,
+    finalJsonPath: finalReport.finalJsonPath,
+    modeSection: built.modeSection
+  };
 }
 
 export async function listTargets(appsRoot = "apps") {
@@ -423,6 +701,79 @@ export async function listSuites(appsRoot = "apps"): Promise<BenchmarkSuiteDescr
   }
 
   return suites.sort((left, right) => left.appId.localeCompare(right.appId));
+}
+
+async function resolveSuiteAppIds(appsRoot = "apps"): Promise<string[]> {
+  const suites = await listSuites(appsRoot);
+  const appIds = suites.map((suite) => suite.appId);
+  if (!appIds.length) {
+    throw new Error(`no benchmark suites found under ${appsRoot}`);
+  }
+  return appIds;
+}
+
+async function runExperimentAcrossApps<TCompare extends {
+  finalReportPath: string;
+  finalJsonPath: string;
+}>(input: {
+  mode: ExperimentKind;
+  appsRoot?: string;
+  onLog?: ExperimentLogFn;
+  runForApp: (appId: string) => Promise<{
+    artifact: {
+      runId: string;
+    };
+    artifactPath: string;
+    reportPath: string;
+    htmlPath: string;
+  }>;
+  compare: (runIds: string[]) => Promise<TCompare>;
+}): Promise<{
+  appIds: string[];
+  runs: MultiAppExperimentRunEntry[];
+  comparison: TCompare;
+}> {
+  const appIds = await resolveSuiteAppIds(input.appsRoot);
+  emitExperimentLog(
+    input.onLog,
+    `[${input.mode}] Starting multi-app run across ${appIds.length} app(s): ${appIds.join(", ")}`
+  );
+
+  const runs: MultiAppExperimentRunEntry[] = [];
+  for (const [appIndex, appId] of appIds.entries()) {
+    emitExperimentLog(
+      input.onLog,
+      `[${input.mode}] App ${appIndex + 1}/${appIds.length} ${appId}: started`
+    );
+    const result = await input.runForApp(appId);
+    runs.push({
+      appId,
+      runId: result.artifact.runId,
+      artifactPath: result.artifactPath,
+      reportPath: result.reportPath,
+      htmlPath: result.htmlPath
+    });
+    emitExperimentLog(
+      input.onLog,
+      `[${input.mode}] App ${appIndex + 1}/${appIds.length} ${appId}: completed (${result.artifact.runId})`
+    );
+  }
+
+  emitExperimentLog(
+    input.onLog,
+    `[${input.mode}] Comparing ${runs.length} run(s) across ${appIds.length} app(s)`
+  );
+  const comparison = await input.compare(runs.map((run) => run.runId));
+  emitExperimentLog(
+    input.onLog,
+    `[${input.mode}] Multi-app run completed. Final report: ${comparison.finalReportPath}`
+  );
+
+  return {
+    appIds,
+    runs,
+    comparison
+  };
 }
 
 export async function describeTarget(targetId: string, appsRoot = "apps") {
@@ -521,6 +872,106 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
   };
 }
 
+export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQaAcrossAppsResult> {
+  await loadProjectEnv();
+  const resultsDir = input.resultsDir ?? "results";
+  const multiRun = await runExperimentAcrossApps({
+    mode: "qa",
+    appsRoot: input.appsRoot,
+    onLog: input.onLog,
+    runForApp: async (appId) =>
+      runQaExperiment({
+        appId,
+        profile: input.profile,
+        models: input.models,
+        modelsPath: input.modelsPath,
+        presetPath: input.presetPath,
+        trials: input.trials,
+        timeoutMs: input.timeoutMs,
+        retryCount: input.retryCount,
+        maxSteps: input.maxSteps,
+        maxOutputTokens: input.maxOutputTokens,
+        viewport: input.viewport,
+        resultsDir,
+        runner: input.runner,
+        onLog: input.onLog
+      }),
+    compare: (runIds) => compareQaRuns(runIds, resultsDir)
+  });
+
+  return {
+    mode: "qa",
+    appIds: multiRun.appIds,
+    runs: multiRun.runs,
+    finalReportPath: multiRun.comparison.finalReportPath,
+    finalJsonPath: multiRun.comparison.finalJsonPath,
+    comparison: multiRun.comparison
+  };
+}
+
+export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Promise<RunExploreAcrossAppsResult> {
+  await loadProjectEnv();
+  const resultsDir = input.resultsDir ?? "results";
+  const multiRun = await runExperimentAcrossApps({
+    mode: "explore",
+    appsRoot: input.appsRoot,
+    onLog: input.onLog,
+    runForApp: async (appId) =>
+      runExploreExperiment({
+        appId,
+        models: input.models,
+        modelsPath: input.modelsPath,
+        presetPath: input.presetPath,
+        trials: input.trials,
+        resultsDir,
+        runner: input.runner,
+        onLog: input.onLog
+      }),
+    compare: (runIds) => compareExploreRuns(runIds, resultsDir)
+  });
+
+  return {
+    mode: "explore",
+    appIds: multiRun.appIds,
+    runs: multiRun.runs,
+    finalReportPath: multiRun.comparison.finalReportPath,
+    finalJsonPath: multiRun.comparison.finalJsonPath,
+    comparison: multiRun.comparison
+  };
+}
+
+export async function runHealAcrossApps(input: RunHealAcrossAppsInput): Promise<RunHealAcrossAppsResult> {
+  await loadProjectEnv();
+  const resultsDir = input.resultsDir ?? "results";
+  const multiRun = await runExperimentAcrossApps({
+    mode: "heal",
+    appsRoot: input.appsRoot,
+    onLog: input.onLog,
+    runForApp: async (appId) =>
+      runHealExperiment({
+        appId,
+        models: input.models,
+        modelsPath: input.modelsPath,
+        presetPath: input.presetPath,
+        trials: input.trials,
+        resultsDir,
+        runner: input.runner,
+        repairClient: input.repairClient,
+        onLog: input.onLog
+      }),
+    compare: (runIds) => compareHealRuns(runIds, resultsDir)
+  });
+
+  return {
+    mode: "heal",
+    appIds: multiRun.appIds,
+    runs: multiRun.runs,
+    finalReportPath: multiRun.comparison.finalReportPath,
+    finalJsonPath: multiRun.comparison.finalJsonPath,
+    comparison: multiRun.comparison
+  };
+}
+
 export async function getBenchmarkReport(runId: string, resultsDir = "results") {
   const kind = benchmarkRunKind(runId);
   if (kind === "qa") {
@@ -562,7 +1013,10 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
   }
 
   const comparisons = await Promise.all(
-    [...grouped.entries()].map(async ([kind, kindRunIds]) => [kind, await compareByKind(kind, kindRunIds, resultsDir)] as const)
+    [...grouped.entries()].map(async ([kind, kindRunIds]) => {
+      const reports = await Promise.all(kindRunIds.map((runId) => getBenchmarkReportByKind(kind, runId, resultsDir)));
+      return [kind, compareByKind(kind, reports)] as const;
+    })
   );
   return persistComparisonReport({
     title: "Benchmark Final Report",
@@ -572,6 +1026,96 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
     resultsDir,
     prefix: "benchmark-compare"
   });
+}
+
+export async function rebuildBenchmarkReports(
+  input: RebuildBenchmarkReportsInput = {}
+): Promise<RebuildBenchmarkReportsResult> {
+  await loadProjectEnv();
+  const resultsDir = input.resultsDir ?? "results";
+  const requestedKinds = input.mode ? [input.mode] : (["qa", "explore", "heal"] as const);
+  const selectedRecordsByKind = new Map<BenchmarkRunKind, SelectedBenchmarkReportRecord[]>();
+
+  for (const kind of requestedKinds) {
+    const records = await listBenchmarkRunReports(kind, resultsDir);
+    const selected = selectLatestBenchmarkReports(records);
+    if (selected.length > 0) {
+      selectedRecordsByKind.set(kind, selected);
+    }
+  }
+
+  if (input.mode && !selectedRecordsByKind.has(input.mode)) {
+    throw new Error(`no ${input.mode} benchmark reports found under ${resultsDir}`);
+  }
+  if (!selectedRecordsByKind.size) {
+    throw new Error(`no benchmark reports found under ${resultsDir}`);
+  }
+
+  const selectedReports = sortSelections(
+    [...selectedRecordsByKind.values()].flat().map<RebuiltBenchmarkReportSelection>((record) => ({
+      kind: record.kind,
+      appId: record.appId,
+      runId: record.runId,
+      generatedAt: record.generatedAt,
+      reportPath: record.reportPath
+    }))
+  );
+
+  const modeReports: RebuiltModeReport[] = [];
+  const modeSections: BenchmarkComparisonReport["modeSections"] = [];
+
+  for (const kind of requestedKinds) {
+    const selected = selectedRecordsByKind.get(kind);
+    if (!selected?.length) {
+      continue;
+    }
+
+    const modeSelections = selectedReports.filter((item) => item.kind === kind);
+    const rebuilt = await persistModeComparisonForReports(
+      kind,
+      selected.map((item) => item.report),
+      resultsDir,
+      toProvenance(
+        modeSelections,
+        "Rebuilt from the latest available report per app for this mode; report timestamps may differ across app cells."
+      )
+    );
+    modeReports.push({
+      kind: rebuilt.kind,
+      appIds: rebuilt.appIds,
+      runIds: rebuilt.runIds,
+      finalReportPath: rebuilt.finalReportPath,
+      finalJsonPath: rebuilt.finalJsonPath
+    });
+    modeSections.push(rebuilt.modeSection);
+  }
+
+  let finalReportPath: string | undefined;
+  let finalJsonPath: string | undefined;
+  if (!input.mode) {
+    const finalReport = await persistComparisonReport({
+      title: "Benchmark Final Report",
+      subtitle: `Matrix comparison across ${selectedReports.length} benchmark run(s).`,
+      runIds: selectedReports.map((item) => item.runId),
+      modeSections,
+      resultsDir,
+      prefix: "benchmark-compare",
+      provenance: toProvenance(
+        selectedReports,
+        "Rebuilt from the latest available report per mode and app; report timestamps may differ across sections."
+      )
+    });
+    finalReportPath = finalReport.finalReportPath;
+    finalJsonPath = finalReport.finalJsonPath;
+  }
+
+  return {
+    selectionPolicy: "latest-per-app-mode",
+    selectedReports,
+    modeReports,
+    finalReportPath,
+    finalJsonPath
+  };
 }
 
 export async function exploreTarget(input: ExploreTargetInput) {

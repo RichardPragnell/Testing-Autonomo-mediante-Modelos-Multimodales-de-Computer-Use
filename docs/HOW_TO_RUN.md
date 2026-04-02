@@ -2,6 +2,8 @@
 
 This document is the operational runbook for the repository: install it, start the local benchmark app, run the three experiment families, inspect results, and repair a finding.
 
+The preferred root commands are `pnpm qa`, `pnpm explore`, `pnpm heal`, and `pnpm report`.
+
 ## 1. Prerequisites
 
 - Node.js 22 or newer
@@ -62,7 +64,7 @@ Use the manifest instead of spreading benchmark definitions across separate suit
 QA measures how well a model follows the guided scenarios and reaches the expected outcomes.
 
 ```bash
-pnpm bench qa todo-react
+pnpm qa todo-react
 ```
 
 QA reports compare:
@@ -78,7 +80,7 @@ QA reports compare:
 Exploration measures whether the model discovers useful app functionality before it is asked to validate anything.
 
 ```bash
-pnpm bench explore todo-react
+pnpm explore todo-react
 ```
 
 Exploration reports compare:
@@ -94,7 +96,7 @@ Exploration reports compare:
 Self-heal measures how well a model can diagnose, patch, and validate seeded bugs.
 
 ```bash
-pnpm bench heal todo-react
+pnpm heal todo-react
 ```
 
 Heal reports compare:
@@ -112,6 +114,7 @@ Generated outputs are written under:
 - `results/qa/runs/<runId>` plus `results/qa/reports/<runId>.json|.html`
 - `results/explore/runs/<runId>` plus `results/explore/reports/<runId>.json|.html`
 - `results/heal/runs/<runId>` plus `results/heal/reports/<runId>.json|.html`
+- `results/compare/reports/<compareId>.json|.html` for rebuilt mode and benchmark comparison reports
 
 Each run should produce:
 
@@ -129,18 +132,36 @@ The CLI prints:
 - `reportPath`
 - `htmlPath`
 
-Use those output paths directly. The live progress logs are for humans; the final JSON summary remains the machine-readable output. The CLI no longer provides separate `report` or `compare` commands.
+Use those output paths directly. The live progress logs are for humans; the final JSON summary remains the machine-readable output.
+
+To rebuild comparison pages from existing benchmark report JSON files:
+
+```bash
+pnpm report
+pnpm report qa
+pnpm report explore
+pnpm report heal
+```
+
+`report` uses the `latest-per-app-mode` selection policy:
+
+- it scans `results/<mode>/reports/*.json`
+- it picks the newest saved report per `mode+appId`
+- it rebuilds the requested mode comparison pages
+- with no mode argument, it also rebuilds one benchmark mega report across the available modes
+
+Rebuilt outputs are written under `results/compare/reports`, and the JSON output lists the selected runs plus the rebuilt paths.
 
 ## 10. Common Local Workflow
 
 Minimal practical loop:
 
 1. Export `OPENROUTER_API_KEY`.
-2. Run `bench qa todo-react`.
-3. Run `bench explore todo-react`.
-4. Run `bench heal todo-react`.
-5. Open the JSON and HTML reports under `results/<experiment>/reports`.
-6. Compare runs by opening the generated report files directly.
+2. Run `pnpm qa todo-react`.
+3. Run `pnpm explore todo-react`.
+4. Run `pnpm heal todo-react`.
+5. Run `pnpm report`.
+6. Open the JSON and HTML reports under `results/<experiment>/reports` and `results/compare/reports`.
 
 ## 11. Troubleshooting
 

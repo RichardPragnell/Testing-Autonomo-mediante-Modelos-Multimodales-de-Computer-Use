@@ -6,8 +6,5 @@ node_modules/
 *.log
 dist/
 coverage/
-results/runs/
-results/reports/
-results/*/runs/
-results/*/reports/
 .tmp/
+results/*

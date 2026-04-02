@@ -48,7 +48,8 @@ import type {
   ExploreReport,
   ExploreRunArtifact,
   ExploreRunResult,
-  ExploreTrialArtifact
+  ExploreTrialArtifact,
+  ModeComparisonBuildResult
 } from "./types.js";
 import type { ExperimentLogFn } from "./types.js";
 
@@ -612,8 +613,7 @@ export async function getExploreReport(runId: string, resultsDir = "results"): P
   return JSON.parse(raw) as ExploreReport;
 }
 
-export async function compareExploreRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<ExploreReport>> {
-  const reports = await Promise.all(runIds.map((runId) => getExploreReport(runId, resultsDir)));
+export function buildExploreComparison(reports: ExploreReport[]): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Explore matrix across ${reports.length} run(s).`
@@ -626,6 +626,16 @@ export async function compareExploreRuns(runIds: string[], resultsDir = "results
       ? `${topModel.modelId} leads explore comparison with ${topModel.avgScore.toFixed(3)} average score across ${topModel.runs} run(s).`
       : initialSection.summary
   };
+
+  return {
+    aggregateLeaderboard,
+    modeSection
+  };
+}
+
+export async function compareExploreRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<ExploreReport>> {
+  const reports = await Promise.all(runIds.map((runId) => getExploreReport(runId, resultsDir)));
+  const { aggregateLeaderboard, modeSection } = buildExploreComparison(reports);
   const finalReport = await persistComparisonReport({
     title: "Explore Mode Comparison",
     subtitle: `Matrix comparison across ${reports.length} exploration run(s).`,

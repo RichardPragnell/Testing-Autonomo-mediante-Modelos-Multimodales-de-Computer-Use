@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import type { ResolvedBenchmarkSuite, RunWorkspace } from "../types.js";
+import { resolveAvailablePort } from "./ports.js";
 import { execCommand } from "../utils/exec.js";
 import { copyDir, ensureDir, removeDir, resolveWorkspacePath } from "../utils/fs.js";
 
@@ -16,11 +17,51 @@ function resolveTemplateValue(
   context: {
     repoRoot: string;
     workspacePath: string;
+    autBaseUrl: string;
+    autHost: string;
+    autPort: string;
   }
 ): string {
   return value
     .replaceAll("{{repoRoot}}", context.repoRoot.replaceAll("\\", "/"))
-    .replaceAll("{{workspacePath}}", context.workspacePath.replaceAll("\\", "/"));
+    .replaceAll("{{workspacePath}}", context.workspacePath.replaceAll("\\", "/"))
+    .replaceAll("{{autBaseUrl}}", context.autBaseUrl)
+    .replaceAll("{{autHost}}", context.autHost)
+    .replaceAll("{{autPort}}", context.autPort);
+}
+
+function formatAutUrl(baseUrl: string, port: number): string {
+  const parsed = new URL(baseUrl);
+  parsed.port = String(port);
+  const formatted = parsed.toString();
+  if (!baseUrl.endsWith("/") && parsed.pathname === "/" && !parsed.search && !parsed.hash) {
+    return formatted.replace(/\/$/u, "");
+  }
+  return formatted;
+}
+
+async function resolveAutTemplateContext(input: {
+  repoRoot: string;
+  workspacePath: string;
+  baseUrl: string;
+}): Promise<{
+  repoRoot: string;
+  workspacePath: string;
+  autBaseUrl: string;
+  autHost: string;
+  autPort: string;
+}> {
+  const parsed = new URL(input.baseUrl);
+  const preferredPort =
+    parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : parsed.protocol === "https:" ? 443 : 80;
+  const autPort = await resolveAvailablePort(parsed.hostname, preferredPort);
+  return {
+    repoRoot: input.repoRoot,
+    workspacePath: input.workspacePath,
+    autBaseUrl: formatAutUrl(input.baseUrl, autPort),
+    autHost: parsed.hostname,
+    autPort: String(autPort)
+  };
 }
 
 export async function prepareRunWorkspace(input: {
@@ -31,7 +72,11 @@ export async function prepareRunWorkspace(input: {
   const runRoot = join(input.resultsRoot, "runs", input.runId);
   const workspacePath = join(runRoot, "workspace");
   const repoRoot = dirname(await resolveWorkspacePath("pnpm-workspace.yaml"));
-  const templateContext = { repoRoot, workspacePath };
+  const templateContext = await resolveAutTemplateContext({
+    repoRoot,
+    workspacePath,
+    baseUrl: input.resolvedSuite.target.target.baseUrl
+  });
 
   await removeDir(workspacePath);
   await ensureDir(runRoot);
@@ -70,7 +115,7 @@ export async function prepareRunWorkspace(input: {
         templateContext
       ),
     aut: {
-      url: input.resolvedSuite.target.target.baseUrl,
+      url: templateContext.autBaseUrl,
       command: resolveTemplateValue(input.resolvedSuite.target.target.devCommand, templateContext),
       cwd: workspacePath,
       env: Object.fromEntries(

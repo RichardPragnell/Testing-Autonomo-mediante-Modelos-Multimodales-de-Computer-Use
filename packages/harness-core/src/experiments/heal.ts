@@ -45,7 +45,8 @@ import type {
   HealModelSummary,
   HealReport,
   HealRunArtifact,
-  HealRunResult
+  HealRunResult,
+  ModeComparisonBuildResult
 } from "./types.js";
 import type { ExperimentLogFn } from "./types.js";
 
@@ -703,8 +704,7 @@ export async function getHealReport(runId: string, resultsDir = "results"): Prom
   return JSON.parse(raw) as HealReport;
 }
 
-export async function compareHealRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<HealReport>> {
-  const reports = await Promise.all(runIds.map((runId) => getHealReport(runId, resultsDir)));
+export function buildHealComparison(reports: HealReport[]): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Self-heal matrix across ${reports.length} run(s).`
@@ -717,6 +717,16 @@ export async function compareHealRuns(runIds: string[], resultsDir = "results"):
       ? `${topModel.modelId} leads self-heal comparison with ${topModel.avgScore.toFixed(3)} average score across ${topModel.runs} run(s).`
       : initialSection.summary
   };
+
+  return {
+    aggregateLeaderboard,
+    modeSection
+  };
+}
+
+export async function compareHealRuns(runIds: string[], resultsDir = "results"): Promise<CompareResult<HealReport>> {
+  const reports = await Promise.all(runIds.map((runId) => getHealReport(runId, resultsDir)));
+  const { aggregateLeaderboard, modeSection } = buildHealComparison(reports);
   const finalReport = await persistComparisonReport({
     title: "Self-Heal Comparison",
     subtitle: `Matrix comparison across ${reports.length} self-heal run(s).`,
