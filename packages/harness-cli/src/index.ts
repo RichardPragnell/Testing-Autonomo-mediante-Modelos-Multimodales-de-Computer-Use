@@ -116,6 +116,8 @@ async function main(): Promise<void> {
     .option("--profile <profile>", "QA runtime profile (fast or full)", "fast")
     .option("--models <ids...>", "Explicit OpenRouter model IDs to run")
     .option("--trials <n>", "Override trial count", parsePositiveInt)
+    .option("--parallelism <n>", "Run up to this many models in parallel per app", parsePositiveInt)
+    .option("--app-parallelism <n>", "Run up to this many apps in parallel for multi-app mode", parsePositiveInt)
     .option("--max-steps <n>", "Override guided step budget", parsePositiveInt)
     .option("--timeout-ms <n>", "Override per-task timeout in milliseconds", parsePositiveInt)
     .option("--max-output-tokens <n>", "Cap output tokens per model call", parsePositiveInt)
@@ -124,6 +126,8 @@ async function main(): Promise<void> {
       profile: "fast" | "full";
       models?: string[];
       trials?: number;
+      parallelism?: number;
+      appParallelism?: number;
       maxSteps?: number;
       timeoutMs?: number;
       maxOutputTokens?: number;
@@ -134,6 +138,7 @@ async function main(): Promise<void> {
           profile: options.profile,
           models: options.models,
           trials: options.trials,
+          parallelism: options.parallelism,
           maxSteps: options.maxSteps,
           timeoutMs: options.timeoutMs,
           maxOutputTokens: options.maxOutputTokens,
@@ -147,6 +152,8 @@ async function main(): Promise<void> {
         profile: options.profile,
         models: options.models,
         trials: options.trials,
+        parallelism: options.parallelism,
+        appParallelism: options.appParallelism,
         maxSteps: options.maxSteps,
         timeoutMs: options.timeoutMs,
         maxOutputTokens: options.maxOutputTokens,
@@ -158,11 +165,17 @@ async function main(): Promise<void> {
   program
     .command("explore")
     .description("Run the autonomous exploration benchmark; omit app to run all benchmark apps")
+    .option("--parallelism <n>", "Run up to this many models in parallel per app", parsePositiveInt)
+    .option("--app-parallelism <n>", "Run up to this many apps in parallel for multi-app mode", parsePositiveInt)
     .argument("[app]", "Benchmark app identifier")
-    .action(async (app: string | undefined) => {
+    .action(async (app: string | undefined, options: {
+      parallelism?: number;
+      appParallelism?: number;
+    }) => {
       if (app) {
         const result = await runExploreExperiment({
           appId: app,
+          parallelism: options.parallelism,
           onLog
         });
         printSingleRun(result);
@@ -170,6 +183,8 @@ async function main(): Promise<void> {
       }
 
       const result = await runExploreAcrossApps({
+        parallelism: options.parallelism,
+        appParallelism: options.appParallelism,
         onLog
       });
       printMultiRun(result);
@@ -178,11 +193,17 @@ async function main(): Promise<void> {
   program
     .command("heal")
     .description("Run the self-healing benchmark; omit app to run all benchmark apps")
+    .option("--parallelism <n>", "Run up to this many models in parallel per app", parsePositiveInt)
+    .option("--app-parallelism <n>", "Run up to this many apps in parallel for multi-app mode", parsePositiveInt)
     .argument("[app]", "Benchmark app identifier")
-    .action(async (app: string | undefined) => {
+    .action(async (app: string | undefined, options: {
+      parallelism?: number;
+      appParallelism?: number;
+    }) => {
       if (app) {
         const result = await runHealExperiment({
           appId: app,
+          parallelism: options.parallelism,
           onLog
         });
         printSingleRun(result);
@@ -190,6 +211,8 @@ async function main(): Promise<void> {
       }
 
       const result = await runHealAcrossApps({
+        parallelism: options.parallelism,
+        appParallelism: options.appParallelism,
         onLog
       });
       printMultiRun(result);

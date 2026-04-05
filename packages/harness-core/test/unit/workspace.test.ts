@@ -50,6 +50,30 @@ async function createOccupiedPortServer(): Promise<{
   };
 }
 
+async function allocatePort(host = "127.0.0.1"): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen({ host, port: 0 }, () => resolve());
+  });
+
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("expected a TCP server address");
+  }
+
+  return new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(address.port);
+    });
+  });
+}
+
 async function createResolvedSuite(baseUrl: string, templatePath: string): Promise<ResolvedBenchmarkSuite> {
   return {
     suitePath: join(templatePath, "..", "benchmark.json"),
@@ -127,8 +151,42 @@ describe("prepareRunWorkspace", () => {
       expect(workspace.aut.env?.BASE_URL).toBe(workspace.aut.url);
       expect(workspace.validationCommand).toBe(`echo "${selectedPort}"`);
       await expect(readFile(join(workspace.workspacePath, "README.md"), "utf8")).resolves.toContain("# template");
+      workspace.aut.releasePort?.();
     } finally {
       await occupied.close();
+    }
+  });
+
+  it("reserves distinct AUT ports when workspaces are prepared in parallel", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-port-parallel-"));
+    tempDirs.push(root);
+    const templatePath = join(root, "template");
+    await mkdir(templatePath, { recursive: true });
+    await writeFile(join(templatePath, "README.md"), "# template\n", "utf8");
+
+    const preferredPort = await allocatePort();
+    const resultsDir = join(root, "results");
+    const suite = await createResolvedSuite(`http://127.0.0.1:${preferredPort}`, templatePath);
+    const [left, right] = await Promise.all([
+      prepareRunWorkspace({
+        resolvedSuite: suite,
+        runId: "qa-test-run-left",
+        resultsRoot: resultsDir
+      }),
+      prepareRunWorkspace({
+        resolvedSuite: suite,
+        runId: "qa-test-run-right",
+        resultsRoot: resultsDir
+      })
+    ]);
+
+    try {
+      const ports = [left, right].map((workspace) => Number.parseInt(new URL(workspace.aut.url).port, 10));
+      expect(new Set(ports).size).toBe(2);
+      expect(ports).toContain(preferredPort);
+    } finally {
+      left.aut.releasePort?.();
+      right.aut.releasePort?.();
     }
   });
 });

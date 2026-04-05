@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import type { ResolvedBenchmarkSuite, RunWorkspace } from "../types.js";
-import { resolveAvailablePort } from "./ports.js";
+import { leaseAvailablePort } from "./ports.js";
 import { execCommand } from "../utils/exec.js";
 import { copyDir, ensureDir, removeDir, resolveWorkspacePath } from "../utils/fs.js";
 
@@ -50,17 +50,19 @@ async function resolveAutTemplateContext(input: {
   autBaseUrl: string;
   autHost: string;
   autPort: string;
+  releasePort: () => void;
 }> {
   const parsed = new URL(input.baseUrl);
   const preferredPort =
     parsed.port.length > 0 ? Number.parseInt(parsed.port, 10) : parsed.protocol === "https:" ? 443 : 80;
-  const autPort = await resolveAvailablePort(parsed.hostname, preferredPort);
+  const lease = await leaseAvailablePort(parsed.hostname, preferredPort);
   return {
     repoRoot: input.repoRoot,
     workspacePath: input.workspacePath,
-    autBaseUrl: formatAutUrl(input.baseUrl, autPort),
+    autBaseUrl: formatAutUrl(input.baseUrl, lease.port),
     autHost: parsed.hostname,
-    autPort: String(autPort)
+    autPort: String(lease.port),
+    releasePort: lease.release
   };
 }
 
@@ -123,7 +125,8 @@ export async function prepareRunWorkspace(input: {
           key,
           resolveTemplateValue(value, templateContext)
         ])
-      )
+      ),
+      releasePort: templateContext.releasePort
     },
     baselineCommit,
     bugCommit

@@ -10,10 +10,13 @@ import {
   emitExperimentLog,
   executeGuidedTasks,
   formatDurationMs,
+  mapWithConcurrency,
+  resolveParallelism,
   readCandidateFileSnippets
 } from "./experiments/common.js";
 import {
   buildExploreComparison,
+  clearExploreOutputs,
   compareExploreRuns,
   getExploreReport,
   runExploreExperiment,
@@ -21,12 +24,20 @@ import {
 } from "./experiments/explore.js";
 import {
   buildHealComparison,
+  clearHealOutputs,
   compareHealRuns,
   getHealReport,
   runHealExperiment,
   type RunHealExperimentInput
 } from "./experiments/heal.js";
-import { buildQaComparison, compareQaRuns, getQaReport, runQaExperiment, type RunQaExperimentInput } from "./experiments/qa.js";
+import {
+  buildQaComparison,
+  clearQaOutputs,
+  compareQaRuns,
+  getQaReport,
+  runQaExperiment,
+  type RunQaExperimentInput
+} from "./experiments/qa.js";
 import type {
   AppBenchmarkManifest,
   BenchmarkSelectionPolicy,
@@ -156,14 +167,17 @@ export interface RunBenchmarkSuiteInput {
 
 export interface RunQaAcrossAppsInput extends Omit<RunQaExperimentInput, "appId"> {
   appsRoot?: string;
+  appParallelism?: number;
 }
 
 export interface RunExploreAcrossAppsInput extends Omit<RunExploreExperimentInput, "appId"> {
   appsRoot?: string;
+  appParallelism?: number;
 }
 
 export interface RunHealAcrossAppsInput extends Omit<RunHealExperimentInput, "appId"> {
   appsRoot?: string;
+  appParallelism?: number;
 }
 
 export interface MultiAppExperimentRunEntry {
@@ -763,7 +777,9 @@ async function runExperimentAcrossApps<TCompare extends {
 }>(input: {
   mode: ExperimentKind;
   appsRoot?: string;
+  appParallelism?: number;
   onLog?: ExperimentLogFn;
+  beforeAll?: (appIds: string[]) => Promise<void>;
   runForApp: (appId: string) => Promise<{
     artifact: {
       runId: string;
@@ -779,30 +795,31 @@ async function runExperimentAcrossApps<TCompare extends {
   comparison: TCompare;
 }> {
   const appIds = await resolveSuiteAppIds(input.appsRoot);
+  const appParallelism = resolveParallelism(input.appParallelism);
   emitExperimentLog(
     input.onLog,
-    `[${input.mode}] Starting multi-app run across ${appIds.length} app(s): ${appIds.join(", ")}`
+    `[${input.mode}] Starting multi-app run across ${appIds.length} app(s): ${appIds.join(", ")} (app parallelism ${appParallelism})`
   );
+  await input.beforeAll?.(appIds);
 
-  const runs: MultiAppExperimentRunEntry[] = [];
-  for (const [appIndex, appId] of appIds.entries()) {
+  const runs = await mapWithConcurrency(appIds, appParallelism, async (appId, appIndex) => {
     emitExperimentLog(
       input.onLog,
       `[${input.mode}] App ${appIndex + 1}/${appIds.length} ${appId}: started`
     );
     const result = await input.runForApp(appId);
-    runs.push({
+    emitExperimentLog(
+      input.onLog,
+      `[${input.mode}] App ${appIndex + 1}/${appIds.length} ${appId}: completed (${result.artifact.runId})`
+    );
+    return {
       appId,
       runId: result.artifact.runId,
       artifactPath: result.artifactPath,
       reportPath: result.reportPath,
       htmlPath: result.htmlPath
-    });
-    emitExperimentLog(
-      input.onLog,
-      `[${input.mode}] App ${appIndex + 1}/${appIds.length} ${appId}: completed (${result.artifact.runId})`
-    );
-  }
+    };
+  });
 
   emitExperimentLog(
     input.onLog,
@@ -920,13 +937,19 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
 export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQaAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
-  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "qa",
     appsRoot: input.appsRoot,
+    appParallelism: input.appParallelism,
     onLog: input.onLog,
+    beforeAll:
+      input.resetModeResults === false
+        ? undefined
+        : async () => {
+            await clearQaOutputs(resultsDir);
+          },
     runForApp: async (appId) => {
-      const result = await runQaExperiment({
+      return runQaExperiment({
         appId,
         profile: input.profile,
         models: input.models,
@@ -938,13 +961,12 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
         maxSteps: input.maxSteps,
         maxOutputTokens: input.maxOutputTokens,
         viewport: input.viewport,
+        parallelism: input.parallelism,
         resultsDir,
-        resetModeResults,
+        resetModeResults: false,
         runner: input.runner,
         onLog: input.onLog
       });
-      resetModeResults = false;
-      return result;
     },
     compare: (runIds) => compareQaRuns(runIds, resultsDir)
   });
@@ -962,25 +984,30 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
 export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Promise<RunExploreAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
-  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "explore",
     appsRoot: input.appsRoot,
+    appParallelism: input.appParallelism,
     onLog: input.onLog,
+    beforeAll:
+      input.resetModeResults === false
+        ? undefined
+        : async () => {
+            await clearExploreOutputs(resultsDir);
+          },
     runForApp: async (appId) => {
-      const result = await runExploreExperiment({
+      return runExploreExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
         presetPath: input.presetPath,
         trials: input.trials,
+        parallelism: input.parallelism,
         resultsDir,
-        resetModeResults,
+        resetModeResults: false,
         runner: input.runner,
         onLog: input.onLog
       });
-      resetModeResults = false;
-      return result;
     },
     compare: (runIds) => compareExploreRuns(runIds, resultsDir)
   });
@@ -998,26 +1025,31 @@ export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Pr
 export async function runHealAcrossApps(input: RunHealAcrossAppsInput): Promise<RunHealAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
-  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "heal",
     appsRoot: input.appsRoot,
+    appParallelism: input.appParallelism,
     onLog: input.onLog,
+    beforeAll:
+      input.resetModeResults === false
+        ? undefined
+        : async () => {
+            await clearHealOutputs(resultsDir);
+          },
     runForApp: async (appId) => {
-      const result = await runHealExperiment({
+      return runHealExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
         presetPath: input.presetPath,
         trials: input.trials,
+        parallelism: input.parallelism,
         resultsDir,
-        resetModeResults,
+        resetModeResults: false,
         runner: input.runner,
         repairClient: input.repairClient,
         onLog: input.onLog
       });
-      resetModeResults = false;
-      return result;
     },
     compare: (runIds) => compareHealRuns(runIds, resultsDir)
   });

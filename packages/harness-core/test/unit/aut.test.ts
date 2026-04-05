@@ -108,12 +108,16 @@ describe("startAut", () => {
       "utf8"
     );
 
+    let releasedPorts = 0;
     await expect(
       startAut(
         {
           command: `node "${scriptPath}" "${pidPath}"`,
           cwd: dir,
-          url
+          url,
+          releasePort: () => {
+            releasedPorts += 1;
+          }
         },
         250,
         25
@@ -122,6 +126,7 @@ describe("startAut", () => {
 
     const pid = await readPid(pidPath);
     await waitFor(() => !processExists(pid));
+    expect(releasedPorts).toBe(1);
   });
 
   it("stops the AUT process tree after a successful start", async () => {
@@ -151,11 +156,15 @@ describe("startAut", () => {
       "utf8"
     );
 
+    let releasedPorts = 0;
     const aut = await startAut(
       {
         command: `node "${scriptPath}" ${port} "${pidPath}"`,
         cwd: dir,
-        url
+        url,
+        releasePort: () => {
+          releasedPorts += 1;
+        }
       },
       5_000,
       25
@@ -169,5 +178,6 @@ describe("startAut", () => {
 
     await waitFor(() => !processExists(pid));
     expect(await isUrlReachable(url)).toBe(false);
+    expect(releasedPorts).toBe(1);
   });
 });

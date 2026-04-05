@@ -26,8 +26,10 @@ import {
   emitExperimentLog,
   executeGuidedTasks,
   formatDurationMs,
+  mapWithConcurrency,
   readCandidateFileSnippets,
   resolveExperimentRoot,
+  resolveParallelism,
   round
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
@@ -78,6 +80,7 @@ export interface RunHealExperimentInput {
   modelsPath?: string;
   presetPath?: string;
   trials?: number;
+  parallelism?: number;
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
@@ -98,7 +101,7 @@ async function removePathIfExists(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
-async function clearHealOutputs(resultsDir: string): Promise<void> {
+export async function clearHealOutputs(resultsDir: string): Promise<void> {
   const workspaceRoot = await resolveWorkspacePath(resultsDir);
   await Promise.all([
     removePathIfExists(join(workspaceRoot, "heal", "runs")),
@@ -410,27 +413,25 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   };
 
   const runId = `heal-${input.appId}-${Date.now()}`;
+  const parallelism = resolveParallelism(input.parallelism);
   const startedAt = nowIso();
   emitExperimentLog(
     input.onLog,
-    `[heal] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${caseIds.length} case(s), ${spec.trials} trial(s)`
+    `[heal] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${caseIds.length} case(s), ${spec.trials} trial(s), model parallelism ${parallelism}`
   );
   const runner = input.runner ?? new StagehandAutomationRunner();
   const repairClient = input.repairClient ?? new OpenRouterRepairModelClient();
-  const modelSummaries: HealModelSummary[] = [];
-
-  for (const [modelIndex, model] of models.entries()) {
+  const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
         `[heal] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
       );
-      modelSummaries.push({
+      return {
         model,
         metrics: zeroMetrics(model),
         caseResults: []
-      });
-      continue;
+      } satisfies HealModelSummary;
     }
 
     const caseResults: HealCaseTrialResult[] = [];
@@ -458,14 +459,14 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
       });
 
       for (let trial = 1; trial <= spec.trials; trial += 1) {
-        const attemptId = `${runId}-${caseId}-trial-${trial}`;
+        const attemptId = `${runId}-${caseId}-trial-${trial}-model-${modelIndex + 1}`;
         emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: reproduction started`);
         const workspace = await prepareRunWorkspace({
           resolvedSuite,
           runId: attemptId,
           resultsRoot
         });
-        let autHandle = await startAut(workspace.aut);
+        let autHandle: Awaited<ReturnType<typeof startAut>> | undefined;
 
         let reproductionRuns: TaskRunResult[] = [];
         let findings: HealCaseTrialResult["findings"] = [];
@@ -494,8 +495,9 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         let postPatchRegressionRuns: TaskRunResult[] = [];
 
         try {
+          autHandle = await startAut(workspace.aut);
           const reproduction = await executeGuidedTasks({
-            runId,
+            runId: attemptId,
             resultsRoot,
             resolvedSuite,
             workspace,
@@ -571,7 +573,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
                   const aut = await startAut(rebasedAut);
                   try {
                     const reproductionAfterPatch = await executeGuidedTasks({
-                      runId,
+                      runId: `${attemptId}-post-patch`,
                       resultsRoot,
                       resolvedSuite,
                       workspace: worktreeWorkspace,
@@ -585,7 +587,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
                       taskLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch reproduction task`
                     });
                     const regressionAfterPatch = await executeGuidedTasks({
-                      runId,
+                      runId: `${attemptId}-post-patch`,
                       resultsRoot,
                       resolvedSuite,
                       workspace: worktreeWorkspace,
@@ -680,7 +682,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
     }
 
     const metrics = computeModelMetrics(model, caseResults);
-    modelSummaries.push({
+    const summary = {
       model,
       metrics,
       cacheSummary: summarizeTaskRunCache(
@@ -691,12 +693,13 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         ])
       ),
       caseResults
-    });
+    } satisfies HealModelSummary;
     emitExperimentLog(
       input.onLog,
       `[heal] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, fix rate ${(metrics.fixRate * 100).toFixed(1)}%, regression-free ${(metrics.regressionFreeRate * 100).toFixed(1)}%`
     );
-  }
+    return summary;
+  });
 
   const artifact: HealRunArtifact = {
     kind: "heal",

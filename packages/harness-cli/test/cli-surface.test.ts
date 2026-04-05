@@ -49,16 +49,22 @@ describe("CLI surface", () => {
       expect(qaHelp).toContain("--profile <profile>");
       expect(qaHelp).toContain("--models <ids...>");
       expect(qaHelp).toContain("--trials <n>");
+      expect(qaHelp).toContain("--parallelism <n>");
+      expect(qaHelp).toContain("--app-parallelism <n>");
       expect(qaHelp).toContain("--max-steps <n>");
       expect(qaHelp).toContain("--timeout-ms <n>");
       expect(qaHelp).toContain("--max-output-tokens <n>");
-      expect(qaHelp).not.toContain("--app");
+      expect(qaHelp).not.toContain("--app <");
       expect(qaHelp).not.toContain("--models-path");
       expect(qaHelp).not.toContain("--results-dir");
       expect(qaHelp).not.toContain("--preset");
 
       expect(exploreHelp).toContain("explore [options] [app]");
+      expect(exploreHelp).toContain("--parallelism <n>");
+      expect(exploreHelp).toContain("--app-parallelism <n>");
       expect(healHelp).toContain("heal [options] [app]");
+      expect(healHelp).toContain("--parallelism <n>");
+      expect(healHelp).toContain("--app-parallelism <n>");
       expect(reportHelp).toContain("report [options] [mode]");
       expect(reportHelp).toContain("qa, explore, or heal");
     },

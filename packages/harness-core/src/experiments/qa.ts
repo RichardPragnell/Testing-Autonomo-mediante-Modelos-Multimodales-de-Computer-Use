@@ -22,7 +22,9 @@ import {
   emitExperimentLog,
   executeGuidedTasks,
   formatDurationMs,
+  mapWithConcurrency,
   resolveExperimentRoot,
+  resolveParallelism,
   round,
   summarizeTaskRuns
 } from "./common.js";
@@ -94,6 +96,7 @@ export interface RunQaExperimentInput {
     width: number;
     height: number;
   };
+  parallelism?: number;
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
@@ -123,7 +126,7 @@ async function removePathIfExists(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
-async function clearQaOutputs(resultsDir: string): Promise<void> {
+export async function clearQaOutputs(resultsDir: string): Promise<void> {
   const workspaceRoot = await resolveWorkspacePath(resultsDir);
   await Promise.all([
     removePathIfExists(join(workspaceRoot, "qa", "runs")),
@@ -170,6 +173,14 @@ async function persistQaProgress(
   const runDir = join(resultsRoot, "runs", runId);
   await ensureDir(runDir);
   await writeJson(join(runDir, "progress.json"), progress);
+}
+
+function createProgressWriter<TProgress>(writer: (progress: TProgress) => Promise<void>) {
+  let queued = Promise.resolve();
+  return async (progress: TProgress): Promise<void> => {
+    queued = queued.then(() => writer(progress));
+    await queued;
+  };
 }
 
 function zeroMetrics(model: ModelAvailability): QaModelMetrics {
@@ -444,12 +455,14 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   };
 
   const runId = `qa-${input.appId}-${Date.now()}`;
+  const parallelism = resolveParallelism(input.parallelism);
   const startedAt = nowIso();
   let completedTasks = 0;
   const allTaskRuns: TaskRunResult[] = [];
+  const totalTasks = models.filter((model) => model.available).length * spec.trials * spec.taskIds.length;
   emitExperimentLog(
     input.onLog,
-    `[qa] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.taskIds.length} task(s)`
+    `[qa] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.taskIds.length} task(s), model parallelism ${parallelism}`
   );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
@@ -464,7 +477,11 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     }
   });
 
-  await persistQaProgress(resultsRoot, runId, {
+  type QaProgressRecord = Parameters<typeof persistQaProgress>[2];
+  const writeProgress = createProgressWriter<QaProgressRecord>((progress) =>
+    persistQaProgress(resultsRoot, runId, progress)
+  );
+  const buildProgress = (overrides: Partial<QaProgressRecord> = {}): QaProgressRecord => ({
     appId: input.appId,
     profile,
     status: "running",
@@ -472,47 +489,51 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     updatedAt: nowIso(),
     models: spec.models,
     trials: spec.trials,
-    completedTasks: 0,
-    totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
-    cumulativeUsage: sumAiUsageSummaries([])
+    completedTasks,
+    totalTasks,
+    cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
+    ...overrides
   });
-  const runner = input.runner ?? new StagehandAutomationRunner();
-  const modelSummaries: QaModelSummary[] = [];
 
-  for (const [modelIndex, model] of models.entries()) {
+  await writeProgress(buildProgress({ completedTasks: 0 }));
+  const runner = input.runner ?? new StagehandAutomationRunner();
+  const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
         `[qa] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
       );
-      modelSummaries.push({
+      return {
         model,
         metrics: zeroMetrics(model),
         taskRuns: [],
         capabilityRuns: []
-      });
-      continue;
+      } satisfies QaModelSummary;
     }
 
-    const taskRuns: QaModelSummary["taskRuns"] = [];
-    const capabilityRuns: QaModelSummary["capabilityRuns"] = [];
     emitExperimentLog(input.onLog, `[qa] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
+    const trialResults: Array<{
+      taskRuns: QaModelSummary["taskRuns"];
+      capabilityRuns: QaModelSummary["capabilityRuns"];
+    }> = [];
 
     for (let trial = 1; trial <= spec.trials; trial += 1) {
+      const attemptRunId = `${runId}-model-${modelIndex + 1}-trial-${trial}`;
       emitExperimentLog(
         input.onLog,
         `[qa] Trial ${trial}/${spec.trials} for ${model.id} started with a fresh workspace`
       );
       const workspace = await prepareRunWorkspace({
         resolvedSuite,
-        runId,
+        runId: attemptRunId,
         resultsRoot
       });
-      const autHandle = await startAut(workspace.aut);
+      let autHandle: Awaited<ReturnType<typeof startAut>> | undefined;
 
       try {
+        autHandle = await startAut(workspace.aut);
         const execution = await executeGuidedTasks({
-          runId,
+          runId: attemptRunId,
           resultsRoot,
           resolvedSuite,
           workspace,
@@ -526,49 +547,45 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
           onTaskRunComplete: async ({ taskIndex, taskId, result }) => {
             completedTasks += 1;
             allTaskRuns.push(result);
-            await persistQaProgress(resultsRoot, runId, {
-              appId: input.appId,
-              profile,
-              status: "running",
-              startedAt,
-              updatedAt: nowIso(),
-              models: spec.models,
-              trials: spec.trials,
-              currentModelId: model.id,
-              currentTrial: trial,
-              currentTaskIndex: taskIndex + 1,
-              currentTaskId: taskId,
-              completedTasks,
-              totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
-              cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
-              lastTaskResult: slimTaskRunForProgress(result)
-            });
+            await writeProgress(
+              buildProgress({
+                currentModelId: model.id,
+                currentTrial: trial,
+                currentTaskIndex: taskIndex + 1,
+                currentTaskId: taskId,
+                lastTaskResult: slimTaskRunForProgress(result)
+              })
+            );
           }
         });
-        taskRuns.push(...execution.taskRuns);
         const passedTasks = execution.taskRuns.filter((run) => run.success).length;
         emitExperimentLog(
           input.onLog,
           `[qa] Trial ${trial}/${spec.trials} for ${model.id} completed: ${passedTasks}/${execution.taskRuns.length} tasks passed`
         );
 
-        for (const capabilityId of capabilityIds) {
-          const capability = benchmark.capabilityMap.get(capabilityId)!;
-          const relevantRuns = execution.taskRuns.filter((run) => capability.taskIds.includes(run.taskId));
-          capabilityRuns.push({
-            capabilityId,
-            title: capability.title,
-            trial,
-            success: relevantRuns.length > 0 && relevantRuns.every((run) => run.success),
-            taskIds: capability.taskIds,
-            failedTaskIds: relevantRuns.filter((run) => !run.success).map((run) => run.taskId)
-          });
-        }
+        trialResults.push({
+          taskRuns: execution.taskRuns,
+          capabilityRuns: capabilityIds.map((capabilityId) => {
+            const capability = benchmark.capabilityMap.get(capabilityId)!;
+            const relevantRuns = execution.taskRuns.filter((run) => capability.taskIds.includes(run.taskId));
+            return {
+              capabilityId,
+              title: capability.title,
+              trial,
+              success: relevantRuns.length > 0 && relevantRuns.every((run) => run.success),
+              taskIds: capability.taskIds,
+              failedTaskIds: relevantRuns.filter((run) => !run.success).map((run) => run.taskId)
+            };
+          })
+        });
       } finally {
         await autHandle?.stop();
       }
     }
 
+    const taskRuns = trialResults.flatMap((trialResult) => trialResult.taskRuns);
+    const capabilityRuns = trialResults.flatMap((trialResult) => trialResult.capabilityRuns);
     const taskSummary = summarizeTaskRuns(taskRuns);
     const metrics = computeModelMetrics({
       model,
@@ -576,32 +593,26 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
       capabilityRuns,
       trials: spec.trials
     });
-    modelSummaries.push({
+    const summary = {
       model,
       metrics,
       cacheSummary: taskSummary.cacheSummary,
       taskRuns,
       capabilityRuns
-    });
+    } satisfies QaModelSummary;
+
     emitExperimentLog(
       input.onLog,
       `[qa] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
     );
-    await persistQaProgress(resultsRoot, runId, {
-      appId: input.appId,
-      profile,
-      status: "running",
-      startedAt,
-      updatedAt: nowIso(),
-      models: spec.models,
-      trials: spec.trials,
-      currentModelId: model.id,
-      completedTasks,
-      totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
-      cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
-      lastTaskResult: taskRuns.length ? slimTaskRunForProgress(taskRuns.at(-1)!) : undefined
-    });
-  }
+    await writeProgress(
+      buildProgress({
+        currentModelId: model.id,
+        lastTaskResult: taskRuns.length ? slimTaskRunForProgress(taskRuns.at(-1)!) : undefined
+      })
+    );
+    return summary;
+  });
 
   const artifact: QaRunArtifact = {
     kind: "qa",
@@ -613,19 +624,12 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     modelSummaries
   };
   const output = await persistQaOutput(resultsRoot, artifact, buildReport(artifact));
-  await persistQaProgress(resultsRoot, runId, {
-    appId: input.appId,
-    profile,
-    status: "completed",
-    startedAt,
-    updatedAt: nowIso(),
-    models: spec.models,
-    trials: spec.trials,
-    completedTasks,
-    totalTasks: spec.models.length * spec.trials * spec.taskIds.length,
-    cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
-    lastTaskResult: allTaskRuns.length ? slimTaskRunForProgress(allTaskRuns.at(-1)!) : undefined
-  });
+  await writeProgress(
+    buildProgress({
+      status: "completed",
+      lastTaskResult: allTaskRuns.length ? slimTaskRunForProgress(allTaskRuns.at(-1)!) : undefined
+    })
+  );
   emitExperimentLog(
     input.onLog,
     `[qa] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`

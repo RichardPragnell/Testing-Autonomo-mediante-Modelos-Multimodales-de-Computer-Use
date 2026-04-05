@@ -233,6 +233,7 @@ export interface AutConfig {
   command?: string;
   cwd?: string;
   env?: Record<string, string>;
+  releasePort?: () => void;
 }
 
 export interface DiagnosisArtifacts {

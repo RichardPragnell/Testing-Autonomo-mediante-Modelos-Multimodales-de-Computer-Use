@@ -1,6 +1,43 @@
 import { createServer } from "node:net";
 
+export interface PortLease {
+  port: number;
+  release: () => void;
+}
+
+const reservedPortsByHost = new Map<string, Set<number>>();
+
+function isReserved(host: string, port: number): boolean {
+  return reservedPortsByHost.get(host)?.has(port) ?? false;
+}
+
+function reservePort(host: string, port: number): () => void {
+  const reserved = reservedPortsByHost.get(host) ?? new Set<number>();
+  reserved.add(port);
+  reservedPortsByHost.set(host, reserved);
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    const current = reservedPortsByHost.get(host);
+    if (!current) {
+      return;
+    }
+    current.delete(port);
+    if (current.size === 0) {
+      reservedPortsByHost.delete(host);
+    }
+  };
+}
+
 async function canBindPort(host: string, port: number): Promise<boolean> {
+  if (isReserved(host, port)) {
+    return false;
+  }
+
   return new Promise((resolve, reject) => {
     const server = createServer();
     let settled = false;
@@ -27,7 +64,7 @@ async function canBindPort(host: string, port: number): Promise<boolean> {
   });
 }
 
-async function bindEphemeralPort(host: string): Promise<number> {
+async function bindEphemeralPort(host: string): Promise<PortLease> {
   return new Promise((resolve, reject) => {
     const server = createServer();
 
@@ -40,20 +77,36 @@ async function bindEphemeralPort(host: string): Promise<number> {
       }
 
       const { port } = address;
+      if (isReserved(host, port)) {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          void bindEphemeralPort(host).then(resolve, reject);
+        });
+        return;
+      }
+
+      const release = reservePort(host, port);
       server.close((error) => {
         if (error) {
+          release();
           reject(error);
           return;
         }
-        resolve(port);
+        resolve({ port, release });
       });
     });
   });
 }
 
-export async function resolveAvailablePort(host: string, preferredPort: number): Promise<number> {
-  if (preferredPort > 0 && (await canBindPort(host, preferredPort))) {
-    return preferredPort;
+export async function leaseAvailablePort(host: string, preferredPort: number): Promise<PortLease> {
+  if (preferredPort > 0 && !isReserved(host, preferredPort) && (await canBindPort(host, preferredPort))) {
+    return {
+      port: preferredPort,
+      release: reservePort(host, preferredPort)
+    };
   }
 
   return bindEphemeralPort(host);

@@ -13,12 +13,14 @@ import { nowIso } from "../utils/time.js";
 import { resolveWorkspacePath } from "../utils/fs.js";
 import type {
   CapabilityDefinition,
-  ExperimentLogFn,
   ExperimentKind,
+  ExperimentLogFn,
   ExperimentRuntime,
   RepairPromptContext,
   ResolvedAppBenchmark
 } from "./types.js";
+
+export const DEFAULT_EXPERIMENT_PARALLELISM = 2;
 
 function avg(values: number[]): number {
   if (!values.length) {
@@ -105,6 +107,56 @@ export function normalizePath(value: string): string {
 
 export async function resolveExperimentRoot(resultsDir: string, kind: ExperimentKind): Promise<string> {
   return join(await resolveWorkspacePath(resultsDir), kind);
+}
+
+export function resolveParallelism(value: number | undefined, fallback = DEFAULT_EXPERIMENT_PARALLELISM): number {
+  if (value === undefined) {
+    return fallback;
+  }
+  if (!Number.isFinite(value) || value < 1) {
+    throw new Error(`parallelism must be a positive integer, got ${value}`);
+  }
+  return Math.max(1, Math.floor(value));
+}
+
+export async function mapWithConcurrency<TItem, TResult>(
+  items: readonly TItem[],
+  concurrency: number,
+  mapper: (item: TItem, index: number) => Promise<TResult>
+): Promise<TResult[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const limit = Math.max(1, Math.min(Math.floor(concurrency), items.length));
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+  let firstError: unknown;
+
+  await Promise.all(
+    Array.from({ length: limit }, async () => {
+      while (firstError === undefined) {
+        const currentIndex = nextIndex;
+        nextIndex += 1;
+        if (currentIndex >= items.length) {
+          return;
+        }
+
+        try {
+          results[currentIndex] = await mapper(items[currentIndex]!, currentIndex);
+        } catch (error) {
+          firstError = error;
+          return;
+        }
+      }
+    })
+  );
+
+  if (firstError !== undefined) {
+    throw firstError;
+  }
+
+  return results;
 }
 
 export function unique<T>(values: T[]): T[] {

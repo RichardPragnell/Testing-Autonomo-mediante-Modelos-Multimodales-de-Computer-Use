@@ -77,7 +77,17 @@ export async function startAut(
   timeoutMs = 60_000,
   pollIntervalMs = 200
 ): Promise<RunningAut | undefined> {
+  let releasedPort = false;
+  const releasePort = (): void => {
+    if (releasedPort) {
+      return;
+    }
+    releasedPort = true;
+    aut.releasePort?.();
+  };
+
   if (!aut.command) {
+    releasePort();
     return undefined;
   }
   const child = spawn(aut.command, {
@@ -106,11 +116,19 @@ export async function startAut(
 
     return {
       stop: async () => {
-        await stopSpawnedAut(child);
+        try {
+          await stopSpawnedAut(child);
+        } finally {
+          releasePort();
+        }
       }
     };
   } catch (error) {
-    await stopSpawnedAut(child);
+    try {
+      await stopSpawnedAut(child);
+    } finally {
+      releasePort();
+    }
     throw error;
   }
 }

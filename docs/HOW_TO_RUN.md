@@ -65,6 +65,8 @@ QA measures how well a model follows the guided scenarios and reaches the expect
 
 ```bash
 pnpm qa todo-react
+pnpm qa todo-react --parallelism 2
+pnpm qa --parallelism 2 --app-parallelism 2
 ```
 
 QA reports compare:
@@ -81,6 +83,8 @@ Exploration measures whether the model discovers useful app functionality before
 
 ```bash
 pnpm explore todo-react
+pnpm explore todo-react --parallelism 2
+pnpm explore --parallelism 2 --app-parallelism 2
 ```
 
 Exploration reports compare:
@@ -97,6 +101,8 @@ Self-heal measures how well a model can diagnose, patch, and validate seeded bug
 
 ```bash
 pnpm heal todo-react
+pnpm heal todo-react --parallelism 2
+pnpm heal --parallelism 2 --app-parallelism 2
 ```
 
 Heal reports compare:
@@ -133,6 +139,12 @@ The CLI prints:
 - `htmlPath`
 
 Use those output paths directly. The live progress logs are for humans; the final JSON summary remains the machine-readable output.
+
+Parallelism notes:
+- `--parallelism` runs multiple models at once inside a single app run
+- `--app-parallelism` applies when you omit the app and run across all benchmark apps
+- every parallel worker still prepares its own clean workspace clone from the app template
+- AUT ports are reserved per worker to avoid collisions during parallel startup
 
 To rebuild comparison pages from existing benchmark report JSON files:
 

@@ -26,7 +26,9 @@ import {
   emitExperimentLog,
   executeGuidedTasks,
   formatDurationMs,
+  mapWithConcurrency,
   resolveExperimentRoot,
+  resolveParallelism,
   round,
   summarizeTaskRuns,
   unique
@@ -82,6 +84,7 @@ export interface RunExploreExperimentInput {
   modelsPath?: string;
   presetPath?: string;
   trials?: number;
+  parallelism?: number;
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
@@ -101,7 +104,7 @@ async function removePathIfExists(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
-async function clearExploreOutputs(resultsDir: string): Promise<void> {
+export async function clearExploreOutputs(resultsDir: string): Promise<void> {
   const workspaceRoot = await resolveWorkspacePath(resultsDir);
   await Promise.all([
     removePathIfExists(join(workspaceRoot, "explore", "runs")),
@@ -411,10 +414,11 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   };
 
   const runId = `explore-${input.appId}-${Date.now()}`;
+  const parallelism = resolveParallelism(input.parallelism);
   const startedAt = nowIso();
   emitExperimentLog(
     input.onLog,
-    `[explore] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.probeTaskIds.length} probe task(s)`
+    `[explore] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.probeTaskIds.length} probe task(s), model parallelism ${parallelism}`
   );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
@@ -434,21 +438,19 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   if (typeof runner.exploreTarget !== "function") {
     throw new Error("selected automation runner does not support autonomous exploration");
   }
+  const exploreTarget = runner.exploreTarget.bind(runner);
 
-  const modelSummaries: ExploreModelSummary[] = [];
-
-  for (const [modelIndex, model] of models.entries()) {
+  const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
         `[explore] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
       );
-      modelSummaries.push({
+      return {
         model,
         metrics: zeroMetrics(model),
         trials: []
-      });
-      continue;
+      } satisfies ExploreModelSummary;
     }
 
     const trials: ExploreTrialArtifact[] = [];
@@ -483,11 +485,11 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
         runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-explore`,
         resultsRoot
       });
-      const explorationAutHandle = await startAut(explorationWorkspace.aut);
-
+      let explorationAutHandle: Awaited<ReturnType<typeof startAut>> | undefined;
       let explorationArtifact;
       try {
-        explorationArtifact = await runner.exploreTarget({
+        explorationAutHandle = await startAut(explorationWorkspace.aut);
+        explorationArtifact = await exploreTarget({
           model,
           trial,
           targetId: input.appId,
@@ -537,12 +539,12 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
         runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-probe`,
         resultsRoot
       });
-      const probeAutHandle = await startAut(probeWorkspace.aut);
-
+      let probeAutHandle: Awaited<ReturnType<typeof startAut>> | undefined;
       let probeExecution;
       try {
+        probeAutHandle = await startAut(probeWorkspace.aut);
         probeExecution = await executeGuidedTasks({
-          runId,
+          runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-probe`,
           resultsRoot,
           resolvedSuite,
           workspace: probeWorkspace,
@@ -595,17 +597,18 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
       trials,
       heuristicTargets: spec.heuristicTargets
     });
-    modelSummaries.push({
+    const summary = {
       model,
       metrics,
       probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
       trials
-    });
+    } satisfies ExploreModelSummary;
     emitExperimentLog(
       input.onLog,
       `[explore] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, discovery ${(metrics.capabilityDiscoveryRate * 100).toFixed(1)}%, probe replay ${(metrics.probeReplayPassRate * 100).toFixed(1)}%`
     );
-  }
+    return summary;
+  });
 
   const artifact: ExploreRunArtifact = {
     kind: "explore",

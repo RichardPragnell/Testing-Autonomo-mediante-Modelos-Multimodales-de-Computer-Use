@@ -52,6 +52,7 @@ Guided QA:
 ```bash
 pnpm qa todo-angular
 pnpm qa
+pnpm qa --parallelism 2 --app-parallelism 2
 ```
 
 Autonomous exploration:
@@ -59,6 +60,7 @@ Autonomous exploration:
 ```bash
 pnpm explore todo-react
 pnpm explore
+pnpm explore --parallelism 2 --app-parallelism 2
 ```
 
 Self-heal:
@@ -66,6 +68,7 @@ Self-heal:
 ```bash
 pnpm heal todo-nextjs
 pnpm heal
+pnpm heal --parallelism 2 --app-parallelism 2
 ```
 
 Report rebuild:
@@ -78,6 +81,8 @@ pnpm report heal
 ```
 
 While a run is active the CLI streams progress logs to the terminal, and the final JSON summary remains on stdout. `pnpm report` prints the latest-per-app-mode-model selection it used plus the rebuilt report paths.
+
+`--parallelism` controls per-app model concurrency. When you omit the app and run across the full benchmark set, `--app-parallelism` controls how many apps run at once. Each parallel execution still gets its own freshly copied template workspace and reserved AUT port.
 
 ## Full Benchmark
 
