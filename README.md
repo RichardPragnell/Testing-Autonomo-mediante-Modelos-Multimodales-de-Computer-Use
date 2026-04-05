@@ -77,7 +77,7 @@ pnpm report explore
 pnpm report heal
 ```
 
-While a run is active the CLI streams progress logs to the terminal, and the final JSON summary remains on stdout. `pnpm report` prints the latest-per-app-mode selection it used plus the rebuilt report paths.
+While a run is active the CLI streams progress logs to the terminal, and the final JSON summary remains on stdout. `pnpm report` prints the latest-per-app-mode-model selection it used plus the rebuilt report paths.
 
 ## Full Benchmark
 
@@ -91,7 +91,7 @@ pnpm heal
 pnpm report
 ```
 
-This runs all enabled models across all discoverable apps, then rebuilds the final benchmark comparison report under `results/compare/reports`.
+This runs all enabled models across all discoverable apps, then rebuilds the final benchmark comparison report under `results/compare` as `benchmark-compare-latest.html|json`.
 
 ## Documentation
 
@@ -105,5 +105,5 @@ This runs all enabled models across all discoverable apps, then rebuilds the fin
 - Local configuration template: `.env.example`
 - The CLI and benchmark app server auto-load `.env` from the repository root when present
 - Omitting the app for `pnpm qa`, `pnpm explore`, or `pnpm heal` runs that mode across all discoverable benchmark apps and writes one aggregate comparison report
-- `pnpm report` rebuilds comparison pages from `results/<mode>/reports/*.json` and writes rebuilt outputs under `results/compare/reports`
+- `pnpm report` rebuilds comparison pages from `results/<mode>/reports/*.json`, using the latest available report per `mode+app+model`, and writes stable latest outputs under `results/compare`
 - JSON summaries live under `results/<experiment>/reports` and full run artifacts live under `results/<experiment>/runs`

@@ -1,3 +1,4 @@
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   BenchmarkComparisonCell,
@@ -12,7 +13,7 @@ import type { UsageCostSummary } from "../types.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { buildBenchmarkSummaryFigures } from "./report-overview.js";
-import { average, formatCostSource, formatCostSummary, mergeCostSources } from "./report-utils.js";
+import { average, formatCostSummary, mergeCostSources } from "./report-utils.js";
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
@@ -129,17 +130,12 @@ export function aggregateModeSection(
     notes: unique(sections.flatMap((section) => section.notes)),
     audit: {
       title: `${base.title} Cost Audit`,
-      columns: ["App", "Model", "Runs", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+      columns: ["App", "Model", "Total Cost"],
       rows: rows.flatMap((row) =>
         row.cells.map((cell) => [
           cell.appId,
           row.modelId,
-          String(cell.runIds.length),
-          formatCostSummary(cell.costSummary, "avgResolvedUsd"),
-          formatCostSummary(cell.costSummary, "totalResolvedUsd"),
-          formatCostSource(cell.costSummary),
-          String(cell.costSummary.callCount),
-          String(cell.costSummary.unavailableCalls)
+          formatCostSummary(cell.costSummary, "totalResolvedUsd")
         ])
       )
     }
@@ -154,6 +150,27 @@ export function buildAggregateLeaderboard(section: BenchmarkComparisonSection): 
   }));
 }
 
+export async function removeComparisonReports(resultsDir: string, prefixes: string[]): Promise<void> {
+  if (!prefixes.length) {
+    return;
+  }
+
+  const reportsRoot = join(await resolveWorkspacePath(resultsDir), "compare");
+  try {
+    const entries = await readdir(reportsRoot, { withFileTypes: true });
+    await Promise.all(
+      entries.flatMap((entry) => {
+        if (!entry.isFile() || !prefixes.some((prefix) => entry.name.startsWith(`${prefix}-`))) {
+          return [];
+        }
+        return [rm(join(reportsRoot, entry.name), { force: true })];
+      })
+    );
+  } catch {
+    // Cleanup should never block new output persistence.
+  }
+}
+
 export async function persistComparisonReport(input: {
   title: string;
   subtitle: string;
@@ -161,18 +178,37 @@ export async function persistComparisonReport(input: {
   modeSections: BenchmarkComparisonSection[];
   resultsDir: string;
   prefix: string;
+  stableName?: string;
   provenance?: BenchmarkComparisonProvenance;
 }): Promise<BenchmarkComparisonReport> {
-  const reportsRoot = join(await resolveWorkspacePath(input.resultsDir), "compare", "reports");
+  const reportsRoot = join(await resolveWorkspacePath(input.resultsDir), "compare");
   await ensureDir(reportsRoot);
-  const stamp = Date.now();
-  const finalReportPath = join(reportsRoot, `${input.prefix}-${stamp}.html`);
-  const finalJsonPath = join(reportsRoot, `${input.prefix}-${stamp}.json`);
+  const fileBase = input.stableName ?? `${input.prefix}-${Date.now()}`;
+  const finalReportPath = join(reportsRoot, `${fileBase}.html`);
+  const finalJsonPath = join(reportsRoot, `${fileBase}.json`);
+  const keepNames = new Set([`${fileBase}.html`, `${fileBase}.json`]);
+
+  if (input.stableName) {
+    try {
+      const entries = await readdir(reportsRoot, { withFileTypes: true });
+      await Promise.all(
+        entries.flatMap((entry) => {
+          if (!entry.isFile() || !entry.name.startsWith(`${input.prefix}-`) || keepNames.has(entry.name)) {
+            return [];
+          }
+          return [rm(join(reportsRoot, entry.name), { force: true })];
+        })
+      );
+    } catch {
+      // Cleaning stale compare outputs must never block report persistence.
+    }
+  }
+
   const report: BenchmarkComparisonReport = {
     title: input.title,
     subtitle: input.subtitle,
     generatedAt: new Date().toISOString(),
-    runIds: [...input.runIds].sort((left, right) => left.localeCompare(right)),
+    runIds: unique(input.runIds).sort((left, right) => left.localeCompare(right)),
     appIds: unique(input.modeSections.flatMap((section) => section.appIds)).sort((left, right) => left.localeCompare(right)),
     modeSections: input.modeSections,
     summaryFigures: buildBenchmarkSummaryFigures(input.modeSections),

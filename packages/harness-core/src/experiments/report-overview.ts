@@ -263,7 +263,7 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
     });
 
   return {
-    title: "Cross-Benchmark Rank Matrix",
+    title: "Overall Rank Matrix",
     caption:
       "Cells are ranked within each mode/app column using score descending, then total cost ascending, latency ascending, and model id. Darker cells indicate better rank. Hatched N/A cells indicate missing runs and are excluded from row means.",
     modeOrder: MODE_ORDER,

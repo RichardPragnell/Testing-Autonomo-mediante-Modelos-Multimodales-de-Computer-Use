@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
@@ -18,6 +18,7 @@ import { loadAppBenchmark } from "./benchmark.js";
 import {
   aggregateModeSection,
   buildAggregateLeaderboard,
+  removeComparisonReports,
   persistComparisonReport
 } from "./comparison.js";
 import {
@@ -30,7 +31,7 @@ import {
   round
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
-import { formatCostSource, formatCostSummary } from "./report-utils.js";
+import { formatCostSummary } from "./report-utils.js";
 import { computeHealScore } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -78,6 +79,7 @@ export interface RunHealExperimentInput {
   presetPath?: string;
   trials?: number;
   resultsDir?: string;
+  resetModeResults?: boolean;
   runner?: AutomationRunner;
   repairClient?: RepairModelClient;
   onLog?: ExperimentLogFn;
@@ -90,6 +92,19 @@ async function loadHealPreset(pathLike?: string): Promise<z.infer<typeof healPre
   const path = await resolveWorkspacePath(pathLike);
   const raw = await readFile(path, "utf8");
   return healPresetSchema.parse(JSON.parse(raw));
+}
+
+async function removePathIfExists(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
+
+async function clearHealOutputs(resultsDir: string): Promise<void> {
+  const workspaceRoot = await resolveWorkspacePath(resultsDir);
+  await Promise.all([
+    removePathIfExists(join(workspaceRoot, "heal", "runs")),
+    removePathIfExists(join(workspaceRoot, "heal", "reports")),
+    removeComparisonReports(resultsDir, ["heal-compare", "benchmark-compare"])
+  ]);
 }
 
 function zeroMetrics(model: ModelAvailability): HealModelMetrics {
@@ -177,7 +192,7 @@ function buildHealSection(input: {
     kind: "heal",
     title: "Self-Heal",
     summary: topModel
-      ? `${topModel.modelId} leads self-heal mode with ${topModel.score.toFixed(3)} score, ${(topModel.failingTaskFixRate * 100).toFixed(1)}% failing-task fix rate, and ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")} total cost.`
+      ? `${topModel.modelId} leads self-heal mode with ${topModel.score.toFixed(3)} score, ${(topModel.failingTaskFixRate * 100).toFixed(1)}% failing-task fix rate, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
       : "No self-heal results were available.",
     appIds: [input.appId],
     metricColumns: HEAL_METRIC_COLUMNS,
@@ -206,20 +221,14 @@ function buildHealSection(input: {
     })),
     notes: [
       "Failing-Task Fix and Regression-Free dominate the self-heal score.",
-      "Avg Cost is resolved spend per repair case.",
-      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
-      "No AI calls indicates the run completed without invoking a model."
+      "Total Cost sums resolved self-heal spend across the full run."
     ],
     audit: {
       title: "Self-Heal Cost Audit",
-      columns: ["Model", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+      columns: ["Model", "Total Cost"],
       rows: input.leaderboard.map((entry) => [
         entry.modelId,
-        formatCostSummary(entry.costSummary, "avgResolvedUsd"),
-        formatCostSummary(entry.costSummary, "totalResolvedUsd"),
-        formatCostSource(entry.costSummary),
-        String(entry.costSummary.callCount),
-        String(entry.costSummary.unavailableCalls)
+        formatCostSummary(entry.costSummary, "totalResolvedUsd")
       ])
     }
   };
@@ -247,7 +256,7 @@ function buildReport(artifact: HealRunArtifact): HealReport {
 function buildHtml(report: HealReport): string {
   const htmlReport: BenchmarkComparisonReport = {
     title: `${report.appId} Self-Heal Report`,
-    subtitle: `Matrix summary for repair evaluation across ${report.leaderboard.length} model(s).`,
+    subtitle: `Matrix summary for repair evaluation across ${report.section.rows.length} model(s).`,
     generatedAt: report.generatedAt,
     runIds: [report.runId],
     appIds: [report.appId],
@@ -268,7 +277,13 @@ async function persistHealOutput(resultsRoot: string, artifact: HealRunArtifact,
   const reportPath = join(reportsDir, `${artifact.runId}.json`);
   const htmlPath = join(reportsDir, `${artifact.runId}.html`);
   await writeJson(artifactPath, artifact);
-  await writeJson(reportPath, report);
+  await writeJson(reportPath, {
+    kind: report.kind,
+    runId: report.runId,
+    appId: report.appId,
+    generatedAt: report.generatedAt,
+    section: report.section
+  });
   await writeText(htmlPath, buildHtml(report));
 
   return {
@@ -370,6 +385,9 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   const benchmark = await loadAppBenchmark(input.appId);
   const caseIds = preset.caseIds ?? benchmark.benchmark.heal.caseIds;
   const resultsDir = input.resultsDir ?? "results";
+  if (input.resetModeResults !== false) {
+    await clearHealOutputs(resultsDir);
+  }
   const resultsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
@@ -700,11 +718,11 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
 
 export async function getHealReport(runId: string, resultsDir = "results"): Promise<HealReport> {
   const reportsRoot = await resolveExperimentRoot(resultsDir, "heal");
-  const raw = await readFile(join(reportsRoot, "reports", `${runId}.json`), "utf8");
-  return JSON.parse(raw) as HealReport;
+  const raw = await readFile(join(reportsRoot, "runs", runId, "run.json"), "utf8");
+  return buildReport(JSON.parse(raw) as HealRunArtifact);
 }
 
-export function buildHealComparison(reports: HealReport[]): ModeComparisonBuildResult {
+export function buildHealComparison(reports: Array<{ section: BenchmarkComparisonSection }>): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Self-heal matrix across ${reports.length} run(s).`
@@ -733,7 +751,8 @@ export async function compareHealRuns(runIds: string[], resultsDir = "results"):
     runIds,
     modeSections: [modeSection],
     resultsDir,
-    prefix: "heal-compare"
+    prefix: "heal-compare",
+    stableName: "heal-compare-latest"
   });
 
   return {

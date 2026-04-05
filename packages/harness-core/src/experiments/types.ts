@@ -233,6 +233,14 @@ export interface QaReport {
   section: BenchmarkComparisonSection;
 }
 
+export interface QaSavedReport {
+  kind: "qa";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  section: BenchmarkComparisonSection;
+}
+
 export interface ExploreCapabilityDiscovery {
   capabilityId: string;
   title: string;
@@ -320,6 +328,14 @@ export interface ExploreReport {
   section: BenchmarkComparisonSection;
 }
 
+export interface ExploreSavedReport {
+  kind: "explore";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  section: BenchmarkComparisonSection;
+}
+
 export interface HealCaseTrialResult {
   caseId: string;
   title: string;
@@ -404,6 +420,16 @@ export interface HealReport {
   costGraph: CostGraph;
   section: BenchmarkComparisonSection;
 }
+
+export interface HealSavedReport {
+  kind: "heal";
+  runId: string;
+  appId: string;
+  generatedAt: string;
+  section: BenchmarkComparisonSection;
+}
+
+export type SavedBenchmarkReport = QaSavedReport | ExploreSavedReport | HealSavedReport;
 
 export interface ExperimentRunPaths {
   artifactPath: string;
@@ -584,13 +610,16 @@ export interface BenchmarkComparisonReport {
 export interface BenchmarkComparisonProvenanceEntry {
   kind: ExperimentKind;
   appId: string;
+  modelId: string;
   runId: string;
   generatedAt: string;
   reportPath: string;
 }
 
+export type BenchmarkSelectionPolicy = "latest-per-app-mode-model";
+
 export interface BenchmarkComparisonProvenance {
-  selectionPolicy: "latest-per-app-mode";
+  selectionPolicy: BenchmarkSelectionPolicy;
   note: string;
   selectedReports: BenchmarkComparisonProvenanceEntry[];
 }

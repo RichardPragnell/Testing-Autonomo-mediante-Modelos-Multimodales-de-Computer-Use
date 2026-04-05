@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
@@ -14,6 +14,7 @@ import { loadAppBenchmark } from "./benchmark.js";
 import {
   aggregateModeSection,
   buildAggregateLeaderboard,
+  removeComparisonReports,
   persistComparisonReport
 } from "./comparison.js";
 import {
@@ -26,7 +27,7 @@ import {
   summarizeTaskRuns
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
-import { formatCostSource, formatCostSummary } from "./report-utils.js";
+import { formatCostSummary } from "./report-utils.js";
 import { computeQaScore } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -47,7 +48,6 @@ import type {
 import type { ExperimentLogFn } from "./types.js";
 
 const FAST_QA_PROFILE = {
-  models: ["google/gemma-3-27b-it:free"],
   trials: 1,
   timeoutMs: 45_000,
   retryCount: 0,
@@ -95,6 +95,7 @@ export interface RunQaExperimentInput {
     height: number;
   };
   resultsDir?: string;
+  resetModeResults?: boolean;
   runner?: AutomationRunner;
   onLog?: ExperimentLogFn;
 }
@@ -116,6 +117,19 @@ function resolveQaProfile(profile?: QaExecutionProfile | string): QaExecutionPro
     return profile;
   }
   throw new Error(`unsupported QA profile ${profile}`);
+}
+
+async function removePathIfExists(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
+
+async function clearQaOutputs(resultsDir: string): Promise<void> {
+  const workspaceRoot = await resolveWorkspacePath(resultsDir);
+  await Promise.all([
+    removePathIfExists(join(workspaceRoot, "qa", "runs")),
+    removePathIfExists(join(workspaceRoot, "qa", "reports")),
+    removeComparisonReports(resultsDir, ["qa-compare", "benchmark-compare"])
+  ]);
 }
 
 function slimTaskRunForProgress(run: TaskRunResult) {
@@ -232,7 +246,7 @@ function buildQaSection(input: {
     kind: "qa",
     title: "Guided",
     summary: topModel
-      ? `${topModel.modelId} leads guided mode with ${topModel.score.toFixed(3)} score, ${(topModel.fullScenarioCompletionRate * 100).toFixed(1)}% scenario completion, and ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")} total cost.`
+      ? `${topModel.modelId} leads guided mode with ${topModel.score.toFixed(3)} score, ${(topModel.fullScenarioCompletionRate * 100).toFixed(1)}% scenario completion, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
       : "No guided results were available.",
     appIds: [input.appId],
     metricColumns: QA_METRIC_COLUMNS,
@@ -259,21 +273,15 @@ function buildQaSection(input: {
       ]
     })),
     notes: [
-      "Avg Cost is resolved spend per executed guided task.",
       "Total Cost sums resolved guided spend across the full run.",
-      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
-      "No AI calls indicates the run completed without invoking a model."
+      "Score and latency summarize the guided execution outcomes."
     ],
     audit: {
       title: "Guided Cost Audit",
-      columns: ["Model", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+      columns: ["Model", "Total Cost"],
       rows: input.leaderboard.map((entry) => [
         entry.modelId,
-        formatCostSummary(entry.costSummary, "avgResolvedUsd"),
-        formatCostSummary(entry.costSummary, "totalResolvedUsd"),
-        formatCostSource(entry.costSummary),
-        String(entry.costSummary.callCount),
-        String(entry.costSummary.unavailableCalls)
+        formatCostSummary(entry.costSummary, "totalResolvedUsd")
       ])
     }
   };
@@ -301,7 +309,7 @@ function buildReport(artifact: QaRunArtifact): QaReport {
 function buildHtml(report: QaReport): string {
   const htmlReport: BenchmarkComparisonReport = {
     title: `${report.appId} Guided Report`,
-    subtitle: `Matrix summary for guided execution across ${report.leaderboard.length} model(s).`,
+    subtitle: `Matrix summary for guided execution across ${report.section.rows.length} model(s).`,
     generatedAt: report.generatedAt,
     runIds: [report.runId],
     appIds: [report.appId],
@@ -322,7 +330,13 @@ async function persistQaOutput(resultsRoot: string, artifact: QaRunArtifact, rep
   const reportPath = join(reportsDir, `${artifact.runId}.json`);
   const htmlPath = join(reportsDir, `${artifact.runId}.html`);
   await writeJson(artifactPath, artifact);
-  await writeJson(reportPath, report);
+  await writeJson(reportPath, {
+    kind: report.kind,
+    runId: report.runId,
+    appId: report.appId,
+    generatedAt: report.generatedAt,
+    section: report.section
+  });
   await writeText(htmlPath, buildHtml(report));
 
   return {
@@ -386,6 +400,9 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.qa.capabilityIds;
   const taskIds = capabilityIds.flatMap((capabilityId) => benchmark.capabilityMap.get(capabilityId)?.taskIds ?? []);
   const resultsDir = input.resultsDir ?? "results";
+  if (input.resetModeResults !== false) {
+    await clearQaOutputs(resultsDir);
+  }
   const resultsRoot = await resolveExperimentRoot(resultsDir, "qa");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
@@ -393,7 +410,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     input.models ??
     preset.models ??
     (profile === "fast"
-      ? [...FAST_QA_PROFILE.models]
+      ? [registry.defaultModel]
       : registry.models.filter((model) => model.enabled).map((model) => model.id));
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: QaExperimentSpec = {
@@ -618,11 +635,11 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
 export async function getQaReport(runId: string, resultsDir = "results"): Promise<QaReport> {
   const reportsRoot = await resolveExperimentRoot(resultsDir, "qa");
-  const raw = await readFile(join(reportsRoot, "reports", `${runId}.json`), "utf8");
-  return JSON.parse(raw) as QaReport;
+  const raw = await readFile(join(reportsRoot, "runs", runId, "run.json"), "utf8");
+  return buildReport(JSON.parse(raw) as QaRunArtifact);
 }
 
-export function buildQaComparison(reports: QaReport[]): ModeComparisonBuildResult {
+export function buildQaComparison(reports: Array<{ section: BenchmarkComparisonSection }>): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Guided matrix across ${reports.length} run(s).`
@@ -651,7 +668,8 @@ export async function compareQaRuns(runIds: string[], resultsDir = "results"): P
     runIds,
     modeSections: [modeSection],
     resultsDir,
-    prefix: "qa-compare"
+    prefix: "qa-compare",
+    stableName: "qa-compare-latest"
   });
 
   return {

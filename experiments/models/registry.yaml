@@ -1,4 +1,4 @@
-default_model: google/gemma-3-27b-it:free
+default_model: google/gemini-2.5-flash-lite-preview-09-2025
 models:
   - id: deepseek/deepseek-v3.2
     provider: deepseek

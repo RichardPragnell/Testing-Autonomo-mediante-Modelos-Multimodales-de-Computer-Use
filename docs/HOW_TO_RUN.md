@@ -114,7 +114,7 @@ Generated outputs are written under:
 - `results/qa/runs/<runId>` plus `results/qa/reports/<runId>.json|.html`
 - `results/explore/runs/<runId>` plus `results/explore/reports/<runId>.json|.html`
 - `results/heal/runs/<runId>` plus `results/heal/reports/<runId>.json|.html`
-- `results/compare/reports/<compareId>.json|.html` for rebuilt mode and benchmark comparison reports
+- `results/compare/<compareId>.json|.html` for rebuilt mode and benchmark comparison reports
 
 Each run should produce:
 
@@ -143,14 +143,14 @@ pnpm report explore
 pnpm report heal
 ```
 
-`report` uses the `latest-per-app-mode` selection policy:
+`report` uses the `latest-per-app-mode-model` selection policy:
 
 - it scans `results/<mode>/reports/*.json`
-- it picks the newest saved report per `mode+appId`
+- it picks the newest saved report per `mode+appId+modelId`
 - it rebuilds the requested mode comparison pages
 - with no mode argument, it also rebuilds one benchmark mega report across the available modes
 
-Rebuilt outputs are written under `results/compare/reports`, and the JSON output lists the selected runs plus the rebuilt paths.
+Rebuilt outputs are written under `results/compare` as stable latest files such as `qa-compare-latest.json|html` and `benchmark-compare-latest.json|html`. The JSON output lists the selected runs plus the rebuilt paths.
 
 ## 10. Common Local Workflow
 
@@ -161,7 +161,7 @@ Minimal practical loop:
 3. Run `pnpm explore todo-react`.
 4. Run `pnpm heal todo-react`.
 5. Run `pnpm report`.
-6. Open the JSON and HTML reports under `results/<experiment>/reports` and `results/compare/reports`.
+6. Open the JSON and HTML reports under `results/<experiment>/reports` and `results/compare`.
 
 ## 11. Troubleshooting
 

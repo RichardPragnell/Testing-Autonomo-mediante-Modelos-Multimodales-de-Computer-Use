@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
@@ -18,6 +18,7 @@ import { loadAppBenchmark } from "./benchmark.js";
 import {
   aggregateModeSection,
   buildAggregateLeaderboard,
+  removeComparisonReports,
   persistComparisonReport
 } from "./comparison.js";
 import {
@@ -31,7 +32,7 @@ import {
   unique
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
-import { formatCostSource, formatCostSummary } from "./report-utils.js";
+import { formatCostSummary } from "./report-utils.js";
 import { computeExploreScore } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -82,6 +83,7 @@ export interface RunExploreExperimentInput {
   presetPath?: string;
   trials?: number;
   resultsDir?: string;
+  resetModeResults?: boolean;
   runner?: AutomationRunner;
   onLog?: ExperimentLogFn;
 }
@@ -93,6 +95,19 @@ async function loadExplorePreset(pathLike?: string): Promise<z.infer<typeof expl
   const path = await resolveWorkspacePath(pathLike);
   const raw = await readFile(path, "utf8");
   return explorePresetSchema.parse(JSON.parse(raw));
+}
+
+async function removePathIfExists(path: string): Promise<void> {
+  await rm(path, { recursive: true, force: true });
+}
+
+async function clearExploreOutputs(resultsDir: string): Promise<void> {
+  const workspaceRoot = await resolveWorkspacePath(resultsDir);
+  await Promise.all([
+    removePathIfExists(join(workspaceRoot, "explore", "runs")),
+    removePathIfExists(join(workspaceRoot, "explore", "reports")),
+    removeComparisonReports(resultsDir, ["explore-compare", "benchmark-compare"])
+  ]);
 }
 
 function inferActionKinds(entries: ActionCacheEntry[]): string[] {
@@ -204,7 +219,7 @@ function buildExploreSection(input: {
     kind: "explore",
     title: "Explore",
     summary: topModel
-      ? `${topModel.modelId} leads explore mode with ${topModel.score.toFixed(3)} score, ${(topModel.capabilityDiscoveryRate * 100).toFixed(1)}% capability discovery, and ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")} total cost.`
+      ? `${topModel.modelId} leads explore mode with ${topModel.score.toFixed(3)} score, ${(topModel.capabilityDiscoveryRate * 100).toFixed(1)}% capability discovery, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
       : "No exploration results were available.",
     appIds: [input.appId],
     metricColumns: EXPLORE_METRIC_COLUMNS,
@@ -233,20 +248,14 @@ function buildExploreSection(input: {
     })),
     notes: [
       "Capability Discovery, State Coverage, and Transition Coverage are the primary exploration outcomes.",
-      "Avg Cost is resolved spend per exploration trial.",
-      "Unavailable labels indicate calls where the provider response lacked exact usage cost.",
-      "No AI calls indicates the run completed without invoking a model."
+      "Total Cost sums resolved exploration spend across the full run."
     ],
     audit: {
       title: "Explore Cost Audit",
-      columns: ["Model", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+      columns: ["Model", "Total Cost"],
       rows: input.leaderboard.map((entry) => [
         entry.modelId,
-        formatCostSummary(entry.costSummary, "avgResolvedUsd"),
-        formatCostSummary(entry.costSummary, "totalResolvedUsd"),
-        formatCostSource(entry.costSummary),
-        String(entry.costSummary.callCount),
-        String(entry.costSummary.unavailableCalls)
+        formatCostSummary(entry.costSummary, "totalResolvedUsd")
       ])
     }
   };
@@ -274,7 +283,7 @@ function buildReport(artifact: ExploreRunArtifact): ExploreReport {
 function buildHtml(report: ExploreReport): string {
   const htmlReport: BenchmarkComparisonReport = {
     title: `${report.appId} Explore Report`,
-    subtitle: `Matrix summary for autonomous exploration across ${report.leaderboard.length} model(s).`,
+    subtitle: `Matrix summary for autonomous exploration across ${report.section.rows.length} model(s).`,
     generatedAt: report.generatedAt,
     runIds: [report.runId],
     appIds: [report.appId],
@@ -295,7 +304,13 @@ async function persistExploreOutput(resultsRoot: string, artifact: ExploreRunArt
   const reportPath = join(reportsDir, `${artifact.runId}.json`);
   const htmlPath = join(reportsDir, `${artifact.runId}.html`);
   await writeJson(artifactPath, artifact);
-  await writeJson(reportPath, report);
+  await writeJson(reportPath, {
+    kind: report.kind,
+    runId: report.runId,
+    appId: report.appId,
+    generatedAt: report.generatedAt,
+    section: report.section
+  });
   await writeText(htmlPath, buildHtml(report));
 
   return {
@@ -369,6 +384,9 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.explore.capabilityIds;
   const probeTaskIds = preset.probeTaskIds ?? benchmark.benchmark.explore.probeTaskIds;
   const resultsDir = input.resultsDir ?? "results";
+  if (input.resetModeResults !== false) {
+    await clearExploreOutputs(resultsDir);
+  }
   const resultsRoot = await resolveExperimentRoot(resultsDir, "explore");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
@@ -609,11 +627,11 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
 
 export async function getExploreReport(runId: string, resultsDir = "results"): Promise<ExploreReport> {
   const reportsRoot = await resolveExperimentRoot(resultsDir, "explore");
-  const raw = await readFile(join(reportsRoot, "reports", `${runId}.json`), "utf8");
-  return JSON.parse(raw) as ExploreReport;
+  const raw = await readFile(join(reportsRoot, "runs", runId, "run.json"), "utf8");
+  return buildReport(JSON.parse(raw) as ExploreRunArtifact);
 }
 
-export function buildExploreComparison(reports: ExploreReport[]): ModeComparisonBuildResult {
+export function buildExploreComparison(reports: Array<{ section: BenchmarkComparisonSection }>): ModeComparisonBuildResult {
   const initialSection = aggregateModeSection(
     reports.map((report) => report.section),
     `Explore matrix across ${reports.length} run(s).`
@@ -642,7 +660,8 @@ export async function compareExploreRuns(runIds: string[], resultsDir = "results
     runIds,
     modeSections: [modeSection],
     resultsDir,
-    prefix: "explore-compare"
+    prefix: "explore-compare",
+    stableName: "explore-compare-latest"
   });
 
   return {

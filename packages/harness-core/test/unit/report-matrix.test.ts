@@ -4,7 +4,7 @@ import { renderBenchmarkComparisonHtml } from "../../src/experiments/report-matr
 import type { BenchmarkComparisonReport } from "../../src/experiments/types.js";
 
 describe("matrix report renderer", () => {
-  it("renders grouped app headers, mode sections, and cost badges", () => {
+  it("renders scorecards, a compact leaderboard, and lean per-mode tables", () => {
     const modeSections: BenchmarkComparisonReport["modeSections"] = [
       {
         kind: "qa",
@@ -53,8 +53,8 @@ describe("matrix report renderer", () => {
         notes: ["Unavailable labels indicate calls where the provider response lacked exact usage cost."],
         audit: {
           title: "Guided Cost Audit",
-          columns: ["App", "Model", "Source"],
-          rows: [["todo-vue", "google/gemini-2.5-flash", "Partial exact coverage"]]
+          columns: ["App", "Model", "Runs", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+          rows: [["todo-vue", "google/gemini-2.5-flash", "1", "$0.0022", "$0.0154", "Partial exact coverage", "7", "2"]]
         }
       },
       {
@@ -92,8 +92,8 @@ describe("matrix report renderer", () => {
         notes: [],
         audit: {
           title: "Explore Cost Audit",
-          columns: ["App", "Model", "Source"],
-          rows: [["todo-react", "google/gemini-2.5-flash", "Exact"]]
+          columns: ["App", "Model", "Runs", "Avg Cost", "Total Cost", "Source", "Calls", "Unavailable Calls"],
+          rows: [["todo-react", "google/gemini-2.5-flash", "1", "$0.0034", "$0.0102", "Exact", "3", "0"]]
         }
       }
     ];
@@ -107,12 +107,13 @@ describe("matrix report renderer", () => {
       finalReportPath: "",
       finalJsonPath: "",
       provenance: {
-        selectionPolicy: "latest-per-app-mode",
-        note: "Rebuilt from the latest available report per mode and app; report timestamps may differ across sections.",
+        selectionPolicy: "latest-per-app-mode-model",
+        note: "Rebuilt from the latest available report per mode, app, and model; report timestamps may differ across sections.",
         selectedReports: [
           {
             kind: "qa",
             appId: "todo-react",
+            modelId: "google/gemini-2.5-flash",
             runId: "qa-demo",
             generatedAt: "2026-03-29T12:00:00.000Z",
             reportPath: "results/qa/reports/qa-demo.json"
@@ -125,28 +126,37 @@ describe("matrix report renderer", () => {
 
     const html = renderBenchmarkComparisonHtml(report);
     expect(html).toContain("Benchmark Final Report");
-    expect(html).toContain("Cross-Benchmark Overview");
-    expect(html).toContain("Cross-Benchmark Rank Matrix");
+    expect(html).toContain("Benchmark Scorecard");
+    expect(html).toContain("Overall Leaderboard");
     expect(html).toContain("Efficiency Frontier by Mode");
     expect(html).toContain("Guided");
     expect(html).toContain("Explore");
-    expect(html).toContain("todo-react");
-    expect(html).toContain("todo-vue");
-    expect(html).toContain("google/gemini-2.5-flash");
-    expect(html).toContain("Avg Cost");
+    expect(html).toContain("Winner");
+    expect(html).toContain("Coverage");
+    expect(html).toContain("Mean Total Cost");
     expect(html).toContain("Average Latency by Model");
     expect(html).toContain("Price vs Speed Frontier");
-    expect(html).toContain("Partial");
     expect(html).toContain("Guided Cost Audit");
+    expect(html).toContain("Explore Cost Audit");
     expect(html).toContain("Rebuild Provenance");
-    expect(html).toContain("latest-per-app-mode");
+    expect(html).toContain("latest-per-app-mode-model");
     expect(html).toContain("Per-App Model Comparison");
     expect(html).toContain("todo-react Score by Model");
     expect(html).toContain("todo-vue Price vs Speed");
     expect(html).toContain("metric-bar-list");
     expect(html).toContain("plot-legend");
-    expect(html).toContain("rank-matrix-table");
+    expect(html).toContain("leaderboard-table");
     expect(html).toContain("frontier-panel-grid");
+    expect(html).toContain("<th>Total Cost</th>");
+    expect(html).toContain("app-group-even");
+    expect(html).toContain("app-group-odd");
+    expect(html).toContain("group-start");
+    expect(html).not.toContain("<dt>Runs</dt>");
+    expect(html).not.toContain("<th>Run</th>");
+    expect(html).not.toContain("<th>Source</th>");
+    expect(html).not.toContain("<th>Calls</th>");
+    expect(html).not.toContain("<th>Unavailable Calls</th>");
+    expect(html).not.toContain("Avg Cost");
   });
 
   it("keeps single-model visuals readable by rendering label details outside the plot", () => {
@@ -207,7 +217,8 @@ describe("matrix report renderer", () => {
     expect(html).toContain("google/gemini-2.5-flash-lite-preview-09-2025");
     expect(html).toContain("plot-chip");
     expect(html).toContain('text-anchor="end"');
-    expect(html).not.toContain("Cross-Benchmark Overview");
+    expect(html).not.toContain("Benchmark Scorecard");
+    expect(html).not.toContain("Overall Leaderboard");
     expect(html).not.toContain("Per-App Model Comparison");
   });
 });

@@ -24,7 +24,14 @@ function metricColumns() {
   ];
 }
 
-function createReport(kind: "qa" | "explore" | "heal", appId: string, runId: string, generatedAt: string, score: number) {
+function createReport(
+  kind: "qa" | "explore" | "heal",
+  appId: string,
+  modelId: string,
+  runId: string,
+  generatedAt: string,
+  score: number
+) {
   const title = kind === "qa" ? "Guided" : kind === "explore" ? "Explore" : "Self-Heal";
   return {
     kind,
@@ -39,7 +46,7 @@ function createReport(kind: "qa" | "explore" | "heal", appId: string, runId: str
       metricColumns: metricColumns(),
       rows: [
         {
-          modelId: "google/gemini-2.5-flash",
+          modelId,
           provider: "google",
           avgScore: score,
           cells: [
@@ -67,7 +74,7 @@ function createReport(kind: "qa" | "explore" | "heal", appId: string, runId: str
       audit: {
         title: `${title} Cost Audit`,
         columns: ["App", "Model", "Source"],
-        rows: [[appId, "google/gemini-2.5-flash", "Exact"]]
+        rows: [[appId, modelId, "Exact"]]
       }
     }
   };
@@ -77,6 +84,7 @@ async function writeReport(
   root: string,
   kind: "qa" | "explore" | "heal",
   appId: string,
+  modelId: string,
   runId: string,
   generatedAt: string,
   score: number
@@ -85,56 +93,70 @@ async function writeReport(
   await mkdir(reportsDir, { recursive: true });
   await writeFile(
     join(reportsDir, `${runId}.json`),
-    `${JSON.stringify(createReport(kind, appId, runId, generatedAt, score), null, 2)}\n`,
+    `${JSON.stringify(createReport(kind, appId, modelId, runId, generatedAt, score), null, 2)}\n`,
     "utf8"
   );
 }
 
 describe("report rebuild", () => {
-  it("picks the latest saved report per app within a mode", async () => {
+  it("picks the latest saved report per app and model within a mode", async () => {
     const dir = await mkdtemp(join(tmpdir(), "report-rebuild-qa-"));
     tempDirs.push(dir);
 
-    await writeReport(dir, "qa", "todo-react", "qa-todo-react-1", "2026-03-31T10:00:00.000Z", 0.41);
-    await writeReport(dir, "qa", "todo-react", "qa-todo-react-2", "2026-03-31T11:00:00.000Z", 0.77);
-    await writeReport(dir, "qa", "todo-angular", "qa-todo-angular-1", "2026-03-31T09:30:00.000Z", 0.66);
+    await writeReport(dir, "qa", "todo-react", "google/gemini-2.5-flash", "qa-todo-react-1", "2026-03-31T10:00:00.000Z", 0.41);
+    await writeReport(dir, "qa", "todo-react", "google/gemini-2.5-flash", "qa-todo-react-2", "2026-03-31T11:00:00.000Z", 0.77);
+    await writeReport(dir, "qa", "todo-react", "openai/gpt-4o-mini", "qa-todo-react-3", "2026-03-31T10:30:00.000Z", 0.55);
+    await writeReport(dir, "qa", "todo-angular", "google/gemini-2.5-flash", "qa-todo-angular-1", "2026-03-31T09:30:00.000Z", 0.66);
 
     const rebuilt = await rebuildBenchmarkReports({
       mode: "qa",
       resultsDir: dir
     });
 
-    expect(rebuilt.selectionPolicy).toBe("latest-per-app-mode");
-    expect(rebuilt.selectedReports.map((item) => `${item.appId}:${item.runId}`)).toEqual([
-      "todo-angular:qa-todo-angular-1",
-      "todo-react:qa-todo-react-2"
+    expect(rebuilt.selectionPolicy).toBe("latest-per-app-mode-model");
+    expect(rebuilt.selectedReports.map((item) => `${item.appId}:${item.modelId}:${item.runId}`)).toEqual([
+      "todo-angular:google/gemini-2.5-flash:qa-todo-angular-1",
+      "todo-react:google/gemini-2.5-flash:qa-todo-react-2",
+      "todo-react:openai/gpt-4o-mini:qa-todo-react-3"
     ]);
     expect(rebuilt.modeReports).toHaveLength(1);
     expect(rebuilt.modeReports[0]?.kind).toBe("qa");
+    expect(rebuilt.modeReports[0]?.finalReportPath).toContain("compare\\qa-compare-latest.html");
+    expect(rebuilt.modeReports[0]?.finalJsonPath).toContain("compare\\qa-compare-latest.json");
     expect(rebuilt.finalReportPath).toBeUndefined();
     expect(rebuilt.finalJsonPath).toBeUndefined();
 
     const modeJson = JSON.parse(await readFile(rebuilt.modeReports[0]!.finalJsonPath, "utf8")) as {
-      summaryFigures?: unknown;
+      provenance?: {
+        selectionPolicy?: string;
+        selectedReports?: Array<{ modelId?: string }>;
+      };
     };
-    expect(modeJson.summaryFigures).toBeUndefined();
+    expect(modeJson.provenance?.selectionPolicy).toBe("latest-per-app-mode-model");
+    expect(modeJson.provenance?.selectedReports?.map((item) => item.modelId)).toEqual([
+      "google/gemini-2.5-flash",
+      "google/gemini-2.5-flash",
+      "openai/gpt-4o-mini"
+    ]);
   });
 
   it("rebuilds available modes and the final mega report even when some modes are missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "report-rebuild-final-"));
     tempDirs.push(dir);
 
-    await writeReport(dir, "qa", "todo-react", "qa-todo-react-3", "2026-03-31T12:00:00.000Z", 0.72);
-    await writeReport(dir, "heal", "todo-angular", "heal-todo-angular-1", "2026-03-31T13:00:00.000Z", 0.58);
+    await writeReport(dir, "qa", "todo-react", "google/gemini-2.5-flash", "qa-todo-react-3", "2026-03-31T12:00:00.000Z", 0.72);
+    await writeReport(dir, "heal", "todo-angular", "google/gemini-2.5-flash", "heal-todo-angular-1", "2026-03-31T13:00:00.000Z", 0.58);
 
     const rebuilt = await rebuildBenchmarkReports({
       resultsDir: dir
     });
 
+    expect(rebuilt.selectionPolicy).toBe("latest-per-app-mode-model");
     expect(rebuilt.selectedReports.map((item) => item.kind)).toEqual(["heal", "qa"]);
     expect(rebuilt.modeReports.map((item) => item.kind)).toEqual(["qa", "heal"]);
-    expect(rebuilt.finalReportPath).toBeTruthy();
-    expect(rebuilt.finalJsonPath).toBeTruthy();
+    expect(rebuilt.modeReports.every((item) => item.finalReportPath.includes("latest"))).toBe(true);
+    expect(rebuilt.finalReportPath).toContain("compare\\benchmark-compare-latest.html");
+    expect(rebuilt.finalJsonPath).toContain("compare\\benchmark-compare-latest.json");
 
     const html = await readFile(rebuilt.finalReportPath!, "utf8");
     const json = JSON.parse(await readFile(rebuilt.finalJsonPath!, "utf8")) as {
@@ -144,11 +166,12 @@ describe("report rebuild", () => {
       };
     };
     expect(html).toContain("Benchmark Final Report");
-    expect(html).toContain("Cross-Benchmark Rank Matrix");
+    expect(html).toContain("Benchmark Scorecard");
+    expect(html).toContain("Overall Leaderboard");
     expect(html).toContain("Efficiency Frontier by Mode");
     expect(html).toContain("Guided");
     expect(html).toContain("Self-Heal");
-    expect(html).toContain("latest-per-app-mode");
+    expect(html).toContain("latest-per-app-mode-model");
     expect(html).not.toContain("Explore Mode Comparison");
     expect(json.summaryFigures?.rankMatrix?.columns.length).toBeGreaterThan(0);
     expect(json.summaryFigures?.efficiencyFrontier?.panels.length).toBe(2);

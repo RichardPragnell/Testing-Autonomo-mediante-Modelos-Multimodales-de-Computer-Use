@@ -66,6 +66,7 @@ function printReportRebuild(result: {
   selectedReports: Array<{
     kind: string;
     appId: string;
+    modelId: string;
     runId: string;
     generatedAt: string;
     reportPath: string;

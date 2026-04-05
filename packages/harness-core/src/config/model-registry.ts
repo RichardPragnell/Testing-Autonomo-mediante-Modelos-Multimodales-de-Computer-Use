@@ -23,6 +23,9 @@ function normalizeRegistry(input: z.infer<typeof modelRegistrySchema>): ModelReg
     enabled: model.enabled
   }));
   const defaultModel = input.defaultModel ?? input.default_model ?? models[0].id;
+  if (!models.some((model) => model.id === defaultModel)) {
+    throw new Error(`default model ${defaultModel} is not declared in the registry`);
+  }
   return { defaultModel, models };
 }
 

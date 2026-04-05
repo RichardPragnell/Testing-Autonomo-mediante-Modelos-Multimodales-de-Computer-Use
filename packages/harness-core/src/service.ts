@@ -29,15 +29,21 @@ import {
 import { buildQaComparison, compareQaRuns, getQaReport, runQaExperiment, type RunQaExperimentInput } from "./experiments/qa.js";
 import type {
   AppBenchmarkManifest,
+  BenchmarkSelectionPolicy,
   BenchmarkComparisonProvenance,
   BenchmarkComparisonProvenanceEntry,
+  BenchmarkComparisonRow,
+  BenchmarkComparisonSection,
   BenchmarkComparisonReport,
   CompareResult,
   ExperimentKind,
   ExperimentLogFn,
   ExploreReport,
+  ExploreSavedReport,
   HealReport,
-  QaReport
+  HealSavedReport,
+  QaReport,
+  QaSavedReport
 } from "./experiments/types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "./cache/config.js";
 import { summarizeTaskRunCache } from "./cache/summary.js";
@@ -64,6 +70,7 @@ import { nowIso } from "./utils/time.js";
 
 type BenchmarkRunKind = "qa" | "explore" | "heal";
 type BenchmarkReport = QaReport | ExploreReport | HealReport;
+type SavedBenchmarkReport = QaSavedReport | ExploreSavedReport | HealSavedReport;
 
 interface RuntimeGuidedRunRecord {
   kind: "guided";
@@ -193,6 +200,7 @@ export interface RunHealAcrossAppsResult extends MultiAppExperimentRunResult {
 export interface RebuiltBenchmarkReportSelection {
   kind: ExperimentKind;
   appId: string;
+  modelId: string;
   runId: string;
   generatedAt: string;
   reportPath: string;
@@ -212,7 +220,7 @@ export interface RebuildBenchmarkReportsInput {
 }
 
 export interface RebuildBenchmarkReportsResult {
-  selectionPolicy: "latest-per-app-mode";
+  selectionPolicy: BenchmarkSelectionPolicy;
   selectedReports: RebuiltBenchmarkReportSelection[];
   modeReports: RebuiltModeReport[];
   finalReportPath?: string;
@@ -278,6 +286,10 @@ function benchmarkRunKind(runId: string): BenchmarkRunKind | undefined {
 
 async function readJsonFile<T>(path: string): Promise<T> {
   return JSON.parse(await readText(path)) as T;
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }
 
 async function resolveRuntimeRoot(
@@ -473,15 +485,15 @@ async function findExplorationArtifact(
 
 function compareByKind(
   kind: BenchmarkRunKind,
-  reports: BenchmarkReport[]
+  reports: Array<{ section: BenchmarkComparisonSection }>
 ): Pick<CompareResult<BenchmarkReport>, "aggregateLeaderboard" | "modeSection"> {
   if (kind === "qa") {
-    return buildQaComparison(reports as QaReport[]);
+    return buildQaComparison(reports as QaSavedReport[]);
   }
   if (kind === "explore") {
-    return buildExploreComparison(reports as ExploreReport[]);
+    return buildExploreComparison(reports as ExploreSavedReport[]);
   }
-  return buildHealComparison(reports as HealReport[]);
+  return buildHealComparison(reports as HealSavedReport[]);
 }
 
 async function getBenchmarkReportByKind(
@@ -524,6 +536,27 @@ function comparisonConfig(kind: BenchmarkRunKind): {
   };
 }
 
+async function persistLatestComparisonReport(input: {
+  title: string;
+  subtitle: string;
+  runIds: string[];
+  modeSections: BenchmarkComparisonReport["modeSections"];
+  resultsDir: string;
+  prefix: string;
+  provenance?: BenchmarkComparisonProvenance;
+}): Promise<BenchmarkComparisonReport> {
+  return persistComparisonReport({
+    title: input.title,
+    subtitle: input.subtitle,
+    runIds: input.runIds,
+    modeSections: input.modeSections,
+    resultsDir: input.resultsDir,
+    prefix: input.prefix,
+    stableName: `${input.prefix}-latest`,
+    provenance: input.provenance
+  });
+}
+
 function reportTimestamp(value: string): number {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -532,12 +565,14 @@ function reportTimestamp(value: string): number {
 function sortSelections<T extends {
   kind: ExperimentKind;
   appId: string;
+  modelId: string;
   runId: string;
 }>(entries: T[]): T[] {
   return [...entries].sort((left, right) => {
     return (
       left.kind.localeCompare(right.kind) ||
       left.appId.localeCompare(right.appId) ||
+      left.modelId.localeCompare(right.modelId) ||
       left.runId.localeCompare(right.runId)
     );
   });
@@ -545,14 +580,16 @@ function sortSelections<T extends {
 
 type LatestBenchmarkReportRecord = {
   kind: BenchmarkRunKind;
-  report: BenchmarkReport;
+  report: SavedBenchmarkReport;
   reportPath: string;
 };
 
-type SelectedBenchmarkReportRecord = LatestBenchmarkReportRecord & {
+type SelectedBenchmarkRowRecord = LatestBenchmarkReportRecord & {
   appId: string;
+  modelId: string;
   generatedAt: string;
   runId: string;
+  row: BenchmarkComparisonRow;
 };
 
 async function listBenchmarkRunReports(
@@ -575,7 +612,7 @@ async function listBenchmarkRunReports(
 
     const reportPath = join(reportsDir, entry.name);
     try {
-      const report = await readJsonFile<BenchmarkReport>(reportPath);
+      const report = await readJsonFile<SavedBenchmarkReport>(reportPath);
       if (
         benchmarkRunKind(report.runId) !== kind ||
         typeof report.appId !== "string" ||
@@ -596,30 +633,36 @@ async function listBenchmarkRunReports(
   return reports;
 }
 
-function selectLatestBenchmarkReports(records: LatestBenchmarkReportRecord[]): SelectedBenchmarkReportRecord[] {
-  const latestByApp = new Map<string, SelectedBenchmarkReportRecord>();
+function selectLatestBenchmarkReportRows(records: LatestBenchmarkReportRecord[]): SelectedBenchmarkRowRecord[] {
+  const latestByModel = new Map<string, SelectedBenchmarkRowRecord>();
   for (const record of records) {
-    const candidate: SelectedBenchmarkReportRecord = {
-      ...record,
-      appId: record.report.appId,
-      generatedAt: record.report.generatedAt,
-      runId: record.report.runId
-    };
-    const current = latestByApp.get(candidate.appId);
-    if (!current) {
-      latestByApp.set(candidate.appId, candidate);
-      continue;
-    }
+    for (const row of record.report.section.rows) {
+      const candidate: SelectedBenchmarkRowRecord = {
+        ...record,
+        appId: record.report.appId,
+        modelId: row.modelId,
+        generatedAt: record.report.generatedAt,
+        runId: record.report.runId,
+        row
+      };
+      const key = `${candidate.kind}:${candidate.appId}:${candidate.modelId}`;
+      const current = latestByModel.get(key);
+      if (!current) {
+        latestByModel.set(key, candidate);
+        continue;
+      }
 
-    const freshness =
-      reportTimestamp(candidate.generatedAt) - reportTimestamp(current.generatedAt) ||
-      candidate.runId.localeCompare(current.runId);
-    if (freshness > 0) {
-      latestByApp.set(candidate.appId, candidate);
+      const freshness =
+        reportTimestamp(candidate.generatedAt) - reportTimestamp(current.generatedAt) ||
+        candidate.runId.localeCompare(current.runId) ||
+        candidate.reportPath.localeCompare(current.reportPath);
+      if (freshness > 0) {
+        latestByModel.set(key, candidate);
+      }
     }
   }
 
-  return sortSelections([...latestByApp.values()]);
+  return sortSelections([...latestByModel.values()]);
 }
 
 function toProvenance(
@@ -627,12 +670,13 @@ function toProvenance(
   note: string
 ): BenchmarkComparisonProvenance {
   return {
-    selectionPolicy: "latest-per-app-mode",
+    selectionPolicy: "latest-per-app-mode-model",
     note,
     selectedReports: sortSelections(
       selectedReports.map<BenchmarkComparisonProvenanceEntry>((entry) => ({
         kind: entry.kind,
         appId: entry.appId,
+        modelId: entry.modelId,
         runId: entry.runId,
         generatedAt: entry.generatedAt,
         reportPath: entry.reportPath
@@ -643,7 +687,8 @@ function toProvenance(
 
 async function persistModeComparisonForReports(
   kind: BenchmarkRunKind,
-  reports: BenchmarkReport[],
+  reports: SavedBenchmarkReport[],
+  runIds: string[],
   resultsDir: string,
   provenance?: BenchmarkComparisonProvenance
 ): Promise<{
@@ -656,10 +701,10 @@ async function persistModeComparisonForReports(
 }> {
   const built = compareByKind(kind, reports);
   const config = comparisonConfig(kind);
-  const finalReport = await persistComparisonReport({
+  const finalReport = await persistLatestComparisonReport({
     title: config.title,
-    subtitle: `Matrix comparison across ${reports.length} ${config.subtitleNoun} run(s).`,
-    runIds: reports.map((report) => report.runId),
+    subtitle: `Matrix comparison across ${unique(runIds).length} ${config.subtitleNoun} run(s).`,
+    runIds: unique(runIds),
     modeSections: [built.modeSection],
     resultsDir,
     prefix: config.prefix,
@@ -875,12 +920,13 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
 export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQaAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "qa",
     appsRoot: input.appsRoot,
     onLog: input.onLog,
-    runForApp: async (appId) =>
-      runQaExperiment({
+    runForApp: async (appId) => {
+      const result = await runQaExperiment({
         appId,
         profile: input.profile,
         models: input.models,
@@ -893,9 +939,13 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
         maxOutputTokens: input.maxOutputTokens,
         viewport: input.viewport,
         resultsDir,
+        resetModeResults,
         runner: input.runner,
         onLog: input.onLog
-      }),
+      });
+      resetModeResults = false;
+      return result;
+    },
     compare: (runIds) => compareQaRuns(runIds, resultsDir)
   });
 
@@ -912,21 +962,26 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
 export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Promise<RunExploreAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "explore",
     appsRoot: input.appsRoot,
     onLog: input.onLog,
-    runForApp: async (appId) =>
-      runExploreExperiment({
+    runForApp: async (appId) => {
+      const result = await runExploreExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
         presetPath: input.presetPath,
         trials: input.trials,
         resultsDir,
+        resetModeResults,
         runner: input.runner,
         onLog: input.onLog
-      }),
+      });
+      resetModeResults = false;
+      return result;
+    },
     compare: (runIds) => compareExploreRuns(runIds, resultsDir)
   });
 
@@ -943,22 +998,27 @@ export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Pr
 export async function runHealAcrossApps(input: RunHealAcrossAppsInput): Promise<RunHealAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  let resetModeResults = true;
   const multiRun = await runExperimentAcrossApps({
     mode: "heal",
     appsRoot: input.appsRoot,
     onLog: input.onLog,
-    runForApp: async (appId) =>
-      runHealExperiment({
+    runForApp: async (appId) => {
+      const result = await runHealExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
         presetPath: input.presetPath,
         trials: input.trials,
         resultsDir,
+        resetModeResults,
         runner: input.runner,
         repairClient: input.repairClient,
         onLog: input.onLog
-      }),
+      });
+      resetModeResults = false;
+      return result;
+    },
     compare: (runIds) => compareHealRuns(runIds, resultsDir)
   });
 
@@ -1018,10 +1078,10 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
       return [kind, compareByKind(kind, reports)] as const;
     })
   );
-  return persistComparisonReport({
+  return persistLatestComparisonReport({
     title: "Benchmark Final Report",
-    subtitle: `Matrix comparison across ${runIds.length} benchmark run(s).`,
-    runIds,
+    subtitle: `Matrix comparison across ${unique(runIds).length} benchmark run(s).`,
+    runIds: unique(runIds),
     modeSections: comparisons.map(([, comparison]) => comparison.modeSection),
     resultsDir,
     prefix: "benchmark-compare"
@@ -1034,11 +1094,11 @@ export async function rebuildBenchmarkReports(
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
   const requestedKinds = input.mode ? [input.mode] : (["qa", "explore", "heal"] as const);
-  const selectedRecordsByKind = new Map<BenchmarkRunKind, SelectedBenchmarkReportRecord[]>();
+  const selectedRecordsByKind = new Map<BenchmarkRunKind, SelectedBenchmarkRowRecord[]>();
 
   for (const kind of requestedKinds) {
     const records = await listBenchmarkRunReports(kind, resultsDir);
-    const selected = selectLatestBenchmarkReports(records);
+    const selected = selectLatestBenchmarkReportRows(records);
     if (selected.length > 0) {
       selectedRecordsByKind.set(kind, selected);
     }
@@ -1055,6 +1115,7 @@ export async function rebuildBenchmarkReports(
     [...selectedRecordsByKind.values()].flat().map<RebuiltBenchmarkReportSelection>((record) => ({
       kind: record.kind,
       appId: record.appId,
+      modelId: record.modelId,
       runId: record.runId,
       generatedAt: record.generatedAt,
       reportPath: record.reportPath
@@ -1070,14 +1131,32 @@ export async function rebuildBenchmarkReports(
       continue;
     }
 
-    const modeSelections = selectedReports.filter((item) => item.kind === kind);
+    const selectedRunIds = unique(selected.map((item) => item.runId));
+    const reportsByPath = new Map<string, SavedBenchmarkReport>();
+    for (const record of selected) {
+      const existing = reportsByPath.get(record.reportPath);
+      if (existing) {
+        existing.section.rows.push(record.row);
+      } else {
+        reportsByPath.set(record.reportPath, {
+          ...record.report,
+          section: {
+            ...record.report.section,
+            rows: [record.row]
+          }
+        });
+      }
+    }
+
+    const selectedReportsForComparison = [...reportsByPath.values()];
     const rebuilt = await persistModeComparisonForReports(
       kind,
-      selected.map((item) => item.report),
+      selectedReportsForComparison,
+      selectedRunIds,
       resultsDir,
       toProvenance(
-        modeSelections,
-        "Rebuilt from the latest available report per app for this mode; report timestamps may differ across app cells."
+        selectedReports.filter((item) => item.kind === kind),
+        "Rebuilt from the latest available report per app and model for this mode; report timestamps may differ across app cells."
       )
     );
     modeReports.push({
@@ -1093,16 +1172,16 @@ export async function rebuildBenchmarkReports(
   let finalReportPath: string | undefined;
   let finalJsonPath: string | undefined;
   if (!input.mode) {
-    const finalReport = await persistComparisonReport({
+    const finalReport = await persistLatestComparisonReport({
       title: "Benchmark Final Report",
-      subtitle: `Matrix comparison across ${selectedReports.length} benchmark run(s).`,
-      runIds: selectedReports.map((item) => item.runId),
+      subtitle: `Matrix comparison across ${unique(selectedReports.map((item) => item.runId)).length} benchmark run(s).`,
+      runIds: unique(selectedReports.map((item) => item.runId)),
       modeSections,
       resultsDir,
       prefix: "benchmark-compare",
       provenance: toProvenance(
         selectedReports,
-        "Rebuilt from the latest available report per mode and app; report timestamps may differ across sections."
+        "Rebuilt from the latest available report per mode, app, and model; report timestamps may differ across sections."
       )
     });
     finalReportPath = finalReport.finalReportPath;
@@ -1110,7 +1189,7 @@ export async function rebuildBenchmarkReports(
   }
 
   return {
-    selectionPolicy: "latest-per-app-mode",
+    selectionPolicy: "latest-per-app-mode-model",
     selectedReports,
     modeReports,
     finalReportPath,

@@ -7,6 +7,7 @@ import {
 import { summarizeAiUsage } from "../ai/usage.js";
 import type { ModelAvailability } from "../types.js";
 import type { RepairModelResult, RepairPromptContext, RepairUsage } from "../experiments/types.js";
+import { extractUnifiedDiffBlock } from "./unified-diff.js";
 
 export interface RepairModelClient {
   repair(input: {
@@ -35,12 +36,7 @@ function extractJsonBlock(raw: string): string | undefined {
 
 function extractPatch(raw: string): string | undefined {
   const diffFence = raw.match(/```diff\s*([\s\S]*?)```/i);
-  const candidate = diffFence?.[1]?.trim() ?? raw.trim();
-  const hasMarkers =
-    /(^|\n)---\s+.+/.test(candidate) &&
-    /(^|\n)\+\+\+\s+.+/.test(candidate) &&
-    /(^|\n)@@/.test(candidate);
-  return hasMarkers ? `${candidate}\n` : undefined;
+  return extractUnifiedDiffBlock(diffFence?.[1] ?? raw);
 }
 
 function parseRepairResult(raw: string, usage: RepairUsage): RepairModelResult {

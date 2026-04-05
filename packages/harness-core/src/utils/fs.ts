@@ -1,4 +1,5 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export async function ensureDir(path: string): Promise<void> {
@@ -6,7 +7,21 @@ export async function ensureDir(path: string): Promise<void> {
 }
 
 export async function removeDir(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true });
+  const retryableCodes = new Set(["EBUSY", "EMFILE", "ENFILE", "ENOTEMPTY", "EPERM"]);
+  const maxAttempts = 6;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await rm(path, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !retryableCodes.has(code) || attempt === maxAttempts) {
+        throw error;
+      }
+      await delay(attempt * 150);
+    }
+  }
 }
 
 export async function copyDir(source: string, destination: string): Promise<void> {

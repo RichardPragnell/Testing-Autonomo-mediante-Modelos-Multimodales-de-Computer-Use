@@ -1,5 +1,7 @@
 import { execCommand } from "../utils/exec.js";
 
+import { extractUnifiedDiffBlock } from "./unified-diff.js";
+
 export interface AgentPatchResult {
   exitCode: number;
   stdout: string;
@@ -17,10 +19,7 @@ function fromCodeFence(content: string): string | undefined {
 
 export function extractUnifiedDiff(rawOutput: string): string | undefined {
   const fenced = fromCodeFence(rawOutput);
-  const candidate = fenced ?? rawOutput;
-  const hasMarkers =
-    /(^|\n)---\s+.+/.test(candidate) && /(^|\n)\+\+\+\s+.+/.test(candidate) && /(^|\n)@@/.test(candidate);
-  return hasMarkers ? `${candidate.trim()}\n` : undefined;
+  return extractUnifiedDiffBlock(fenced ?? rawOutput);
 }
 
 export async function runAgentForPatch(input: {
@@ -38,4 +37,3 @@ export async function runAgentForPatch(input: {
     patch
   };
 }
-

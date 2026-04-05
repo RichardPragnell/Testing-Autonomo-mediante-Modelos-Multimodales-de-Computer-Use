@@ -64,13 +64,13 @@ describe("stagehand runner guided helpers", () => {
   it("uses longer retry delays for free-model rate limits than generic provider errors", () => {
     const rateLimitDelay = computeRetryDelayMs({
       attempt: 0,
-      modelId: "google/gemma-3-27b-it:free",
+      modelId: "test/free-model:free",
       errorMessage: "Rate limit exceeded: free-models-per-min.",
       env: {}
     });
     const providerDelay = computeRetryDelayMs({
       attempt: 0,
-      modelId: "google/gemma-3-27b-it:free",
+      modelId: "test/free-model:free",
       errorMessage: "Provider returned error",
       env: {}
     });

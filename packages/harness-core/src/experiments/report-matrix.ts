@@ -70,11 +70,29 @@ function formatMetricValue(
   }
 }
 
+const LEAN_MATRIX_COLUMN_KEYS = ["score", "avgLatency", "totalCost"] as const;
+const LEAN_AUDIT_COLUMN_NAMES = ["App", "Model", "Total Cost"] as const;
+
+function visibleMatrixColumns(section: BenchmarkComparisonSection): BenchmarkMetricColumn[] {
+  return LEAN_MATRIX_COLUMN_KEYS.flatMap((key) => section.metricColumns.filter((column) => column.key === key));
+}
+
+function visibleAuditColumns(section: BenchmarkComparisonSection): Array<{ index: number; label: string }> {
+  return LEAN_AUDIT_COLUMN_NAMES.flatMap((label) => {
+    const index = section.audit.columns.indexOf(label);
+    return index >= 0 ? [{ index, label }] : [];
+  });
+}
+
+function projectAuditRows(section: BenchmarkComparisonSection): string[][] {
+  const columns = visibleAuditColumns(section);
+  return section.audit.rows.map((row) => columns.map(({ index }) => row[index] ?? "--"));
+}
+
 function renderMeta(report: BenchmarkComparisonReport): string {
   return `
     <dl class="report-meta">
       <div><dt>Generated</dt><dd>${escapeHtml(report.generatedAt)}</dd></div>
-      <div><dt>Runs</dt><dd>${String(report.runIds.length)}</dd></div>
       <div><dt>Apps</dt><dd>${String(report.appIds.length)}</dd></div>
       <div><dt>Modes</dt><dd>${String(report.modeSections.length)}</dd></div>
     </dl>
@@ -96,23 +114,23 @@ function renderProvenance(report: BenchmarkComparisonReport): string {
       <div class="table-wrap audit-wrap">
         <table class="audit-table">
           <caption>Selected Latest Reports</caption>
-          <thead>
-            <tr>
-              <th>Mode</th>
-              <th>App</th>
-              <th>Run</th>
-              <th>Generated</th>
-              <th>Report</th>
-            </tr>
-          </thead>
-          <tbody>
+      <thead>
+        <tr>
+          <th>Mode</th>
+          <th>App</th>
+          <th>Model</th>
+          <th>Generated</th>
+          <th>Report</th>
+        </tr>
+      </thead>
+      <tbody>
             ${report.provenance.selectedReports
               .map(
                 (entry) => `
                   <tr>
                     <td>${escapeHtml(entry.kind)}</td>
                     <td>${escapeHtml(entry.appId)}</td>
-                    <td>${escapeHtml(entry.runId)}</td>
+                    <td>${escapeHtml(entry.modelId)}</td>
                     <td>${escapeHtml(entry.generatedAt)}</td>
                     <td>${escapeHtml(entry.reportPath)}</td>
                   </tr>
@@ -138,69 +156,79 @@ function formatOverviewValue(kind: "rank" | "score" | "ms" | "usd", value: numbe
   return escapeHtml(formatCompactValue(kind, value));
 }
 
-function renderRankMatrixFigure(report: BenchmarkComparisonReport): string {
-  const rankMatrix = report.summaryFigures?.rankMatrix;
-  if (!rankMatrix || !rankMatrix.columns.length || !rankMatrix.rows.length) {
+function formatCoverage(populated: number, total: number): string {
+  if (total === 0) {
+    return "&mdash;";
+  }
+
+  return `${Math.round((populated / total) * 100)}% (${String(populated)}/${String(total)})`;
+}
+
+function renderModeWinnerCard(section: BenchmarkComparisonSection): string {
+  const winner = section.rows[0];
+  if (!winner) {
     return "";
   }
 
-  const groupedColumns = rankMatrix.modeOrder
-    .map((kind) => ({
-      kind,
-      columns: rankMatrix.columns.filter((column) => column.kind === kind)
-    }))
-    .filter((group) => group.columns.length > 0);
+  const latencyValues = winner.cells.flatMap((cell) =>
+    typeof cell.metrics.avgLatency === "number" ? [cell.metrics.avgLatency] : []
+  );
+  const avgLatency = latencyValues.length ? average(latencyValues) ?? null : null;
+  const totalCost = winner.cells.reduce((sum, cell) => sum + cell.costSummary.totalResolvedUsd, 0);
+  const label = describeModelLabel(winner.modelId);
 
-  const summaryHeaders: Array<{
-    key: "meanRank" | "meanScore" | "meanAvgCost" | "meanAvgLatency";
-    label: string;
-    kind: "rank" | "score" | "usd" | "ms";
-  }> = [
-    { key: "meanRank", label: "Mean Rank", kind: "rank" as const },
-    { key: "meanScore", label: "Mean Score", kind: "score" as const },
-    { key: "meanAvgCost", label: "Mean Avg Cost", kind: "usd" as const },
-    { key: "meanAvgLatency", label: "Mean Avg Latency", kind: "ms" as const }
-  ];
+  return `
+    <article class="scorecard-card">
+      <header class="scorecard-card-header">
+        <div>
+          <p class="scorecard-eyebrow">${escapeHtml(section.title)}</p>
+          <h3>${escapeHtml(label.primary)}</h3>
+          ${label.secondary ? `<p class="scorecard-subtitle">${escapeHtml(label.secondary)}</p>` : ""}
+        </div>
+        <span class="scorecard-chip">Winner</span>
+      </header>
+      <dl class="scorecard-stats">
+        <div>
+          <dt>Score</dt>
+          <dd>${escapeHtml(winner.avgScore.toFixed(3))}</dd>
+        </div>
+        <div>
+          <dt>Avg Latency</dt>
+          <dd>${avgLatency === null ? "&mdash;" : escapeHtml(formatCompactValue("ms", avgLatency))}</dd>
+        </div>
+        <div>
+          <dt>Total Cost</dt>
+          <dd>${escapeHtml(formatCompactValue("usd", totalCost))}</dd>
+        </div>
+      </dl>
+      <p class="scorecard-note">${String(winner.cells.length)} app cell${winner.cells.length === 1 ? "" : "s"}</p>
+    </article>
+  `;
+}
+
+function renderOverallLeaderboard(report: BenchmarkComparisonReport): string {
+  const rankMatrix = report.summaryFigures?.rankMatrix;
+  if (!rankMatrix || !rankMatrix.rows.length) {
+    return "";
+  }
 
   const body = rankMatrix.rows
     .map((row) => {
       const label = describeModelLabel(row.modelId);
-      const cells = row.cells
-        .map((cell) => {
-          if (cell.missing) {
-            return `
-              <td class="rank-cell rank-cell-missing">
-                <span class="rank-cell-main">N/A</span>
-                <span class="rank-cell-detail">Missing</span>
-              </td>
-            `;
-          }
-
-          const intensity = (cell.rankPercentile ?? 0) * 0.72 + 0.14;
-          const strong = (cell.rankPercentile ?? 0) >= 0.6;
-          return `
-            <td class="rank-cell${strong ? " rank-cell-strong" : ""}" style="background: rgba(79, 64, 32, ${intensity.toFixed(3)});">
-              <span class="rank-cell-main">#${String(cell.rank)}</span>
-              <span class="rank-cell-detail">${escapeHtml(formatCompactValue("score", cell.score ?? 0))}</span>
-            </td>
-          `;
-        })
-        .join("");
-      const summaryValues = summaryHeaders
-        .map((header) => {
-          const value = row[header.key];
-          return `<td class="rank-summary-cell">${formatOverviewValue(header.kind, value)}</td>`;
-        })
-        .join("");
+      const populatedCells = row.cells.filter((cell) => !cell.missing).length;
+      const totalCells = row.cells.length;
 
       return `
         <tr>
-          <th class="rank-model-cell">
+          <th class="leaderboard-model-cell">
             <span class="rank-model-label">${escapeHtml(label.primary)}</span>
             ${label.secondary ? `<span class="rank-model-detail">${escapeHtml(label.secondary)}</span>` : ""}
           </th>
-          ${cells}
-          ${summaryValues}
+          <td class="leaderboard-summary-cell">${formatCoverage(populatedCells, totalCells)}</td>
+          <td class="leaderboard-summary-cell">${formatOverviewValue("rank", row.meanRank)}</td>
+          <td class="leaderboard-summary-cell">${formatOverviewValue("score", row.meanScore)}</td>
+          <td class="leaderboard-summary-cell">${formatOverviewValue("usd", row.meanTotalCost)}</td>
+          <td class="leaderboard-summary-cell">${formatOverviewValue("ms", row.meanAvgLatency)}</td>
         </tr>
       `;
     })
@@ -209,34 +237,45 @@ function renderRankMatrixFigure(report: BenchmarkComparisonReport): string {
   return `
     <article class="overview-figure">
       <header class="overview-header">
-        <h3>${escapeHtml(rankMatrix.title)}</h3>
-        <p>${escapeHtml(rankMatrix.caption)}</p>
+        <h3>Overall Leaderboard</h3>
+        <p>Coverage counts the populated app cells across the displayed mode and app columns. Models are ordered by mean rank, then score, cost, and latency.</p>
       </header>
       <div class="table-wrap">
-        <table class="rank-matrix-table">
+        <table class="leaderboard-table rank-matrix-table">
           <thead>
             <tr>
-              <th rowspan="2" class="rank-model-head">Model</th>
-              ${groupedColumns
-                .map(
-                  (group) =>
-                    `<th colspan="${String(group.columns.length)}" class="rank-group-head">${escapeHtml(group.columns[0]!.modeTitle)}</th>`
-                )
-                .join("")}
-              <th colspan="${String(summaryHeaders.length)}" class="rank-group-head">Row Summary</th>
-            </tr>
-            <tr>
-              ${groupedColumns
-                .map((group) => group.columns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join(""))
-                .join("")}
-              ${summaryHeaders.map((header) => `<th>${escapeHtml(header.label)}</th>`).join("")}
+              <th class="leaderboard-model-head">Model</th>
+              <th class="leaderboard-summary-head">Coverage</th>
+              <th class="leaderboard-summary-head">Mean Rank</th>
+              <th class="leaderboard-summary-head">Mean Score</th>
+              <th class="leaderboard-summary-head">Mean Total Cost</th>
+              <th class="leaderboard-summary-head">Mean Avg Latency</th>
             </tr>
           </thead>
           <tbody>${body}</tbody>
         </table>
       </div>
-      <p class="overview-legend">Rank is computed independently within each mode/app column. Missing cells are excluded from mean rank, score, cost, and latency summaries.</p>
     </article>
+  `;
+}
+
+function renderTopSummary(report: BenchmarkComparisonReport): string {
+  if (!report.summaryFigures) {
+    return "";
+  }
+
+  const cards = report.modeSections.map((section) => renderModeWinnerCard(section)).filter(Boolean).join("");
+  const leaderboard = renderOverallLeaderboard(report);
+  const frontier = renderEfficiencyFrontierFigure(report);
+
+  return `
+    <section class="overview-section">
+      <h2>Benchmark Scorecard</h2>
+      <p class="section-summary">Mode winners first, then the consolidated leaderboard across the selected benchmark modes.</p>
+      <div class="scorecard-grid">${cards}</div>
+      ${leaderboard}
+    </section>
+    ${frontier ? `<section class="overview-section">${frontier}</section>` : ""}
   `;
 }
 
@@ -374,26 +413,7 @@ function renderEfficiencyFrontierFigure(report: BenchmarkComparisonReport): stri
 }
 
 function renderSummaryFigures(report: BenchmarkComparisonReport): string {
-  if (!report.summaryFigures || report.modeSections.length < 2) {
-    return "";
-  }
-
-  const rankMatrix = renderRankMatrixFigure(report);
-  const frontier = renderEfficiencyFrontierFigure(report);
-  if (!rankMatrix && !frontier) {
-    return "";
-  }
-
-  return `
-    <section class="overview-section">
-      <h2>Cross-Benchmark Overview</h2>
-      <p class="section-summary">These top-level figures summarize all available benchmark modes and apps in one paper-oriented view before the per-mode detail sections.</p>
-      <div class="overview-stack">
-        ${rankMatrix}
-        ${frontier}
-      </div>
-    </section>
-  `;
+  return renderTopSummary(report);
 }
 
 function average(values: number[]): number | undefined {
@@ -824,7 +844,16 @@ function renderPerAppVisuals(section: BenchmarkComparisonSection): string {
 }
 
 function renderMatrix(section: BenchmarkComparisonSection): string {
-  const columnCount = section.metricColumns.length;
+  const visibleColumns = visibleMatrixColumns(section);
+  if (!visibleColumns.length) {
+    return "";
+  }
+
+  const appGroups = section.appIds.map((appId, appIndex) => ({
+    appId,
+    appIndex,
+    parityClass: appIndex % 2 === 0 ? "app-group-even" : "app-group-odd"
+  }));
 
   return `
     <div class="table-wrap">
@@ -832,14 +861,22 @@ function renderMatrix(section: BenchmarkComparisonSection): string {
         <thead>
           <tr>
             <th rowspan="2" class="model-col">Model</th>
-            ${section.appIds
-              .map((appId) => `<th colspan="${columnCount}" class="group-col">${escapeHtml(appId)}</th>`)
+            ${appGroups
+              .map(
+                ({ appId, appIndex, parityClass }) =>
+                  `<th colspan="${String(visibleColumns.length)}" class="group-col ${parityClass}${appIndex > 0 ? " group-start" : ""}">${escapeHtml(appId)}</th>`
+              )
               .join("")}
           </tr>
           <tr>
-            ${section.appIds
-              .map(() =>
-                section.metricColumns.map((column) => `<th>${escapeHtml(column.label)}</th>`).join("")
+            ${appGroups
+              .map(({ appIndex, parityClass }) =>
+                visibleColumns
+                  .map(
+                    (column, columnIndex) =>
+                      `<th class="${parityClass}${columnIndex === 0 && appIndex > 0 ? " group-start" : ""}">${escapeHtml(column.label)}</th>`
+                  )
+                  .join("")
               )
               .join("")}
           </tr>
@@ -851,13 +888,13 @@ function renderMatrix(section: BenchmarkComparisonSection): string {
               return `
                 <tr>
                   <th class="model-name">${escapeHtml(row.modelId)}</th>
-                  ${section.appIds
-                    .map((appId) => {
+                  ${appGroups
+                    .map(({ appId, appIndex, parityClass }) => {
                       const cell = cellMap.get(appId);
-                      return section.metricColumns
-                        .map((column) => {
+                      return visibleColumns
+                        .map((column, columnIndex) => {
                           const metricValue = cell?.metrics[column.key] ?? null;
-                          return `<td>${formatMetricValue(column, metricValue, cell?.costSummary)}</td>`;
+                          return `<td class="${parityClass}${columnIndex === 0 && appIndex > 0 ? " group-start" : ""}">${formatMetricValue(column, metricValue, cell?.costSummary)}</td>`;
                         })
                         .join("");
                     })
@@ -873,17 +910,21 @@ function renderMatrix(section: BenchmarkComparisonSection): string {
 }
 
 function renderAudit(section: BenchmarkComparisonSection): string {
+  const columns = visibleAuditColumns(section);
+  if (!columns.length) {
+    return "";
+  }
+
+  const rows = projectAuditRows(section);
   return `
     <div class="table-wrap audit-wrap">
       <table class="audit-table">
         <caption>${escapeHtml(section.audit.title)}</caption>
         <thead>
-          <tr>${section.audit.columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          <tr>${columns.map(({ label }) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
         </thead>
         <tbody>
-          ${section.audit.rows
-            .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
-            .join("")}
+          ${rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}
         </tbody>
       </table>
     </div>
@@ -998,6 +1039,79 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-size: 0.8rem;
         font-weight: 700;
         letter-spacing: 0.02em;
+      }
+      .scorecard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+        margin: 0 0 18px;
+      }
+      .scorecard-card {
+        padding: 16px 16px 14px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdf8 0%, #f7f0e3 100%);
+      }
+      .scorecard-card-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: flex-start;
+      }
+      .scorecard-eyebrow {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .scorecard-card h3 {
+        margin: 0;
+        font-size: 1.05rem;
+      }
+      .scorecard-subtitle {
+        margin: 5px 0 0;
+        color: var(--muted);
+        font-size: 0.8rem;
+        word-break: break-word;
+      }
+      .scorecard-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.76rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .scorecard-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin: 14px 0 0;
+      }
+      .scorecard-stats div {
+        padding: 10px 10px 9px;
+        border: 1px solid rgba(119, 106, 88, 0.18);
+        background: rgba(255, 253, 248, 0.78);
+      }
+      .scorecard-stats dt {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .scorecard-stats dd {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+      .scorecard-note {
+        margin: 12px 0 0;
+        color: var(--muted);
+        font-size: 0.82rem;
       }
       .section-visuals {
         display: grid;
@@ -1234,14 +1348,29 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-size: 0.9rem;
         white-space: nowrap;
       }
+      .leaderboard-table thead th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule-strong);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
       .rank-matrix-table tbody th,
       .rank-matrix-table tbody td {
         padding: 0;
         border-bottom: 1px solid var(--rule);
         text-align: center;
       }
+      .leaderboard-table tbody th,
+      .leaderboard-table tbody td {
+        padding: 0;
+        border-bottom: 1px solid var(--rule);
+        text-align: center;
+      }
       .rank-model-head,
-      .rank-model-cell {
+      .rank-model-cell,
+      .leaderboard-model-head,
+      .leaderboard-model-cell {
         position: sticky;
         left: 0;
         z-index: 1;
@@ -1267,7 +1396,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         word-break: break-word;
       }
       .rank-cell,
-      .rank-summary-cell {
+      .rank-summary-cell,
+      .leaderboard-summary-cell {
         min-width: 104px;
       }
       .rank-cell {
@@ -1305,6 +1435,18 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         background: rgba(255, 255, 255, 0.72);
         font-size: 0.88rem;
         font-weight: 700;
+      }
+      .leaderboard-summary-head {
+        font-size: 0.95rem !important;
+      }
+      .leaderboard-summary-cell {
+        padding: 10px 12px !important;
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+      .leaderboard-table .rank-model-label {
+        white-space: normal;
       }
       .frontier-panel-grid {
         display: grid;
@@ -1434,6 +1576,22 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
       .matrix-table .group-col {
         font-size: 1rem;
       }
+      .matrix-table .app-group-even {
+        background: #f7f1e5;
+      }
+      .matrix-table .app-group-odd {
+        background: #fffdfa;
+      }
+      .matrix-table .group-start {
+        border-left: 3px solid #c6b395;
+      }
+      .matrix-table thead .group-col.group-start {
+        box-shadow: inset 1px 0 0 rgba(119, 106, 88, 0.3);
+      }
+      .matrix-table tbody td.app-group-even,
+      .matrix-table tbody td.app-group-odd {
+        background-clip: padding-box;
+      }
       .audit-wrap {
         margin-top: 14px;
       }
@@ -1475,6 +1633,9 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         .section-visuals {
           grid-template-columns: 1fr;
         }
+        .scorecard-stats {
+          grid-template-columns: 1fr;
+        }
         .metric-bar-head,
         .plot-legend-item {
           flex-direction: column;
@@ -1484,7 +1645,9 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
           justify-content: flex-start;
         }
         .rank-model-head,
-        .rank-model-cell {
+        .rank-model-cell,
+        .leaderboard-model-head,
+        .leaderboard-model-cell {
           min-width: 180px;
         }
         .frontier-panel-grid {
@@ -1496,6 +1659,9 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         .rank-matrix-table thead th,
         .rank-matrix-table tbody td,
         .rank-matrix-table tbody th,
+        .leaderboard-table thead th,
+        .leaderboard-table tbody td,
+        .leaderboard-table tbody th,
         .audit-table th,
         .audit-table td {
           padding: 8px 9px;
