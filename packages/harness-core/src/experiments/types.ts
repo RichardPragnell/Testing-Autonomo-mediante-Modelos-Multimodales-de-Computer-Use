@@ -470,6 +470,21 @@ export interface BenchmarkMetricColumn {
   aggregate: "mean" | "sum" | "first";
 }
 
+export interface BenchmarkScoreMetricDefinition {
+  key: string;
+  label: string;
+  weight: number;
+  description: string;
+  contribution: string;
+}
+
+export interface BenchmarkScoreDefinition {
+  modeDescription: string;
+  formula: string;
+  metrics: BenchmarkScoreMetricDefinition[];
+  specialRules: string[];
+}
+
 export interface BenchmarkComparisonCell {
   appId: string;
   runIds: string[];
@@ -496,6 +511,7 @@ export interface BenchmarkComparisonSection {
   summary: string;
   appIds: string[];
   metricColumns: BenchmarkMetricColumn[];
+  scoreDefinition?: BenchmarkScoreDefinition;
   rows: BenchmarkComparisonRow[];
   notes: string[];
   audit: BenchmarkAuditTable;

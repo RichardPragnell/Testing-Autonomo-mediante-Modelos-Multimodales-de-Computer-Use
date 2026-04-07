@@ -105,8 +105,12 @@ export function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
 }
 
+function experimentOutputDirName(kind: ExperimentKind): string {
+  return kind === "qa" ? "guided" : kind;
+}
+
 export async function resolveExperimentRoot(resultsDir: string, kind: ExperimentKind): Promise<string> {
-  return join(await resolveWorkspacePath(resultsDir), kind);
+  return join(await resolveWorkspacePath(resultsDir), experimentOutputDirName(kind));
 }
 
 export function resolveParallelism(value: number | undefined, fallback = DEFAULT_EXPERIMENT_PARALLELISM): number {

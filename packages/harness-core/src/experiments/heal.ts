@@ -34,7 +34,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
-import { computeHealScore } from "./scoring.js";
+import { computeHealScore, HEAL_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
   BenchmarkComparisonSection,
@@ -199,6 +199,7 @@ function buildHealSection(input: {
       : "No self-heal results were available.",
     appIds: [input.appId],
     metricColumns: HEAL_METRIC_COLUMNS,
+    scoreDefinition: HEAL_SCORE_DEFINITION,
     rows: input.leaderboard.map((entry) => ({
       modelId: entry.modelId,
       provider: entry.provider,
@@ -223,6 +224,7 @@ function buildHealSection(input: {
       ]
     })),
     notes: [
+      "Score is shown on a 0-100 scale where higher is better.",
       "Failing-Task Fix and Regression-Free dominate the self-heal score.",
       "Total Cost sums resolved self-heal spend across the full run."
     ],

@@ -23,6 +23,10 @@ function print(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
+function toPublicMode(mode: string): string {
+  return mode === "qa" ? "guided" : mode;
+}
+
 function printSingleRun(result: {
   artifact: {
     runId: string;
@@ -53,7 +57,7 @@ function printMultiRun(result: {
   finalJsonPath: string;
 }): void {
   print({
-    mode: result.mode,
+    mode: toPublicMode(result.mode),
     appIds: result.appIds,
     runs: result.runs,
     finalReportPath: result.finalReportPath,
@@ -83,11 +87,30 @@ function printReportRebuild(result: {
 }): void {
   print({
     selectionPolicy: result.selectionPolicy,
-    selectedReports: result.selectedReports,
-    rebuiltReports: result.modeReports,
+    selectedReports: result.selectedReports.map((entry) => ({
+      ...entry,
+      kind: toPublicMode(entry.kind)
+    })),
+    rebuiltReports: result.modeReports.map((entry) => ({
+      ...entry,
+      kind: toPublicMode(entry.kind)
+    })),
     finalReportPath: result.finalReportPath,
     finalJsonPath: result.finalJsonPath
   });
+}
+
+function normalizeReportMode(mode: string | undefined): "qa" | "explore" | "heal" | undefined {
+  if (!mode) {
+    return undefined;
+  }
+  if (mode === "guided") {
+    return "qa";
+  }
+  if (mode === "explore" || mode === "heal") {
+    return mode;
+  }
+  throw new Error(`unsupported report mode ${mode}`);
 }
 
 function createProgressLogger(): ((message: string) => void) | undefined {
@@ -100,20 +123,17 @@ function createProgressLogger(): ((message: string) => void) | undefined {
   };
 }
 
-async function main(): Promise<void> {
-  await loadProjectEnv();
-  const onLog = createProgressLogger();
-
-  const program = new Command();
+function registerGuidedCommand(
+  program: Command,
+  input: {
+    name: string;
+    hidden?: boolean;
+    onLog: ((message: string) => void) | undefined;
+  }
+): void {
   program
-    .name("agentic-qa")
-    .description("Production benchmark CLI for QA, exploration, self-healing, and report rebuilds")
-    .showHelpAfterError();
-
-  program
-    .command("qa")
-    .description("Run the guided QA benchmark; omit app to run all benchmark apps")
-    .option("--profile <profile>", "QA runtime profile (fast or full)", "fast")
+    .command(input.name, input.hidden ? { hidden: true } : {})
+    .description("Run the guided benchmark; omit app to run all benchmark apps")
     .option("--models <ids...>", "Explicit OpenRouter model IDs to run")
     .option("--trials <n>", "Override trial count", parsePositiveInt)
     .option("--parallelism <n>", "Run up to this many models in parallel per app", parsePositiveInt)
@@ -123,7 +143,6 @@ async function main(): Promise<void> {
     .option("--max-output-tokens <n>", "Cap output tokens per model call", parsePositiveInt)
     .argument("[app]", "Benchmark app identifier")
     .action(async (app: string | undefined, options: {
-      profile: "fast" | "full";
       models?: string[];
       trials?: number;
       parallelism?: number;
@@ -135,21 +154,19 @@ async function main(): Promise<void> {
       if (app) {
         const result = await runQaExperiment({
           appId: app,
-          profile: options.profile,
           models: options.models,
           trials: options.trials,
           parallelism: options.parallelism,
           maxSteps: options.maxSteps,
           timeoutMs: options.timeoutMs,
           maxOutputTokens: options.maxOutputTokens,
-          onLog
+          onLog: input.onLog
         });
         printSingleRun(result);
         return;
       }
 
       const result = await runQaAcrossApps({
-        profile: options.profile,
         models: options.models,
         trials: options.trials,
         parallelism: options.parallelism,
@@ -157,10 +174,24 @@ async function main(): Promise<void> {
         maxSteps: options.maxSteps,
         timeoutMs: options.timeoutMs,
         maxOutputTokens: options.maxOutputTokens,
-        onLog
+        onLog: input.onLog
       });
       printMultiRun(result);
     });
+
+}
+
+async function main(): Promise<void> {
+  await loadProjectEnv();
+  const onLog = createProgressLogger();
+
+  const program = new Command();
+  program
+    .name("agentic-qa")
+    .description("Production benchmark CLI for guided runs, exploration, self-healing, and report rebuilds")
+    .showHelpAfterError();
+
+  registerGuidedCommand(program, { name: "guided", onLog });
 
   program
     .command("explore")
@@ -221,12 +252,9 @@ async function main(): Promise<void> {
   program
     .command("report")
     .description("Rebuild comparison reports from saved benchmark report JSON files")
-    .argument("[mode]", "Benchmark mode to rebuild (qa, explore, or heal)")
+    .argument("[mode]", "Benchmark mode to rebuild (guided, explore, or heal)")
     .action(async (mode: string | undefined) => {
-      if (mode && mode !== "qa" && mode !== "explore" && mode !== "heal") {
-        throw new Error(`unsupported report mode ${mode}`);
-      }
-      const reportMode = mode as "qa" | "explore" | "heal" | undefined;
+      const reportMode = normalizeReportMode(mode);
 
       const result = await rebuildBenchmarkReports({
         mode: reportMode

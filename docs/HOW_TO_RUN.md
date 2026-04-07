@@ -2,7 +2,7 @@
 
 This document is the operational runbook for the repository: install it, start the local benchmark app, run the three experiment families, inspect results, and repair a finding.
 
-The preferred root commands are `pnpm qa`, `pnpm explore`, `pnpm heal`, and `pnpm report`.
+The preferred root commands are `pnpm guided`, `pnpm explore`, `pnpm heal`, and `pnpm report`.
 
 ## 1. Prerequisites
 
@@ -53,23 +53,23 @@ The canonical benchmark behavior now lives at `specs/todo-web/contract.json`.
 
 For `todo-react`, `apps/todo-react/benchmark.json` binds that contract into the harness and defines:
 
-- guided QA capabilities and task ids
+- guided capabilities and task ids
 - exploration coverage targets and heuristic thresholds
 - heal cases, reproduction tasks, validation commands, and regression tasks
 
 Use the manifest instead of spreading benchmark definitions across separate suite files.
 
-## 5. Run QA
+## 5. Run Guided
 
-QA measures how well a model follows the guided scenarios and reaches the expected outcomes.
+Guided runs measure how well a model follows the guided scenarios and reaches the expected outcomes.
 
 ```bash
-pnpm qa todo-react
-pnpm qa todo-react --parallelism 2
-pnpm qa --parallelism 2 --app-parallelism 2
+pnpm guided todo-react
+pnpm guided todo-react --parallelism 2
+pnpm guided --parallelism 2 --app-parallelism 2
 ```
 
-QA reports compare:
+Guided reports compare:
 
 - capability pass rate
 - full-scenario completion rate
@@ -117,7 +117,7 @@ Heal reports compare:
 
 Generated outputs are written under:
 
-- `results/qa/runs/<runId>` plus `results/qa/reports/<runId>.json|.html`
+- `results/guided/runs/<runId>` plus `results/guided/reports/<runId>.json|.html`
 - `results/explore/runs/<runId>` plus `results/explore/reports/<runId>.json|.html`
 - `results/heal/runs/<runId>` plus `results/heal/reports/<runId>.json|.html`
 - `results/compare/<compareId>.json|.html` for rebuilt mode and benchmark comparison reports
@@ -150,7 +150,7 @@ To rebuild comparison pages from existing benchmark report JSON files:
 
 ```bash
 pnpm report
-pnpm report qa
+pnpm report guided
 pnpm report explore
 pnpm report heal
 ```
@@ -162,14 +162,20 @@ pnpm report heal
 - it rebuilds the requested mode comparison pages
 - with no mode argument, it also rebuilds one benchmark mega report across the available modes
 
-Rebuilt outputs are written under `results/compare` as stable latest files such as `qa-compare-latest.json|html` and `benchmark-compare-latest.json|html`. The JSON output lists the selected runs plus the rebuilt paths.
+Rebuilt outputs are written under `results/compare` as stable latest files such as `guided-compare-latest.json|html` and `benchmark-compare-latest.json|html`.
+
+For the benchmark-wide rebuild with no mode argument, the repo now also writes:
+
+- `benchmark-compare-standardized-latest.html|json`
+
+This additional report is table-first: it standardizes model results by mode and then compares model performance per app.
 
 ## 10. Common Local Workflow
 
 Minimal practical loop:
 
 1. Export `OPENROUTER_API_KEY`.
-2. Run `pnpm qa todo-react`.
+2. Run `pnpm guided todo-react`.
 3. Run `pnpm explore todo-react`.
 4. Run `pnpm heal todo-react`.
 5. Run `pnpm report`.

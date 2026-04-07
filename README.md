@@ -4,7 +4,7 @@ Benchmark-first monorepo for local web QA with LLM-driven exploration and self-h
 
 The benchmark surface is intentionally narrow:
 
-- `pnpm qa`: guided scenario execution against clean app clones
+- `pnpm guided`: guided scenario execution against clean app clones
 - `pnpm explore`: autonomous exploration and coverage discovery
 - `pnpm heal`: diagnosis and repair of seeded defects
 - `pnpm report`: rebuild mode and benchmark comparison reports from saved benchmark report JSON files
@@ -47,12 +47,12 @@ Open `http://127.0.0.1:3101`.
 
 ## Benchmark Commands
 
-Guided QA:
+Guided:
 
 ```bash
-pnpm qa todo-angular
-pnpm qa
-pnpm qa --parallelism 2 --app-parallelism 2
+pnpm guided todo-angular
+pnpm guided
+pnpm guided --parallelism 2 --app-parallelism 2
 ```
 
 Autonomous exploration:
@@ -75,7 +75,7 @@ Report rebuild:
 
 ```bash
 pnpm report
-pnpm report qa
+pnpm report guided
 pnpm report explore
 pnpm report heal
 ```
@@ -89,14 +89,16 @@ While a run is active the CLI streams progress logs to the terminal, and the fin
 Typical clean end-to-end run:
 
 ```powershell
-Remove-Item -Recurse -Force results\qa, results\explore, results\heal, results\compare -ErrorAction SilentlyContinue
-pnpm qa --profile full
+Remove-Item -Recurse -Force results\guided, results\explore, results\heal, results\compare -ErrorAction SilentlyContinue
+pnpm guided
 pnpm explore
 pnpm heal
 pnpm report
 ```
 
 This runs all enabled models across all discoverable apps, then rebuilds the final benchmark comparison report under `results/compare` as `benchmark-compare-latest.html|json`.
+
+It also emits `benchmark-compare-standardized-latest.html|json`, a table-first benchmark report organized by mode and then by app.
 
 ## Documentation
 
@@ -109,6 +111,6 @@ This runs all enabled models across all discoverable apps, then rebuilds the fin
 
 - Local configuration template: `.env.example`
 - The CLI and benchmark app server auto-load `.env` from the repository root when present
-- Omitting the app for `pnpm qa`, `pnpm explore`, or `pnpm heal` runs that mode across all discoverable benchmark apps and writes one aggregate comparison report
+- Omitting the app for `pnpm guided`, `pnpm explore`, or `pnpm heal` runs that mode across all discoverable benchmark apps and writes one aggregate comparison report
 - `pnpm report` rebuilds comparison pages from `results/<mode>/reports/*.json`, using the latest available report per `mode+app+model`, and writes stable latest outputs under `results/compare`
 - JSON summaries live under `results/<experiment>/reports` and full run artifacts live under `results/<experiment>/runs`

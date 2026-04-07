@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
 import type { AutConfig } from "../types.js";
 
@@ -7,6 +7,27 @@ export interface RunningAut {
 }
 
 type SpawnedChild = ReturnType<typeof spawn>;
+const activeAutChildren = new Set<SpawnedChild>();
+let exitCleanupInstalled = false;
+
+function registerAutChild(child: SpawnedChild): void {
+  if (!exitCleanupInstalled) {
+    process.once("exit", () => {
+      for (const activeChild of [...activeAutChildren]) {
+        stopSpawnedAutSync(activeChild);
+      }
+      activeAutChildren.clear();
+    });
+    exitCleanupInstalled = true;
+  }
+
+  activeAutChildren.add(child);
+  const unregister = (): void => {
+    activeAutChildren.delete(child);
+  };
+  child.once("close", unregister);
+  child.once("error", unregister);
+}
 
 function waitForClose(child: SpawnedChild): Promise<void> {
   return new Promise((resolve) => {
@@ -39,6 +60,33 @@ function signalChildProcessGroup(child: SpawnedChild, signal: "SIGTERM" | "SIGKI
     return true;
   } catch {
     return false;
+  }
+}
+
+function stopSpawnedAutSync(child: SpawnedChild): void {
+  activeAutChildren.delete(child);
+  if (child.exitCode !== null || !child.pid) {
+    return;
+  }
+
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(child.pid), "/f", "/t"], {
+        stdio: "ignore",
+        windowsHide: true
+      });
+    } catch {
+      // Best-effort cleanup during process shutdown.
+    }
+    return;
+  }
+
+  if (!signalChildProcessGroup(child, "SIGKILL")) {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      // Best-effort cleanup during process shutdown.
+    }
   }
 }
 
@@ -97,6 +145,7 @@ export async function startAut(
     shell: true,
     stdio: "inherit"
   });
+  registerAutChild(child);
 
   try {
     const startedAt = Date.now();

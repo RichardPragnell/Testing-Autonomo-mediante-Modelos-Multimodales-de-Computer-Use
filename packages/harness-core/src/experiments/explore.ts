@@ -35,7 +35,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
-import { computeExploreScore } from "./scoring.js";
+import { computeExploreScore, EXPLORE_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
   BenchmarkComparisonSection,
@@ -226,6 +226,7 @@ function buildExploreSection(input: {
       : "No exploration results were available.",
     appIds: [input.appId],
     metricColumns: EXPLORE_METRIC_COLUMNS,
+    scoreDefinition: EXPLORE_SCORE_DEFINITION,
     rows: input.leaderboard.map((entry) => ({
       modelId: entry.modelId,
       provider: entry.provider,
@@ -250,6 +251,7 @@ function buildExploreSection(input: {
       ]
     })),
     notes: [
+      "Score is shown on a 0-100 scale where higher is better.",
       "Capability Discovery, State Coverage, and Transition Coverage are the primary exploration outcomes.",
       "Total Cost sums resolved exploration spend across the full run."
     ],

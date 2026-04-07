@@ -3,7 +3,8 @@ import type {
   BenchmarkComparisonSection,
   BenchmarkEfficiencyFrontierFigure,
   BenchmarkEfficiencyFrontierPoint,
-  BenchmarkMetricColumn
+  BenchmarkMetricColumn,
+  ExperimentKind
 } from "./types.js";
 import type { UsageCostSummary } from "../types.js";
 
@@ -931,6 +932,91 @@ function renderAudit(section: BenchmarkComparisonSection): string {
   `;
 }
 
+function renderScoreDefinition(section: BenchmarkComparisonSection): string {
+  const definition = section.scoreDefinition;
+  if (!definition) {
+    return "";
+  }
+
+  const rows = definition.metrics
+    .map(
+      (metric) => `
+        <tr>
+          <th>${escapeHtml(metric.label)}</th>
+          <td>${escapeHtml(`${Math.round(metric.weight * 100)}%`)}</td>
+          <td>${escapeHtml(metric.description)}</td>
+          <td>${escapeHtml(metric.contribution)}</td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `
+    <article class="score-explainer">
+      <header class="score-explainer-header">
+        <h3>How the score is calculated</h3>
+        <p>${escapeHtml(definition.modeDescription)}</p>
+      </header>
+      <p class="score-formula"><strong>Formula.</strong> ${escapeHtml(definition.formula)}</p>
+      <div class="table-wrap">
+        <table class="score-definition-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Weight</th>
+              <th>How it is measured</th>
+              <th>Why it matters</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <ul class="section-notes">
+        ${definition.specialRules.map((rule) => `<li>${escapeHtml(rule)}</li>`).join("")}
+      </ul>
+    </article>
+  `;
+}
+
+function renderModeReadGuide(section: BenchmarkComparisonSection): string {
+  const items = [
+    {
+      title: "Score",
+      body: "Higher is better. Scores are normalized to a 0-100 scale after weighting the mode-specific outcome metrics."
+    },
+    {
+      title: "Latency",
+      body: "Lower is better. Avg Latency reports the mean resolved latency for the displayed scope."
+    },
+    {
+      title: "Cost",
+      body: "Lower is better. Avg Cost is mean resolved spend per run, while Total Cost sums the displayed runs."
+    }
+  ];
+
+  return `
+    <article class="read-guide">
+      <header class="read-guide-header">
+        <h3>How to read this report</h3>
+        <p>The matrix shows per-app model results for this mode only. Outcome scores are compared directly; supporting efficiency metrics explain tradeoffs.</p>
+      </header>
+      <div class="read-guide-grid">
+        ${items
+          .map(
+            (item) => `
+              <article class="read-guide-card">
+                <h4>${escapeHtml(item.title)}</h4>
+                <p>${escapeHtml(item.body)}</p>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+      ${section.notes.length ? renderNotes(section) : ""}
+    </article>
+  `;
+}
+
 function renderNotes(section: BenchmarkComparisonSection): string {
   if (!section.notes.length) {
     return "";
@@ -1029,6 +1115,60 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         margin: 8px 0 16px;
         color: var(--muted);
         max-width: 1000px;
+      }
+      .score-explainer,
+      .read-guide {
+        margin: 0 0 18px;
+        padding: 18px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdf8 0%, #f7f0e3 100%);
+      }
+      .score-explainer-header h3,
+      .read-guide-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+      .score-explainer-header p,
+      .read-guide-header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        max-width: 980px;
+      }
+      .score-formula {
+        margin: 14px 0 0;
+      }
+      .score-definition-table th,
+      .score-definition-table td {
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--rule);
+        text-align: left;
+        vertical-align: top;
+      }
+      .score-definition-table thead th {
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+      }
+      .read-guide-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .read-guide-card {
+        padding: 12px 14px;
+        border: 1px solid rgba(119, 106, 88, 0.18);
+        background: rgba(255, 253, 248, 0.78);
+      }
+      .read-guide-card h4 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+      .read-guide-card p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
       }
       .provenance-chip {
         display: inline-block;
@@ -1685,15 +1825,1494 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
             <section>
               <h2>${escapeHtml(section.title)}</h2>
               <p class="section-summary">${escapeHtml(section.summary)}</p>
+              ${renderScoreDefinition(section)}
+              ${renderModeReadGuide(section)}
               ${renderSectionVisuals(section)}
               ${renderPerAppVisuals(section)}
               ${renderMatrix(section)}
               ${renderAudit(section)}
-              ${renderNotes(section)}
             </section>
           `
         )
         .join("")}
+    </main>
+  </body>
+</html>`;
+}
+
+const FINAL_MODE_ORDER: ExperimentKind[] = ["qa", "explore", "heal"];
+
+interface FinalModeDescriptor {
+  kind: ExperimentKind;
+  title: string;
+  summary: string;
+}
+
+interface FinalModelModeStats {
+  coveragePopulated: number;
+  coverageTotal: number;
+  meanRank: number | null;
+  meanScore: number | null;
+  meanLatency: number | null;
+  totalCost: number | null;
+}
+
+interface FinalPerAppCell {
+  missing: boolean;
+  rank: number | null;
+  score: number | null;
+  avgLatency: number | null;
+  totalCost: number | null;
+}
+
+interface FinalModelView {
+  modelId: string;
+  provider: string;
+  modeStats: Map<ExperimentKind, FinalModelModeStats>;
+  appCells: Map<string, Map<ExperimentKind, FinalPerAppCell>>;
+}
+
+interface FinalAppWinner {
+  kind: ExperimentKind;
+  title: string;
+  modelId: string;
+  provider: string;
+}
+
+interface FinalAppView {
+  appId: string;
+  winners: Map<ExperimentKind, FinalAppWinner>;
+}
+
+interface FinalModeWinner {
+  kind: ExperimentKind;
+  title: string;
+  modelId: string;
+  provider: string;
+  avgScore: number;
+  avgLatency: number | null;
+  totalCost: number;
+}
+
+interface FinalReportViewModel {
+  modes: FinalModeDescriptor[];
+  models: FinalModelView[];
+  apps: FinalAppView[];
+  modeWinners: FinalModeWinner[];
+}
+
+function averageNullableValues(values: Array<number | null | undefined>): number | null {
+  const usable = values.filter((value): value is number => typeof value === "number");
+  if (!usable.length) {
+    return null;
+  }
+  return average(usable) ?? null;
+}
+
+function sumNullableValues(values: Array<number | null | undefined>): number | null {
+  const usable = values.filter((value): value is number => typeof value === "number");
+  if (!usable.length) {
+    return null;
+  }
+  return usable.reduce((sum, value) => sum + value, 0);
+}
+
+function formatFinalMetricValue(kind: "rank" | "score" | "ms" | "usd", value: number | null): string {
+  if (value === null) {
+    return "&mdash;";
+  }
+
+  switch (kind) {
+    case "rank":
+      return value.toFixed(2);
+    case "score":
+      return escapeHtml(formatCompactValue("score", value));
+    case "ms":
+      return escapeHtml(formatCompactValue("ms", value));
+    case "usd":
+      return escapeHtml(formatCompactValue("usd", value));
+  }
+}
+
+function sameBestScore(left: number, right: number): boolean {
+  return Math.abs(left - right) < 1e-9;
+}
+
+function bestScoreValue(values: Array<number | null | undefined>): number | null {
+  const usable = values.filter((value): value is number => typeof value === "number");
+  if (!usable.length) {
+    return null;
+  }
+  return Math.max(...usable);
+}
+
+function renderFinalMetricCell(input: {
+  kind: "rank" | "score" | "ms" | "usd";
+  value: number | null;
+  bestScore?: number | null;
+}): string {
+  const formatted = formatFinalMetricValue(input.kind, input.value);
+  if (input.kind !== "score" || input.value === null || input.bestScore === null || input.bestScore === undefined) {
+    return formatted;
+  }
+  return sameBestScore(input.value, input.bestScore) ? `<strong class="best-score">${formatted}</strong>` : formatted;
+}
+
+function renderComparisonGuide(): string {
+  const items = [
+    {
+      title: "Score",
+      body: "Higher is better. Scores are normalized to a 0-100 scale and should be compared only within the same mode."
+    },
+    {
+      title: "Rank",
+      body: "Lower is better. Rank 1 marks the best model inside the displayed mode and app grid."
+    },
+    {
+      title: "Coverage",
+      body: "Coverage reports how many app cells are populated for that mode. Missing runs are excluded from means and totals."
+    },
+    {
+      title: "Latency",
+      body: "Lower is better. Mean Latency reports the average resolved latency for the displayed scope."
+    },
+    {
+      title: "Cost",
+      body: "Lower is better. Total Cost sums resolved spend for the displayed scope; it is not normalized across modes."
+    }
+  ];
+
+  return `
+    <section>
+      <h2>Reading Guide</h2>
+      <p class="section-summary">Use this legend to interpret the rebuilt comparison tables consistently across modes and apps.</p>
+      <div class="read-guide-grid">
+        ${items
+          .map(
+            (item) => `
+              <article class="read-guide-card">
+                <h3>${escapeHtml(item.title)}</h3>
+                <p>${escapeHtml(item.body)}</p>
+              </article>
+            `
+          )
+          .join("")}
+      </div>
+    </section>
+  `;
+}
+
+function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalReportViewModel | null {
+  const rankMatrix = report.summaryFigures?.rankMatrix;
+  if (!rankMatrix) {
+    return null;
+  }
+
+  const sectionsByKind = new Map(report.modeSections.map((section) => [section.kind, section]));
+  const modes = FINAL_MODE_ORDER.flatMap((kind) => {
+    const section = sectionsByKind.get(kind);
+    return section ? [{ kind, title: section.title, summary: section.summary }] : [];
+  });
+
+  if (modes.length < 2) {
+    return null;
+  }
+
+  const models = rankMatrix.rows.map<FinalModelView>((row) => {
+    const modeStats = new Map<ExperimentKind, FinalModelModeStats>();
+    const appCells = new Map<string, Map<ExperimentKind, FinalPerAppCell>>();
+
+    for (const mode of modes) {
+      const cells = row.cells.filter((cell) => cell.kind === mode.kind);
+      const populated = cells.filter((cell) => !cell.missing);
+      modeStats.set(mode.kind, {
+        coveragePopulated: populated.length,
+        coverageTotal: cells.length,
+        meanRank: averageNullableValues(populated.map((cell) => cell.rank)),
+        meanScore: averageNullableValues(populated.map((cell) => cell.score)),
+        meanLatency: averageNullableValues(populated.map((cell) => cell.avgLatency)),
+        totalCost: sumNullableValues(populated.map((cell) => cell.totalCost))
+      });
+    }
+
+    for (const appId of report.appIds) {
+      const perMode = new Map<ExperimentKind, FinalPerAppCell>();
+      for (const mode of modes) {
+        const cell = row.cells.find((entry) => entry.kind === mode.kind && entry.appId === appId);
+        perMode.set(mode.kind, {
+          missing: !cell || cell.missing,
+          rank: cell?.rank ?? null,
+          score: cell?.score ?? null,
+          avgLatency: cell?.avgLatency ?? null,
+          totalCost: cell?.totalCost ?? null
+        });
+      }
+      appCells.set(appId, perMode);
+    }
+
+    return {
+      modelId: row.modelId,
+      provider: row.provider,
+      modeStats,
+      appCells
+    };
+  });
+
+  const apps = report.appIds.map<FinalAppView>((appId) => {
+    const winners = new Map<ExperimentKind, FinalAppWinner>();
+    for (const mode of modes) {
+      const winner = rankMatrix.rows.find((row) =>
+        row.cells.some((cell) => cell.kind === mode.kind && cell.appId === appId && cell.rank === 1)
+      );
+      if (!winner) {
+        continue;
+      }
+      winners.set(mode.kind, {
+        kind: mode.kind,
+        title: mode.title,
+        modelId: winner.modelId,
+        provider: winner.provider
+      });
+    }
+
+    return {
+      appId,
+      winners
+    };
+  });
+
+  const modeWinners = modes.flatMap<FinalModeWinner>((mode) => {
+    const section = sectionsByKind.get(mode.kind);
+    const winner = section?.rows[0];
+    if (!winner) {
+      return [];
+    }
+
+    return [
+      {
+        kind: mode.kind,
+        title: mode.title,
+        modelId: winner.modelId,
+        provider: winner.provider,
+        avgScore: winner.avgScore,
+        avgLatency: averageNullableValues(
+          winner.cells.map((cell) => (typeof cell.metrics.avgLatency === "number" ? cell.metrics.avgLatency : null))
+        ),
+        totalCost: winner.cells.reduce((sum, cell) => sum + cell.costSummary.totalResolvedUsd, 0)
+      }
+    ];
+  });
+
+  return {
+    modes,
+    models,
+    apps,
+    modeWinners
+  };
+}
+
+function renderProvenanceNote(report: BenchmarkComparisonReport): string {
+  if (!report.provenance) {
+    return "";
+  }
+
+  return `
+    <p class="provenance-note">
+      Selection policy <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
+      ${escapeHtml(report.provenance.note)}
+    </p>
+  `;
+}
+
+function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalReportViewModel): string {
+  const cards = [
+    `
+      <article class="glance-card glance-card-stat">
+        <p class="glance-eyebrow">Apps</p>
+        <p class="glance-value">${String(report.appIds.length)}</p>
+        <p class="glance-copy">${escapeHtml(report.appIds.join(", "))}</p>
+      </article>
+    `,
+    `
+      <article class="glance-card glance-card-stat">
+        <p class="glance-eyebrow">Models</p>
+        <p class="glance-value">${String(viewModel.models.length)}</p>
+        <p class="glance-copy">Unified ordering taken from the benchmark rank matrix.</p>
+      </article>
+    `,
+    `
+      <article class="glance-card glance-card-stat">
+        <p class="glance-eyebrow">Available Modes</p>
+        <p class="glance-value">${String(viewModel.modes.length)}</p>
+        <div class="mode-pill-list">
+          ${viewModel.modes.map((mode) => `<span class="mode-pill">${escapeHtml(mode.title)}</span>`).join("")}
+        </div>
+      </article>
+    `
+  ];
+
+  const winnerCards = viewModel.modeWinners.map((winner) => {
+    const label = describeModelLabel(winner.modelId);
+    return `
+      <article class="glance-card glance-card-winner">
+        <div class="glance-card-topline">
+          <p class="glance-eyebrow">${escapeHtml(winner.title)}</p>
+          <span class="winner-chip">Mode Winner</span>
+        </div>
+        <h3>${escapeHtml(label.primary)}</h3>
+        ${label.secondary ? `<p class="glance-subtitle">${escapeHtml(label.secondary)}</p>` : ""}
+        <dl class="winner-stats">
+          <div>
+            <dt>Mean Score</dt>
+            <dd>${escapeHtml(winner.avgScore.toFixed(3))}</dd>
+          </div>
+          <div>
+            <dt>Mean Latency</dt>
+            <dd>${winner.avgLatency === null ? "&mdash;" : escapeHtml(formatCompactValue("ms", winner.avgLatency))}</dd>
+          </div>
+          <div>
+            <dt>Total Cost</dt>
+            <dd>${escapeHtml(formatCompactValue("usd", winner.totalCost))}</dd>
+          </div>
+        </dl>
+      </article>
+    `;
+  });
+
+  return `
+    <section>
+      <h2>At a Glance</h2>
+      <p class="section-summary">This header summarizes benchmark coverage and the current per-mode winners. Missing mode or app runs are not counted here.</p>
+      <div class="glance-grid">${[...cards, ...winnerCards].join("")}</div>
+    </section>
+  `;
+}
+
+function renderModelsAcrossModes(viewModel: FinalReportViewModel): string {
+  return `
+    <section>
+      <h2>Models Across Modes</h2>
+      <p class="section-summary">Each model appears once. Coverage counts populated cells, Mean Rank uses lower-is-better ordering, Mean Score uses higher-is-better ordering, and missing runs are excluded from aggregates.</p>
+      <div class="table-wrap">
+        <table class="unified-table">
+          <thead>
+            <tr>
+              <th rowspan="2" class="sticky-model-col">Model</th>
+              ${viewModel.modes
+                .map((mode) => `<th colspan="5" class="group-head">${escapeHtml(mode.title)}</th>`)
+                .join("")}
+            </tr>
+            <tr>
+              ${viewModel.modes
+                .map(
+                  () => `
+                    <th>Coverage</th>
+                    <th>Mean Rank</th>
+                    <th>Mean Score</th>
+                    <th>Total Cost</th>
+                    <th>Mean Latency</th>
+                  `
+                )
+                .join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${viewModel.models
+              .map((model) => {
+                const label = describeModelLabel(model.modelId);
+                return `
+                  <tr>
+                    <th class="sticky-model-col">
+                      <span class="model-label">${escapeHtml(label.primary)}</span>
+                      ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+                    </th>
+                    ${viewModel.modes
+                      .map((mode) => {
+                        const stats = model.modeStats.get(mode.kind);
+                        return `
+                          <td>${stats ? formatCoverage(stats.coveragePopulated, stats.coverageTotal) : "&mdash;"}</td>
+                          <td>${stats ? formatFinalMetricValue("rank", stats.meanRank) : "&mdash;"}</td>
+                          <td>${stats ? formatFinalMetricValue("score", stats.meanScore) : "&mdash;"}</td>
+                          <td>${stats ? formatFinalMetricValue("usd", stats.totalCost) : "&mdash;"}</td>
+                          <td>${stats ? formatFinalMetricValue("ms", stats.meanLatency) : "&mdash;"}</td>
+                        `;
+                      })
+                      .join("")}
+                  </tr>
+                `;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderAppWinnerChips(app: FinalAppView, modes: FinalReportViewModel["modes"]): string {
+  return modes
+    .map((mode) => {
+      const winner = app.winners.get(mode.kind);
+      const winnerLabel = winner ? describeModelLabel(winner.modelId).primary : "&mdash;";
+      return `
+        <span class="winner-chip">
+          ${escapeHtml(mode.title)} winner:
+          <strong>${winner ? escapeHtml(winnerLabel) : "&mdash;"}</strong>
+        </span>
+      `;
+    })
+    .join("");
+}
+
+function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
+  const blocks = viewModel.apps
+    .map((app) => {
+      return `
+        <article class="app-block">
+          <header class="app-block-header">
+            <div>
+              <h3>${escapeHtml(app.appId)}</h3>
+              <p>Per-app ranks and metrics aligned across the available benchmark modes.</p>
+            </div>
+            <div class="winner-chip-list">${renderAppWinnerChips(app, viewModel.modes)}</div>
+          </header>
+          <div class="table-wrap">
+            <table class="unified-table app-mode-table">
+              <thead>
+                <tr>
+                  <th rowspan="2" class="sticky-model-col">Model</th>
+                  ${viewModel.modes
+                    .map((mode) => `<th colspan="4" class="group-head">${escapeHtml(mode.title)}</th>`)
+                    .join("")}
+                </tr>
+                <tr>
+                  ${viewModel.modes
+                    .map(
+                      () => `
+                        <th>Rank</th>
+                        <th>Score</th>
+                        <th>Latency</th>
+                        <th>Total Cost</th>
+                      `
+                    )
+                    .join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${viewModel.models
+                  .map((model) => {
+                    const label = describeModelLabel(model.modelId);
+                    const appCells = model.appCells.get(app.appId);
+                    return `
+                      <tr>
+                        <th class="sticky-model-col">
+                          <span class="model-label">${escapeHtml(label.primary)}</span>
+                          ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+                        </th>
+                        ${viewModel.modes
+                          .map((mode) => {
+                            const cell = appCells?.get(mode.kind);
+                            if (!cell || cell.missing) {
+                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                            }
+
+                            return `
+                              <td>${formatFinalMetricValue("rank", cell.rank)}</td>
+                              <td>${formatFinalMetricValue("score", cell.score)}</td>
+                              <td>${formatFinalMetricValue("ms", cell.avgLatency)}</td>
+                              <td>${formatFinalMetricValue("usd", cell.totalCost)}</td>
+                            `;
+                          })
+                          .join("")}
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `
+    <section>
+      <h2>Apps Across Modes</h2>
+      <p class="section-summary">Each app keeps the same model ordering so cross-mode gaps are visible. Rank is lower-is-better, Score is higher-is-better, and dashed cells mean that model was not run for that app and mode.</p>
+      <div class="app-block-list">${blocks}</div>
+    </section>
+  `;
+}
+
+function renderBenchmarkMatrixBlock(report: BenchmarkComparisonReport): string {
+  const leaderboard = renderOverallLeaderboard(report);
+  const frontier = renderEfficiencyFrontierFigure(report);
+  if (!leaderboard && !frontier) {
+    return "";
+  }
+
+  return `
+    <section>
+      <h2>Benchmark Matrix</h2>
+      <p class="section-summary">Preserved benchmark-wide comparison block across all selected modes and apps.</p>
+      <div class="benchmark-matrix-stack">
+        ${leaderboard}
+        ${frontier}
+      </div>
+    </section>
+  `;
+}
+
+export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonReport): string {
+  const viewModel = buildFinalReportViewModel(report);
+  if (!viewModel) {
+    return renderBenchmarkComparisonHtml(report);
+  }
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(report.title)}</title>
+    <style>
+      :root {
+        --paper: #fcfaf6;
+        --ink: #181410;
+        --muted: #635949;
+        --rule: #d0c7bb;
+        --rule-strong: #776a58;
+        --accent: #8b6c32;
+        --accent-soft: #f2ead8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top right, rgba(139, 108, 50, 0.08), transparent 28%),
+          linear-gradient(180deg, #f3eee5 0%, #efe7d9 100%);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      main {
+        width: min(1480px, calc(100vw - 32px));
+        margin: 24px auto 40px;
+        padding: 28px 30px 36px;
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        box-shadow: 0 20px 60px rgba(24, 20, 16, 0.08);
+      }
+      .report-header {
+        padding-bottom: 18px;
+        border-bottom: 2px solid var(--rule-strong);
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 3vw, 2.8rem);
+        line-height: 1.05;
+      }
+      .subtitle {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+      .report-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px 14px;
+        margin: 18px 0 0;
+      }
+      .report-meta div {
+        padding: 10px 12px;
+        background: #fff;
+        border: 1px solid var(--rule);
+      }
+      .report-meta dt {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .report-meta dd {
+        margin: 0;
+        font-size: 0.98rem;
+      }
+      section {
+        margin-top: 26px;
+        padding-top: 18px;
+        border-top: 1px solid var(--rule);
+      }
+      h2 {
+        margin: 0;
+        font-size: 1.55rem;
+      }
+      .section-summary {
+        margin: 8px 0 16px;
+        color: var(--muted);
+        max-width: 1100px;
+      }
+      .provenance-note {
+        margin: 18px 0 0;
+        color: var(--muted);
+      }
+      .provenance-chip {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .glance-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 14px;
+      }
+      .read-guide-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .read-guide-card {
+        padding: 14px 16px;
+        border: 1px solid var(--rule);
+        background: #fffdfa;
+      }
+      .read-guide-card h3 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+      .read-guide-card p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .glance-card {
+        padding: 16px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdf8 0%, #f7f0e3 100%);
+      }
+      .glance-eyebrow {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.76rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .glance-value {
+        margin: 10px 0 6px;
+        font-size: 2rem;
+        line-height: 1;
+      }
+      .glance-copy,
+      .glance-subtitle {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .mode-pill-list,
+      .winner-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .mode-pill,
+      .winner-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 1.9rem;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: #4f4020;
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .glance-card-topline {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .glance-card h3,
+      .app-block h3 {
+        margin: 10px 0 0;
+        font-size: 1.08rem;
+      }
+      .winner-stats {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        margin: 14px 0 0;
+      }
+      .winner-stats div {
+        padding: 10px 10px 9px;
+        border: 1px solid rgba(119, 106, 88, 0.18);
+        background: rgba(255, 253, 248, 0.78);
+      }
+      .winner-stats dt {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 0.74rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .winner-stats dd {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .unified-table thead th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule-strong);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      .unified-table tbody td,
+      .unified-table tbody th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule);
+        text-align: center;
+        font-size: 0.92rem;
+        white-space: nowrap;
+      }
+      .unified-table .sticky-model-col {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 250px;
+        text-align: left;
+        background: var(--paper);
+      }
+      .unified-table thead .sticky-model-col {
+        z-index: 2;
+      }
+      .group-head {
+        background: #f7f1e5;
+      }
+      .model-label,
+      .rank-model-label,
+      .frontier-legend-label {
+        display: block;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .model-detail,
+      .rank-model-detail,
+      .frontier-legend-detail {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .mode-cell-missing {
+        color: var(--muted);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(208, 199, 187, 0.4) 0,
+            rgba(208, 199, 187, 0.4) 8px,
+            rgba(255, 253, 248, 0.96) 8px,
+            rgba(255, 253, 248, 0.96) 16px
+          );
+      }
+      .app-block-list {
+        display: grid;
+        gap: 18px;
+      }
+      .app-block {
+        padding: 16px;
+        border: 1px solid var(--rule);
+        background: #fffdfa;
+      }
+      .app-block-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+      .app-block-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .benchmark-matrix-stack {
+        display: grid;
+        gap: 18px;
+      }
+      .overview-figure {
+        padding: 18px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdf8 0%, #f7f0e3 100%);
+      }
+      .overview-header h3 {
+        margin: 0;
+        font-size: 1.15rem;
+      }
+      .overview-header p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        max-width: 1100px;
+      }
+      .rank-matrix-table thead th,
+      .leaderboard-table thead th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule-strong);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      .rank-matrix-table tbody th,
+      .rank-matrix-table tbody td,
+      .leaderboard-table tbody th,
+      .leaderboard-table tbody td {
+        padding: 0;
+        border-bottom: 1px solid var(--rule);
+        text-align: center;
+      }
+      .rank-model-head,
+      .rank-model-cell,
+      .leaderboard-model-head,
+      .leaderboard-model-cell {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 220px;
+        padding: 12px 14px !important;
+        text-align: left !important;
+        background: #fcfaf6;
+      }
+      .leaderboard-summary-head {
+        font-size: 0.95rem !important;
+      }
+      .leaderboard-summary-cell {
+        padding: 10px 12px !important;
+        background: rgba(255, 255, 255, 0.72);
+        font-size: 0.88rem;
+        font-weight: 700;
+      }
+      .leaderboard-table .rank-model-label {
+        white-space: normal;
+      }
+      .frontier-panel-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 14px;
+        margin-top: 14px;
+      }
+      .frontier-panel-card {
+        padding: 14px;
+        border: 1px solid rgba(119, 106, 88, 0.25);
+        background: rgba(255, 255, 255, 0.7);
+      }
+      .frontier-panel-header h4 {
+        margin: 0;
+        font-size: 1rem;
+      }
+      .frontier-panel-header p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 0.78rem;
+        letter-spacing: 0.08em;
+      }
+      .chart-frame {
+        margin-top: 12px;
+        border: 1px solid var(--rule);
+        background: linear-gradient(180deg, #fffdfa 0%, #fbf6ed 100%);
+      }
+      .chart-frame svg {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+      .frontier-gridline {
+        stroke: #ddd3c5;
+        stroke-width: 1;
+      }
+      .frontier-axis {
+        stroke: #776a58;
+        stroke-width: 1.4;
+      }
+      .frontier-line {
+        fill: none;
+        stroke: #4f4020;
+        stroke-width: 2;
+        stroke-dasharray: 5 4;
+      }
+      .frontier-axis-label,
+      .frontier-tick {
+        fill: #181410;
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      .frontier-axis-label {
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .frontier-tick {
+        font-size: 10px;
+        fill: #635949;
+      }
+      .frontier-point {
+        fill-opacity: 0.82;
+        stroke-width: 1.4;
+      }
+      .frontier-point-pareto {
+        stroke-width: 2.2;
+      }
+      .frontier-legend {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px 14px;
+        list-style: none;
+        margin: 14px 0 0;
+        padding: 0;
+      }
+      .frontier-legend-item {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .frontier-legend-swatch {
+        flex: 0 0 auto;
+        width: 12px;
+        height: 12px;
+        margin-top: 4px;
+        border-radius: 999px;
+        border: 1px solid rgba(24, 20, 16, 0.35);
+      }
+      .frontier-legend-copy {
+        min-width: 0;
+      }
+      @media (max-width: 960px) {
+        main {
+          width: calc(100vw - 16px);
+          margin: 8px auto 18px;
+          padding: 18px 14px 24px;
+        }
+        .winner-stats {
+          grid-template-columns: 1fr;
+        }
+        .app-block-header {
+          flex-direction: column;
+        }
+        .unified-table .sticky-model-col,
+        .rank-model-head,
+        .rank-model-cell,
+        .leaderboard-model-head,
+        .leaderboard-model-cell {
+          min-width: 180px;
+        }
+        .frontier-panel-grid {
+          grid-template-columns: 1fr;
+        }
+        .unified-table thead th,
+        .unified-table tbody td,
+        .unified-table tbody th,
+        .rank-matrix-table thead th,
+        .rank-matrix-table tbody td,
+        .rank-matrix-table tbody th,
+        .leaderboard-table thead th,
+        .leaderboard-table tbody td,
+        .leaderboard-table tbody th {
+          padding: 8px 9px;
+          font-size: 0.85rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="report-header">
+        <h1>${escapeHtml(report.title)}</h1>
+        <p class="subtitle">${escapeHtml(report.subtitle)}</p>
+        ${renderMeta(report)}
+        ${renderProvenanceNote(report)}
+      </header>
+      ${renderComparisonGuide()}
+      ${renderAtAGlance(report, viewModel)}
+      ${renderModelsAcrossModes(viewModel)}
+      ${renderAppsAcrossModes(viewModel)}
+      ${renderBenchmarkMatrixBlock(report)}
+    </main>
+  </body>
+</html>`;
+}
+
+function compareNullableFinalAsc(left: number | null, right: number | null): number {
+  if (left === null && right === null) {
+    return 0;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  return left - right;
+}
+
+function compareNullableFinalDesc(left: number | null, right: number | null): number {
+  if (left === null && right === null) {
+    return 0;
+  }
+  if (left === null) {
+    return 1;
+  }
+  if (right === null) {
+    return -1;
+  }
+  return right - left;
+}
+
+function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewModel: FinalReportViewModel): string {
+  const blocks = viewModel.modes
+    .map((mode) => {
+      const sortedModels = [...viewModel.models].sort((left, right) => {
+        const leftStats = left.modeStats.get(mode.kind);
+        const rightStats = right.modeStats.get(mode.kind);
+        return (
+          compareNullableFinalAsc(leftStats?.meanRank ?? null, rightStats?.meanRank ?? null) ||
+          compareNullableFinalDesc(leftStats?.meanScore ?? null, rightStats?.meanScore ?? null) ||
+          compareNullableFinalAsc(leftStats?.totalCost ?? null, rightStats?.totalCost ?? null) ||
+          compareNullableFinalAsc(leftStats?.meanLatency ?? null, rightStats?.meanLatency ?? null) ||
+          left.modelId.localeCompare(right.modelId)
+        );
+      });
+      const bestMeanScore = bestScoreValue(sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanScore));
+      const bestScoreByApp = new Map(
+        report.appIds.map((appId) => [
+          appId,
+          bestScoreValue(sortedModels.map((model) => model.appCells.get(appId)?.get(mode.kind)?.score))
+        ])
+      );
+
+      return `
+        <article class="mode-block">
+          <header class="mode-block-header">
+            <h3>${escapeHtml(mode.title)}</h3>
+            <p>${escapeHtml(mode.summary)}</p>
+          </header>
+          <div class="table-wrap">
+            <table class="unified-table standardized-mode-table">
+              <thead>
+                <tr>
+                  <th rowspan="2" class="sticky-model-col">Model</th>
+                  <th rowspan="2">Coverage</th>
+                  <th rowspan="2">Mean Rank</th>
+                  <th rowspan="2">Mean Score</th>
+                  <th rowspan="2">Mean Latency</th>
+                  <th rowspan="2">Total Cost</th>
+                  ${report.appIds.map((appId) => `<th colspan="2" class="group-head">${escapeHtml(appId)}</th>`).join("")}
+                </tr>
+                <tr>
+                  ${report.appIds.map(() => "<th>Rank</th><th>Score</th>").join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedModels
+                  .map((model) => {
+                    const label = describeModelLabel(model.modelId);
+                    const stats = model.modeStats.get(mode.kind);
+                    return `
+                      <tr>
+                        <th class="sticky-model-col">
+                          <span class="model-label">${escapeHtml(label.primary)}</span>
+                          ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+                        </th>
+                        <td>${stats ? formatCoverage(stats.coveragePopulated, stats.coverageTotal) : "&mdash;"}</td>
+                        <td>${stats ? formatFinalMetricValue("rank", stats.meanRank) : "&mdash;"}</td>
+                        <td>${stats ? renderFinalMetricCell({ kind: "score", value: stats.meanScore, bestScore: bestMeanScore }) : "&mdash;"}</td>
+                        <td>${stats ? formatFinalMetricValue("ms", stats.meanLatency) : "&mdash;"}</td>
+                        <td>${stats ? formatFinalMetricValue("usd", stats.totalCost) : "&mdash;"}</td>
+                        ${report.appIds
+                          .map((appId) => {
+                            const cell = model.appCells.get(appId)?.get(mode.kind);
+                            if (!cell || cell.missing) {
+                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                            }
+                            return `
+                              <td>${formatFinalMetricValue("rank", cell.rank)}</td>
+                              <td>${renderFinalMetricCell({ kind: "score", value: cell.score, bestScore: bestScoreByApp.get(appId) ?? null })}</td>
+                            `;
+                          })
+                          .join("")}
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `
+    <section>
+      <h2>Standardized Results by Mode</h2>
+      <p class="section-summary">Each mode uses the same table structure so rankings, coverage, and app-level scores can be scanned consistently. Bold score values mark the best score in each displayed score grid; ties are co-best.</p>
+      <div class="mode-block-list">${blocks}</div>
+    </section>
+  `;
+}
+
+function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): string {
+  const blocks = viewModel.apps
+    .map((app) => {
+      const bestScoreByMode = new Map(
+        viewModel.modes.map((mode) => [
+          mode.kind,
+          bestScoreValue(viewModel.models.map((model) => model.appCells.get(app.appId)?.get(mode.kind)?.score))
+        ])
+      );
+      return `
+        <article class="app-block">
+          <header class="app-block-header">
+            <div>
+              <h3>${escapeHtml(app.appId)}</h3>
+              <p>Compare the same model across QA, Explore, and Self-Heal for this app. Bold score values mark the best result in each mode column for this app.</p>
+            </div>
+            <div class="winner-chip-list">${renderAppWinnerChips(app, viewModel.modes)}</div>
+          </header>
+          <div class="table-wrap">
+            <table class="unified-table app-mode-table">
+              <thead>
+                <tr>
+                  <th rowspan="2" class="sticky-model-col">Model</th>
+                  ${viewModel.modes
+                    .map((mode) => `<th colspan="4" class="group-head">${escapeHtml(mode.title)}</th>`)
+                    .join("")}
+                </tr>
+                <tr>
+                  ${viewModel.modes.map(() => "<th>Rank</th><th>Score</th><th>Latency</th><th>Total Cost</th>").join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${viewModel.models
+                  .map((model) => {
+                    const label = describeModelLabel(model.modelId);
+                    const appCells = model.appCells.get(app.appId);
+                    return `
+                      <tr>
+                        <th class="sticky-model-col">
+                          <span class="model-label">${escapeHtml(label.primary)}</span>
+                          ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+                        </th>
+                        ${viewModel.modes
+                          .map((mode) => {
+                            const cell = appCells?.get(mode.kind);
+                            if (!cell || cell.missing) {
+                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                            }
+
+                            return `
+                              <td>${formatFinalMetricValue("rank", cell.rank)}</td>
+                              <td>${renderFinalMetricCell({ kind: "score", value: cell.score, bestScore: bestScoreByMode.get(mode.kind) ?? null })}</td>
+                              <td>${formatFinalMetricValue("ms", cell.avgLatency)}</td>
+                              <td>${formatFinalMetricValue("usd", cell.totalCost)}</td>
+                            `;
+                          })
+                          .join("")}
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `
+    <section>
+      <h2>Compare Model Performance per App</h2>
+      <p class="section-summary">After the by-mode view, each app gets a dedicated table to compare how every model performed across the available modes. Rank is lower-is-better, Score is higher-is-better, and dashed cells mean no run was available.</p>
+      <div class="app-block-list">${blocks}</div>
+    </section>
+  `;
+}
+
+export function renderBenchmarkStandardizedComparisonHtml(report: BenchmarkComparisonReport): string {
+  const viewModel = buildFinalReportViewModel(report);
+  if (!viewModel) {
+    return renderBenchmarkComparisonHtml(report);
+  }
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(report.title)}</title>
+    <style>
+      :root {
+        --paper: #fcfaf6;
+        --ink: #181410;
+        --muted: #635949;
+        --rule: #d0c7bb;
+        --rule-strong: #776a58;
+        --accent: #8b6c32;
+        --accent-soft: #f2ead8;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(180deg, rgba(139, 108, 50, 0.06) 0%, transparent 16%),
+          linear-gradient(180deg, #f3eee5 0%, #efe7d9 100%);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      main {
+        width: min(1520px, calc(100vw - 32px));
+        margin: 24px auto 40px;
+        padding: 28px 30px 36px;
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        box-shadow: 0 20px 60px rgba(24, 20, 16, 0.08);
+      }
+      .report-header {
+        padding-bottom: 18px;
+        border-bottom: 2px solid var(--rule-strong);
+      }
+      h1 {
+        margin: 0;
+        font-size: clamp(2rem, 3vw, 2.8rem);
+        line-height: 1.05;
+      }
+      .subtitle {
+        margin: 10px 0 0;
+        color: var(--muted);
+        font-size: 1rem;
+      }
+      .report-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 10px 14px;
+        margin: 18px 0 0;
+      }
+      .report-meta div {
+        padding: 10px 12px;
+        background: #fff;
+        border: 1px solid var(--rule);
+      }
+      .report-meta dt {
+        margin: 0 0 4px;
+        color: var(--muted);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .report-meta dd {
+        margin: 0;
+        font-size: 0.98rem;
+      }
+      section {
+        margin-top: 26px;
+        padding-top: 18px;
+        border-top: 1px solid var(--rule);
+      }
+      h2 {
+        margin: 0;
+        font-size: 1.55rem;
+      }
+      h3 {
+        margin: 0;
+        font-size: 1.08rem;
+      }
+      .section-summary {
+        margin: 8px 0 16px;
+        color: var(--muted);
+        max-width: 1100px;
+      }
+      .provenance-note {
+        margin: 18px 0 0;
+        color: var(--muted);
+      }
+      .read-guide-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      .read-guide-card {
+        padding: 14px 16px;
+        border: 1px solid var(--rule);
+        background: #fffdfa;
+      }
+      .read-guide-card h3 {
+        margin: 0;
+        font-size: 0.95rem;
+      }
+      .read-guide-card p {
+        margin: 8px 0 0;
+        color: var(--muted);
+        font-size: 0.88rem;
+        line-height: 1.45;
+      }
+      .provenance-chip,
+      .winner-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 1.9rem;
+        padding: 0 10px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: #4f4020;
+        font-size: 0.78rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .provenance-chip {
+        min-height: auto;
+        padding: 2px 8px;
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .unified-table thead th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule-strong);
+        text-align: center;
+        font-size: 0.9rem;
+        white-space: nowrap;
+      }
+      .unified-table tbody td,
+      .unified-table tbody th {
+        padding: 10px 12px;
+        border-bottom: 1px solid var(--rule);
+        text-align: center;
+        font-size: 0.92rem;
+        white-space: nowrap;
+      }
+      .unified-table .sticky-model-col {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        min-width: 250px;
+        text-align: left;
+        background: var(--paper);
+      }
+      .unified-table thead .sticky-model-col {
+        z-index: 2;
+      }
+      .group-head {
+        background: #f7f1e5;
+      }
+      .best-score {
+        font-weight: 800;
+      }
+      .model-label {
+        display: block;
+        font-weight: 700;
+        line-height: 1.25;
+      }
+      .model-detail {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 0.76rem;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+      .mode-cell-missing {
+        color: var(--muted);
+        background:
+          repeating-linear-gradient(
+            135deg,
+            rgba(208, 199, 187, 0.4) 0,
+            rgba(208, 199, 187, 0.4) 8px,
+            rgba(255, 253, 248, 0.96) 8px,
+            rgba(255, 253, 248, 0.96) 16px
+          );
+      }
+      .mode-block-list,
+      .app-block-list {
+        display: grid;
+        gap: 18px;
+      }
+      .mode-block,
+      .app-block {
+        padding: 16px;
+        border: 1px solid var(--rule);
+        background: #fffdfa;
+      }
+      .mode-block-header p,
+      .app-block-header p {
+        margin: 6px 0 0;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      .app-block-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+      .winner-chip-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      @media (max-width: 960px) {
+        main {
+          width: calc(100vw - 16px);
+          margin: 8px auto 18px;
+          padding: 18px 14px 24px;
+        }
+        .app-block-header {
+          flex-direction: column;
+        }
+        .unified-table .sticky-model-col {
+          min-width: 180px;
+        }
+        .unified-table thead th,
+        .unified-table tbody td,
+        .unified-table tbody th {
+          padding: 8px 9px;
+          font-size: 0.85rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header class="report-header">
+        <h1>${escapeHtml(report.title)}</h1>
+        <p class="subtitle">${escapeHtml(report.subtitle)}</p>
+        ${renderMeta(report)}
+        ${renderProvenanceNote(report)}
+      </header>
+      ${renderComparisonGuide()}
+      ${renderStandardizedModeTables(report, viewModel)}
+      ${renderStandardizedAppComparisons(viewModel)}
     </main>
   </body>
 </html>`;

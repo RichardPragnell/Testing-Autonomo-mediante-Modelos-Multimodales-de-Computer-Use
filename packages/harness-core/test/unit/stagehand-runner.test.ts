@@ -101,7 +101,7 @@ describe("stagehand runner guided helpers", () => {
         viewport: { width: 1280, height: 720 }
       },
       trace: trace as never,
-      cacheNamespace: "qa-cache"
+      cacheNamespace: "guided-cache"
     });
 
     expect(result.assertion.success).toBe(true);
@@ -128,7 +128,7 @@ describe("stagehand runner guided helpers", () => {
         viewport: { width: 1280, height: 720 }
       },
       trace: trace as never,
-      cacheNamespace: "qa-cache"
+      cacheNamespace: "guided-cache"
     });
 
     expect(result.assertion.success).toBe(false);
@@ -167,7 +167,7 @@ describe("stagehand runner guided helpers", () => {
         viewport: { width: 1280, height: 720 }
       },
       trace: trace as never,
-      cacheNamespace: "qa-cache",
+      cacheNamespace: "guided-cache",
       allowAgentFallback: true
     });
 

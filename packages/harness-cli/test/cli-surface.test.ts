@@ -17,7 +17,7 @@ describe("CLI surface", () => {
         cwd: cliDir
       });
 
-      expect(stdout).toContain("qa");
+      expect(stdout).toContain("guided");
       expect(stdout).toContain("explore");
       expect(stdout).toContain("heal");
       expect(stdout).toContain("report");
@@ -28,10 +28,10 @@ describe("CLI surface", () => {
   );
 
   it(
-    "uses optional app arguments for qa, explore, and heal and exposes report rebuild help",
+    "uses optional app arguments for guided, explore, and heal and exposes report rebuild help",
     async () => {
-      const [{ stdout: qaHelp }, { stdout: exploreHelp }, { stdout: healHelp }, { stdout: reportHelp }] = await Promise.all([
-        execFileAsync(process.execPath, [tsxCli, "src/index.ts", "qa", "--help"], {
+      const [{ stdout: guidedHelp }, { stdout: exploreHelp }, { stdout: healHelp }, { stdout: reportHelp }] = await Promise.all([
+        execFileAsync(process.execPath, [tsxCli, "src/index.ts", "guided", "--help"], {
           cwd: cliDir
         }),
         execFileAsync(process.execPath, [tsxCli, "src/index.ts", "explore", "--help"], {
@@ -45,19 +45,19 @@ describe("CLI surface", () => {
         })
       ]);
 
-      expect(qaHelp).toContain("qa [options] [app]");
-      expect(qaHelp).toContain("--profile <profile>");
-      expect(qaHelp).toContain("--models <ids...>");
-      expect(qaHelp).toContain("--trials <n>");
-      expect(qaHelp).toContain("--parallelism <n>");
-      expect(qaHelp).toContain("--app-parallelism <n>");
-      expect(qaHelp).toContain("--max-steps <n>");
-      expect(qaHelp).toContain("--timeout-ms <n>");
-      expect(qaHelp).toContain("--max-output-tokens <n>");
-      expect(qaHelp).not.toContain("--app <");
-      expect(qaHelp).not.toContain("--models-path");
-      expect(qaHelp).not.toContain("--results-dir");
-      expect(qaHelp).not.toContain("--preset");
+      expect(guidedHelp).toContain("guided [options] [app]");
+      expect(guidedHelp).toContain("--models <ids...>");
+      expect(guidedHelp).toContain("--trials <n>");
+      expect(guidedHelp).toContain("--parallelism <n>");
+      expect(guidedHelp).toContain("--app-parallelism <n>");
+      expect(guidedHelp).toContain("--max-steps <n>");
+      expect(guidedHelp).toContain("--timeout-ms <n>");
+      expect(guidedHelp).toContain("--max-output-tokens <n>");
+      expect(guidedHelp).not.toContain("--profile <profile>");
+      expect(guidedHelp).not.toContain("--app <");
+      expect(guidedHelp).not.toContain("--models-path");
+      expect(guidedHelp).not.toContain("--results-dir");
+      expect(guidedHelp).not.toContain("--preset");
 
       expect(exploreHelp).toContain("explore [options] [app]");
       expect(exploreHelp).toContain("--parallelism <n>");
@@ -66,7 +66,7 @@ describe("CLI surface", () => {
       expect(healHelp).toContain("--parallelism <n>");
       expect(healHelp).toContain("--app-parallelism <n>");
       expect(reportHelp).toContain("report [options] [mode]");
-      expect(reportHelp).toContain("qa, explore, or heal");
+      expect(reportHelp).toContain("guided, explore, or heal");
     },
     15_000
   );

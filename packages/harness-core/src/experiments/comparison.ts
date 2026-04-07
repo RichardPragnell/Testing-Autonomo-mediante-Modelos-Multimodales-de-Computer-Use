@@ -11,7 +11,11 @@ import type {
 } from "./types.js";
 import type { UsageCostSummary } from "../types.js";
 import { ensureDir, resolveWorkspacePath, writeJson, writeText } from "../utils/fs.js";
-import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
+import {
+  renderBenchmarkComparisonHtml,
+  renderBenchmarkFinalComparisonHtml,
+  renderBenchmarkStandardizedComparisonHtml
+} from "./report-matrix.js";
 import { buildBenchmarkSummaryFigures } from "./report-overview.js";
 import { average, formatCostSummary, mergeCostSources } from "./report-utils.js";
 
@@ -126,6 +130,7 @@ export function aggregateModeSection(
     summary,
     appIds,
     metricColumns: base.metricColumns,
+    scoreDefinition: base.scoreDefinition,
     rows,
     notes: unique(sections.flatMap((section) => section.notes)),
     audit: {
@@ -180,13 +185,24 @@ export async function persistComparisonReport(input: {
   prefix: string;
   stableName?: string;
   provenance?: BenchmarkComparisonProvenance;
+  htmlVariant?: "mode" | "benchmark-final";
 }): Promise<BenchmarkComparisonReport> {
   const reportsRoot = join(await resolveWorkspacePath(input.resultsDir), "compare");
   await ensureDir(reportsRoot);
   const fileBase = input.stableName ?? `${input.prefix}-${Date.now()}`;
   const finalReportPath = join(reportsRoot, `${fileBase}.html`);
   const finalJsonPath = join(reportsRoot, `${fileBase}.json`);
-  const keepNames = new Set([`${fileBase}.html`, `${fileBase}.json`]);
+  const supplementalReportBase =
+    input.htmlVariant === "benchmark-final"
+      ? input.stableName
+        ? `${input.prefix}-standardized-latest`
+        : `${fileBase}-standardized`
+      : undefined;
+  const keepNames = new Set([
+    `${fileBase}.html`,
+    `${fileBase}.json`,
+    ...(supplementalReportBase ? [`${supplementalReportBase}.html`, `${supplementalReportBase}.json`] : [])
+  ]);
 
   if (input.stableName) {
     try {
@@ -218,6 +234,27 @@ export async function persistComparisonReport(input: {
   };
 
   await writeJson(finalJsonPath, report);
-  await writeText(finalReportPath, renderBenchmarkComparisonHtml(report));
+  await writeText(
+    finalReportPath,
+    input.htmlVariant === "benchmark-final"
+      ? renderBenchmarkFinalComparisonHtml(report)
+      : renderBenchmarkComparisonHtml(report)
+  );
+
+  if (supplementalReportBase) {
+    const supplementalReportPath = join(reportsRoot, `${supplementalReportBase}.html`);
+    const supplementalJsonPath = join(reportsRoot, `${supplementalReportBase}.json`);
+    const supplementalReport: BenchmarkComparisonReport = {
+      ...report,
+      title: "Benchmark Standardized Tables Report",
+      subtitle: "Standardized benchmark tables by mode, followed by per-app model comparisons.",
+      finalReportPath: supplementalReportPath,
+      finalJsonPath: supplementalJsonPath
+    };
+
+    await writeJson(supplementalJsonPath, supplementalReport);
+    await writeText(supplementalReportPath, renderBenchmarkStandardizedComparisonHtml(supplementalReport));
+  }
+
   return report;
 }

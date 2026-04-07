@@ -11,6 +11,7 @@ import {
   executeGuidedTasks,
   formatDurationMs,
   mapWithConcurrency,
+  resolveExperimentRoot,
   resolveParallelism,
   readCandidateFileSnippets
 } from "./experiments/common.js";
@@ -286,6 +287,9 @@ export interface RunSelfHealInput {
 }
 
 function benchmarkRunKind(runId: string): BenchmarkRunKind | undefined {
+  if (runId.startsWith("guided-")) {
+    return "qa";
+  }
   if (runId.startsWith("qa-")) {
     return "qa";
   }
@@ -533,7 +537,7 @@ function comparisonConfig(kind: BenchmarkRunKind): {
     return {
       title: "Guided Mode Comparison",
       subtitleNoun: "guided",
-      prefix: "qa-compare"
+      prefix: "guided-compare"
     };
   }
   if (kind === "explore") {
@@ -558,6 +562,7 @@ async function persistLatestComparisonReport(input: {
   resultsDir: string;
   prefix: string;
   provenance?: BenchmarkComparisonProvenance;
+  htmlVariant?: "mode" | "benchmark-final";
 }): Promise<BenchmarkComparisonReport> {
   return persistComparisonReport({
     title: input.title,
@@ -567,7 +572,8 @@ async function persistLatestComparisonReport(input: {
     resultsDir: input.resultsDir,
     prefix: input.prefix,
     stableName: `${input.prefix}-latest`,
-    provenance: input.provenance
+    provenance: input.provenance,
+    htmlVariant: input.htmlVariant
   });
 }
 
@@ -610,7 +616,7 @@ async function listBenchmarkRunReports(
   kind: BenchmarkRunKind,
   resultsDir: string
 ): Promise<LatestBenchmarkReportRecord[]> {
-  const reportsDir = join(await resolveWorkspacePath(resultsDir), kind, "reports");
+  const reportsDir = join(await resolveExperimentRoot(resultsDir, kind), "reports");
   let entries;
   try {
     entries = await readdir(reportsDir, { withFileTypes: true });
@@ -722,7 +728,8 @@ async function persistModeComparisonForReports(
     modeSections: [built.modeSection],
     resultsDir,
     prefix: config.prefix,
-    provenance
+    provenance,
+    htmlVariant: "mode"
   });
 
   return {
@@ -951,7 +958,6 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
     runForApp: async (appId) => {
       return runQaExperiment({
         appId,
-        profile: input.profile,
         models: input.models,
         modelsPath: input.modelsPath,
         presetPath: input.presetPath,
@@ -1099,7 +1105,7 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
   for (const runId of runIds) {
     const kind = benchmarkRunKind(runId);
     if (!kind) {
-      throw new Error(`comparison only supports benchmark run ids (qa-, explore-, heal-); got ${runId}`);
+      throw new Error(`comparison only supports benchmark run ids (guided-, explore-, heal-); got ${runId}`);
     }
     grouped.set(kind, [...(grouped.get(kind) ?? []), runId]);
   }
@@ -1116,7 +1122,8 @@ export async function compareBenchmarkRuns(runIds: string[], resultsDir = "resul
     runIds: unique(runIds),
     modeSections: comparisons.map(([, comparison]) => comparison.modeSection),
     resultsDir,
-    prefix: "benchmark-compare"
+    prefix: "benchmark-compare",
+    htmlVariant: "benchmark-final"
   });
 }
 
@@ -1211,6 +1218,7 @@ export async function rebuildBenchmarkReports(
       modeSections,
       resultsDir,
       prefix: "benchmark-compare",
+      htmlVariant: "benchmark-final",
       provenance: toProvenance(
         selectedReports,
         "Rebuilt from the latest available report per mode, app, and model; report timestamps may differ across sections."

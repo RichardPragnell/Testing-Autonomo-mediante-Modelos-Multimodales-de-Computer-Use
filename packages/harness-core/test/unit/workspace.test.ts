@@ -137,7 +137,7 @@ describe("prepareRunWorkspace", () => {
       const suite = await createResolvedSuite(`http://${occupied.host}:${occupied.port}`, templatePath);
       const workspace = await prepareRunWorkspace({
         resolvedSuite: suite,
-        runId: "qa-test-run",
+        runId: "guided-test-run",
         resultsRoot: resultsDir
       });
 
@@ -170,12 +170,12 @@ describe("prepareRunWorkspace", () => {
     const [left, right] = await Promise.all([
       prepareRunWorkspace({
         resolvedSuite: suite,
-        runId: "qa-test-run-left",
+        runId: "guided-test-run-left",
         resultsRoot: resultsDir
       }),
       prepareRunWorkspace({
         resolvedSuite: suite,
-        runId: "qa-test-run-right",
+        runId: "guided-test-run-right",
         resultsRoot: resultsDir
       })
     ]);

@@ -30,7 +30,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
-import { computeQaScore } from "./scoring.js";
+import { computeQaScore, QA_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
   BenchmarkComparisonSection,
@@ -38,7 +38,6 @@ import type {
   CompareResult,
   CostGraph,
   ModeComparisonBuildResult,
-  QaExecutionProfile,
   QaExperimentSpec,
   QaLeaderboardEntry,
   QaModelMetrics,
@@ -49,15 +48,8 @@ import type {
 } from "./types.js";
 import type { ExperimentLogFn } from "./types.js";
 
-const FAST_QA_PROFILE = {
-  trials: 1,
-  timeoutMs: 45_000,
-  retryCount: 0,
-  maxSteps: 8,
-  maxOutputTokens: 300
-} as const;
-
-const FULL_QA_PROFILE = {
+const GUIDED_RUNTIME_DEFAULTS = {
+  profile: "full",
   maxOutputTokens: 600
 } as const;
 
@@ -83,7 +75,6 @@ const QA_METRIC_COLUMNS: BenchmarkMetricColumn[] = [
 
 export interface RunQaExperimentInput {
   appId: string;
-  profile?: QaExecutionProfile;
   models?: string[];
   modelsPath?: string;
   presetPath?: string;
@@ -112,26 +103,16 @@ async function loadQaPreset(pathLike?: string): Promise<z.infer<typeof qaPresetS
   return qaPresetSchema.parse(JSON.parse(raw));
 }
 
-function resolveQaProfile(profile?: QaExecutionProfile | string): QaExecutionProfile {
-  if (!profile) {
-    return "fast";
-  }
-  if (profile === "fast" || profile === "full") {
-    return profile;
-  }
-  throw new Error(`unsupported QA profile ${profile}`);
-}
-
 async function removePathIfExists(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
 
 export async function clearQaOutputs(resultsDir: string): Promise<void> {
-  const workspaceRoot = await resolveWorkspacePath(resultsDir);
+  const guidedRoot = await resolveExperimentRoot(resultsDir, "qa");
   await Promise.all([
-    removePathIfExists(join(workspaceRoot, "qa", "runs")),
-    removePathIfExists(join(workspaceRoot, "qa", "reports")),
-    removeComparisonReports(resultsDir, ["qa-compare", "benchmark-compare"])
+    removePathIfExists(join(guidedRoot, "runs")),
+    removePathIfExists(join(guidedRoot, "reports")),
+    removeComparisonReports(resultsDir, ["guided-compare", "qa-compare", "benchmark-compare"])
   ]);
 }
 
@@ -154,7 +135,7 @@ async function persistQaProgress(
   runId: string,
   progress: {
     appId: string;
-    profile: QaExecutionProfile;
+    profile: QaExperimentSpec["profile"];
     status: "running" | "completed";
     startedAt: string;
     updatedAt: string;
@@ -261,6 +242,7 @@ function buildQaSection(input: {
       : "No guided results were available.",
     appIds: [input.appId],
     metricColumns: QA_METRIC_COLUMNS,
+    scoreDefinition: QA_SCORE_DEFINITION,
     rows: input.leaderboard.map((entry) => ({
       modelId: entry.modelId,
       provider: entry.provider,
@@ -284,8 +266,8 @@ function buildQaSection(input: {
       ]
     })),
     notes: [
-      "Total Cost sums resolved guided spend across the full run.",
-      "Score and latency summarize the guided execution outcomes."
+      "Score is shown on a 0-100 scale where higher is better.",
+      "Total Cost sums resolved guided spend across the full run."
     ],
     audit: {
       title: "Guided Cost Audit",
@@ -407,7 +389,6 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
   const preset = await loadQaPreset(input.presetPath);
   const benchmark = await loadAppBenchmark(input.appId);
-  const profile = resolveQaProfile(input.profile);
   const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.qa.capabilityIds;
   const taskIds = capabilityIds.flatMap((capabilityId) => benchmark.capabilityMap.get(capabilityId)?.taskIds ?? []);
   const resultsDir = input.resultsDir ?? "results";
@@ -418,11 +399,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
   const requestedModels =
-    input.models ??
-    preset.models ??
-    (profile === "fast"
-      ? [registry.defaultModel]
-      : registry.models.filter((model) => model.enabled).map((model) => model.id));
+    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: QaExperimentSpec = {
     appId: input.appId,
@@ -430,31 +407,20 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     taskIds,
     models: models.map((model) => model.id),
     promptId: preset.promptId ?? benchmark.benchmark.prompts.qa,
-    profile,
-    trials:
-      input.trials ??
-      preset.trials ??
-      (profile === "fast" ? FAST_QA_PROFILE.trials : benchmark.benchmark.runtime.qaTrials),
+    profile: GUIDED_RUNTIME_DEFAULTS.profile,
+    trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.qaTrials,
     runtime: {
-      profile,
-      timeoutMs:
-        input.timeoutMs ??
-        (profile === "fast" ? FAST_QA_PROFILE.timeoutMs : benchmark.benchmark.runtime.timeoutMs),
-      retryCount:
-        input.retryCount ??
-        (profile === "fast" ? FAST_QA_PROFILE.retryCount : benchmark.benchmark.runtime.retryCount),
-      maxSteps:
-        input.maxSteps ??
-        (profile === "fast" ? FAST_QA_PROFILE.maxSteps : benchmark.benchmark.runtime.maxSteps),
-      maxOutputTokens:
-        input.maxOutputTokens ??
-        (profile === "fast" ? FAST_QA_PROFILE.maxOutputTokens : FULL_QA_PROFILE.maxOutputTokens),
+      profile: GUIDED_RUNTIME_DEFAULTS.profile,
+      timeoutMs: input.timeoutMs ?? benchmark.benchmark.runtime.timeoutMs,
+      retryCount: input.retryCount ?? benchmark.benchmark.runtime.retryCount,
+      maxSteps: input.maxSteps ?? benchmark.benchmark.runtime.maxSteps,
+      maxOutputTokens: input.maxOutputTokens ?? GUIDED_RUNTIME_DEFAULTS.maxOutputTokens,
       viewport: input.viewport ?? benchmark.benchmark.runtime.viewport
     },
     resultsDir
   };
 
-  const runId = `qa-${input.appId}-${Date.now()}`;
+  const runId = `guided-${input.appId}-${Date.now()}`;
   const parallelism = resolveParallelism(input.parallelism);
   const startedAt = nowIso();
   let completedTasks = 0;
@@ -462,7 +428,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const totalTasks = models.filter((model) => model.available).length * spec.trials * spec.taskIds.length;
   emitExperimentLog(
     input.onLog,
-    `[qa] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.taskIds.length} task(s), model parallelism ${parallelism}`
+    `[guided] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.taskIds.length} task(s), model parallelism ${parallelism}`
   );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
@@ -483,7 +449,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   );
   const buildProgress = (overrides: Partial<QaProgressRecord> = {}): QaProgressRecord => ({
     appId: input.appId,
-    profile,
+    profile: spec.profile,
     status: "running",
     startedAt,
     updatedAt: nowIso(),
@@ -501,7 +467,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
-        `[qa] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
+        `[guided] Skipping model ${modelIndex + 1}/${models.length} ${model.id}: ${model.reason ?? "unavailable"}`
       );
       return {
         model,
@@ -511,7 +477,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
       } satisfies QaModelSummary;
     }
 
-    emitExperimentLog(input.onLog, `[qa] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
+    emitExperimentLog(input.onLog, `[guided] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
     const trialResults: Array<{
       taskRuns: QaModelSummary["taskRuns"];
       capabilityRuns: QaModelSummary["capabilityRuns"];
@@ -521,7 +487,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
       const attemptRunId = `${runId}-model-${modelIndex + 1}-trial-${trial}`;
       emitExperimentLog(
         input.onLog,
-        `[qa] Trial ${trial}/${spec.trials} for ${model.id} started with a fresh workspace`
+        `[guided] Trial ${trial}/${spec.trials} for ${model.id} started with a fresh workspace`
       );
       const workspace = await prepareRunWorkspace({
         resolvedSuite,
@@ -543,7 +509,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
           usagePhase: "guided_task",
           systemPrompt: resolvedSuite.prompts.guided,
           onLog: input.onLog,
-          taskLabel: `[qa][${model.id}][trial ${trial}] guided task`,
+          taskLabel: `[guided][${model.id}][trial ${trial}] guided task`,
           onTaskRunComplete: async ({ taskIndex, taskId, result }) => {
             completedTasks += 1;
             allTaskRuns.push(result);
@@ -561,7 +527,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
         const passedTasks = execution.taskRuns.filter((run) => run.success).length;
         emitExperimentLog(
           input.onLog,
-          `[qa] Trial ${trial}/${spec.trials} for ${model.id} completed: ${passedTasks}/${execution.taskRuns.length} tasks passed`
+          `[guided] Trial ${trial}/${spec.trials} for ${model.id} completed: ${passedTasks}/${execution.taskRuns.length} tasks passed`
         );
 
         trialResults.push({
@@ -603,7 +569,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
     emitExperimentLog(
       input.onLog,
-      `[qa] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
+      `[guided] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
     );
     await writeProgress(
       buildProgress({
@@ -632,7 +598,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   );
   emitExperimentLog(
     input.onLog,
-    `[qa] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`
+    `[guided] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`
   );
   return output;
 }
@@ -672,8 +638,8 @@ export async function compareQaRuns(runIds: string[], resultsDir = "results"): P
     runIds,
     modeSections: [modeSection],
     resultsDir,
-    prefix: "qa-compare",
-    stableName: "qa-compare-latest"
+    prefix: "guided-compare",
+    stableName: "guided-compare-latest"
   });
 
   return {

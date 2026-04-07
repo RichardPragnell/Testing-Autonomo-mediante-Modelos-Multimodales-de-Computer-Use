@@ -10,7 +10,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "app:todo-react": "node node_modules/vite/bin/vite.js --config apps/todo-react/template/vite.config.js --host 127.0.0.1 --port 3101",
-    "qa": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts qa",
+    "guided": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts guided",
     "explore": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts explore",
     "heal": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts heal",
     "report": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts report",

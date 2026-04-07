@@ -1,8 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
+import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { startAut } from "../../src/runtime/aut.js";
 
@@ -87,6 +89,13 @@ async function readPid(pidPath: string): Promise<number> {
     throw new Error(`invalid pid value "${pidValue}"`);
   }
   return pid;
+}
+
+async function waitForExit(child: ReturnType<typeof spawn>): Promise<number> {
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
 }
 
 describe("startAut", () => {
@@ -179,5 +188,67 @@ describe("startAut", () => {
     await waitFor(() => !processExists(pid));
     expect(await isUrlReachable(url)).toBe(false);
     expect(releasedPorts).toBe(1);
+  });
+
+  it("kills the AUT process tree when the parent process exits without calling stop", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "aut-exit-cleanup-"));
+    tempDirs.push(dir);
+    const pidPath = join(dir, "server.pid");
+    const serverScriptPath = join(dir, "server.cjs");
+    const launcherPath = join(dir, "launcher.mjs");
+    const port = await allocatePort();
+    const url = `http://127.0.0.1:${port}`;
+    const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+
+    await writeFile(
+      serverScriptPath,
+      [
+        'const { createServer } = require("node:http");',
+        'const { writeFileSync } = require("node:fs");',
+        "const port = Number.parseInt(process.argv[2], 10);",
+        'const pidPath = process.argv[3];',
+        'const server = createServer((_req, res) => res.end("ok"));',
+        'server.listen(port, "127.0.0.1", () => {',
+        '  writeFileSync(pidPath, String(process.pid), "utf8");',
+        "});",
+        "setInterval(() => {}, 1_000);"
+      ].join("\n"),
+      "utf8"
+    );
+
+    await writeFile(
+      launcherPath,
+      [
+        'import { pathToFileURL } from "node:url";',
+        'const [repoRoot, serverScriptPath, pidPath, port] = process.argv.slice(2);',
+        'const { startAut } = await import(pathToFileURL(`${repoRoot}/packages/harness-core/src/runtime/aut.ts`).href);',
+        "await startAut(",
+        "  {",
+        '    command: `node "${serverScriptPath}" ${port} "${pidPath}"`,',
+        "    cwd: repoRoot,",
+        "    url: `http://127.0.0.1:${port}`",
+        "  },",
+        "  5_000,",
+        "  25",
+        ");",
+        "process.exit(0);"
+      ].join("\n"),
+      "utf8"
+    );
+
+    const child = spawn(
+      process.execPath,
+      [join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), launcherPath, repoRoot, serverScriptPath, pidPath, String(port)],
+      {
+        cwd: repoRoot,
+        stdio: "ignore"
+      }
+    );
+
+    expect(await waitForExit(child)).toBe(0);
+
+    const pid = await readPid(pidPath);
+    await waitFor(() => !processExists(pid));
+    expect(await isUrlReachable(url)).toBe(false);
   });
 });

@@ -1,7 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { computeExploreScore, computeHealScore, computeQaScore } from "../../src/experiments/scoring.js";
+import {
+  computeExploreScore,
+  computeHealScore,
+  computeQaScore,
+  EXPLORE_SCORE_DEFINITION,
+  HEAL_SCORE_DEFINITION,
+  QA_SCORE_DEFINITION
+} from "../../src/experiments/scoring.js";
 
 describe("experiment scoring", () => {
+  it("exposes canonical score metadata for every experiment mode", () => {
+    expect(QA_SCORE_DEFINITION.formula).toContain("Scenario Completion");
+    expect(QA_SCORE_DEFINITION.metrics.map((metric) => metric.label)).toContain("Task Pass");
+    expect(EXPLORE_SCORE_DEFINITION.formula).toContain("Capability Discovery");
+    expect(EXPLORE_SCORE_DEFINITION.metrics.map((metric) => metric.label)).toContain("State Coverage");
+    expect(HEAL_SCORE_DEFINITION.formula).toContain("Gated Outcome");
+    expect(HEAL_SCORE_DEFINITION.specialRules.some((rule) => rule.includes("Failing-Task Fix"))).toBe(true);
+  });
+
   it("penalizes guided runs with zero scenario completion", () => {
     const weak = computeQaScore({
       capabilityPassRate: 0.9,
