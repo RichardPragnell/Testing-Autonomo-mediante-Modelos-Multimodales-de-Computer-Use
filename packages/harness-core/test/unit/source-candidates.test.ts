@@ -4,8 +4,8 @@ import { buildSourceCandidates } from "../../src/diagnostics/source-candidates.j
 import { loadAppBenchmark } from "../../src/experiments/benchmark.js";
 import { buildResolvedSuite } from "../../src/experiments/common.js";
 
-async function loadResolvedSuite(taskIds: string[], bugIds: string[]) {
-  const benchmark = await loadAppBenchmark("todo-react");
+async function loadResolvedSuite(appId: string, taskIds: string[], bugIds: string[]) {
+  const benchmark = await loadAppBenchmark(appId);
   return buildResolvedSuite({
     resolvedBenchmark: benchmark,
     taskIds,
@@ -27,7 +27,7 @@ async function loadResolvedSuite(taskIds: string[], bugIds: string[]) {
 
 describe("buildSourceCandidates", () => {
   it("prioritizes todo-store for the seeded add-task bug", async () => {
-    const suite = await loadResolvedSuite(["guided-add-task"], ["new-task-label-lost"]);
+    const suite = await loadResolvedSuite("todo-react", ["guided-add-task"], ["new-task-label-lost"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-add-task");
     expect(task).toBeDefined();
@@ -65,7 +65,7 @@ describe("buildSourceCandidates", () => {
   });
 
   it("prioritizes todo-store and app rendering for completion failures", async () => {
-    const suite = await loadResolvedSuite(["guided-complete-task"], ["toggle-completion-noop"]);
+    const suite = await loadResolvedSuite("todo-react", ["guided-complete-task"], ["toggle-completion-noop"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-complete-task");
     expect(task).toBeDefined();
@@ -103,7 +103,7 @@ describe("buildSourceCandidates", () => {
   });
 
   it("prioritizes edit handlers for edit failures", async () => {
-    const suite = await loadResolvedSuite(["guided-edit-task"], ["edit-task-save-noop"]);
+    const suite = await loadResolvedSuite("todo-react", ["guided-edit-task"], ["edit-task-save-noop"]);
 
     const task = suite.tasks.find((item) => item.id === "guided-edit-task");
     expect(task).toBeDefined();
@@ -138,5 +138,81 @@ describe("buildSourceCandidates", () => {
     expect(candidates[0]?.workspaceRelativePath).toBe("src/todo-store.js");
     expect(candidates.some((candidate) => candidate.workspaceRelativePath === "src/App.jsx")).toBe(true);
     expect(candidates[0]?.reasons.join(" ")).toContain("edit-task-save-noop");
+  });
+
+  it("uses Angular component and store paths for Angular failures", async () => {
+    const suite = await loadResolvedSuite("todo-angular", ["guided-complete-task"], ["toggle-completion-noop"]);
+
+    const task = suite.tasks.find((item) => item.id === "guided-complete-task");
+    expect(task).toBeDefined();
+
+    const candidates = buildSourceCandidates({
+      workspacePath: join("C:", "bench", "todo-angular-workspace"),
+      suite,
+      task: task!,
+      result: {
+        taskId: "guided-complete-task",
+        trial: 1,
+        modelId: "mock/model",
+        success: false,
+        message: "completion summary did not update",
+        latencyMs: 1000,
+        costUsd: 0,
+        urlAfter: "http://127.0.0.1:3103",
+        domSnapshot: "<html><body><strong>0 of 2 tasks done</strong></body></html>",
+        trace: [
+          {
+            timestamp: "2026-03-08T00:00:00.000Z",
+            action: "mock.act",
+            details: { instruction: task!.instruction }
+          }
+        ],
+        error: "expected 1 of 2 tasks done"
+      },
+      category: "state",
+      message: "expected 1 of 2 tasks done"
+    });
+
+    expect(candidates[0]?.workspaceRelativePath).toBe("src/app/todo-store.ts");
+    expect(candidates[1]?.workspaceRelativePath).toBe("src/app/app.component.ts");
+    expect(candidates.some((candidate) => candidate.workspaceRelativePath === "src/App.jsx")).toBe(false);
+  });
+
+  it("uses Next.js page and store paths for Next.js failures", async () => {
+    const suite = await loadResolvedSuite("todo-nextjs", ["guided-complete-task"], ["toggle-completion-noop"]);
+
+    const task = suite.tasks.find((item) => item.id === "guided-complete-task");
+    expect(task).toBeDefined();
+
+    const candidates = buildSourceCandidates({
+      workspacePath: join("C:", "bench", "todo-nextjs-workspace"),
+      suite,
+      task: task!,
+      result: {
+        taskId: "guided-complete-task",
+        trial: 1,
+        modelId: "mock/model",
+        success: false,
+        message: "completion summary did not update",
+        latencyMs: 1000,
+        costUsd: 0,
+        urlAfter: "http://127.0.0.1:3102",
+        domSnapshot: "<html><body><strong>0 of 2 tasks done</strong></body></html>",
+        trace: [
+          {
+            timestamp: "2026-03-08T00:00:00.000Z",
+            action: "mock.act",
+            details: { instruction: task!.instruction }
+          }
+        ],
+        error: "expected 1 of 2 tasks done"
+      },
+      category: "state",
+      message: "expected 1 of 2 tasks done"
+    });
+
+    expect(candidates[0]?.workspaceRelativePath).toBe("app/todo-store.js");
+    expect(candidates[1]?.workspaceRelativePath).toBe("app/page.js");
+    expect(candidates.some((candidate) => candidate.workspaceRelativePath === "src/App.jsx")).toBe(false);
   });
 });

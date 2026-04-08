@@ -85,7 +85,7 @@ export async function withPatchedIsolatedWorktree<T>(input: {
 
   try {
     await writeFile(patchPath, input.patch, "utf8");
-    const applyResult = await execCommand(`git apply "${patchPath}"`, {
+    const applyResult = await execCommand(`git apply --whitespace=nowarn "${patchPath}"`, {
       cwd: worktreePath
     });
     if (applyResult.exitCode !== 0) {

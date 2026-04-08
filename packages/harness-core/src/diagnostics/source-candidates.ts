@@ -9,6 +9,8 @@ import type {
 
 type RouteHint = "composer" | "filter" | "editor" | "overview";
 
+type AppShape = "react" | "nextjs" | "angular";
+
 interface CandidateState {
   path: string;
   workspaceRelativePath: string;
@@ -16,52 +18,153 @@ interface CandidateState {
   reasons: Set<string>;
 }
 
-const routeFiles: Record<RouteHint, Array<{ path: string; score: number; reason: string }>> = {
-  overview: [
-    { path: "src/App.jsx", score: 24, reason: "overview hint points to the main React app shell" },
-    { path: "src/todo-store.js", score: 20, reason: "overview hint points to shared todo state helpers" }
-  ],
-  composer: [
-    { path: "src/todo-store.js", score: 34, reason: "composer hint points to todo creation logic" },
-    { path: "src/App.jsx", score: 26, reason: "composer hint points to form wiring and rendering" }
-  ],
-  filter: [
-    { path: "src/todo-store.js", score: 34, reason: "filter hint points to todo filtering and completion logic" },
-    { path: "src/App.jsx", score: 24, reason: "filter hint points to filter controls and list rendering" }
-  ],
-  editor: [
-    { path: "src/todo-store.js", score: 32, reason: "editor hint points to todo update logic" },
-    { path: "src/App.jsx", score: 28, reason: "editor hint points to edit controls and save or cancel wiring" }
-  ]
+const appShapeFiles: Record<
+  AppShape,
+  {
+    shell: string;
+    store: string;
+    bootstrap: string;
+    editor: string;
+    shellLabel: string;
+    storeLabel: string;
+    bootstrapLabel: string;
+  }
+> = {
+  react: {
+    shell: "src/App.jsx",
+    store: "src/todo-store.js",
+    bootstrap: "src/main.jsx",
+    editor: "src/todo-editor.js",
+    shellLabel: "main React app shell",
+    storeLabel: "shared todo state helpers",
+    bootstrapLabel: "React app bootstrap"
+  },
+  nextjs: {
+    shell: "app/page.js",
+    store: "app/todo-store.js",
+    bootstrap: "app/layout.js",
+    editor: "app/todo-editor.js",
+    shellLabel: "main Next.js page component",
+    storeLabel: "shared todo state helpers",
+    bootstrapLabel: "Next.js app shell"
+  },
+  angular: {
+    shell: "src/app/app.component.ts",
+    store: "src/app/todo-store.ts",
+    bootstrap: "src/main.ts",
+    editor: "src/app/todo-editor.ts",
+    shellLabel: "main Angular component with the inline template",
+    storeLabel: "shared todo state helpers",
+    bootstrapLabel: "Angular app bootstrap"
+  }
 };
 
-const categoryFiles: Record<FailureCategory, Array<{ path: string; score: number; reason: string }>> = {
-  assertion: [
-    { path: "src/App.jsx", score: 22, reason: "assertion failures often surface in rendered React output" },
-    { path: "src/todo-store.js", score: 12, reason: "assertion failures can come from incorrect todo state helpers" }
-  ],
-  locator: [
-    { path: "src/App.jsx", score: 30, reason: "locator failures usually come from changed JSX or missing elements" },
-    { path: "src/main.jsx", score: 12, reason: "locator failures can come from incorrect app bootstrap" }
-  ],
-  navigation: [
-    { path: "src/main.jsx", score: 22, reason: "navigation failures can come from broken React bootstrap" },
-    { path: "src/App.jsx", score: 16, reason: "navigation failures can come from top-level app rendering" }
-  ],
-  state: [
-    { path: "src/todo-store.js", score: 24, reason: "state failures often originate in todo mutation helpers" },
-    { path: "src/App.jsx", score: 14, reason: "state failures can come from React event wiring" }
-  ],
-  timeout: [
-    { path: "src/App.jsx", score: 18, reason: "timeouts can come from render loops or stalled UI updates" },
-    { path: "src/main.jsx", score: 12, reason: "timeouts can come from app startup issues" }
-  ],
-  unexpected_ui: [
-    { path: "src/App.jsx", score: 30, reason: "unexpected UI usually comes from conditional JSX or list rendering" },
-    { path: "src/todo-store.js", score: 16, reason: "unexpected UI can be triggered by incorrect todo state values" }
-  ],
-  unknown: [{ path: "src/App.jsx", score: 8, reason: "fallback candidate from the shared app shell" }]
+const categoryLabels: Record<AppShape, Record<FailureCategory, string>> = {
+  react: {
+    assertion: "assertion failures often surface in rendered React output",
+    locator: "locator failures usually come from changed JSX or missing elements",
+    navigation: "navigation failures can come from broken React bootstrap",
+    state: "state failures can come from React event wiring",
+    timeout: "timeouts can come from render loops or stalled UI updates",
+    unexpected_ui: "unexpected UI usually comes from conditional JSX or list rendering",
+    unknown: "fallback candidate from the shared React app shell"
+  },
+  nextjs: {
+    assertion: "assertion failures often surface in rendered Next.js page output",
+    locator: "locator failures usually come from changed page markup or missing elements",
+    navigation: "navigation failures can come from broken Next.js app shell or page wiring",
+    state: "state failures can come from page event wiring",
+    timeout: "timeouts can come from stalled client rendering or hydration issues",
+    unexpected_ui: "unexpected UI usually comes from conditional page rendering",
+    unknown: "fallback candidate from the shared Next.js page shell"
+  },
+  angular: {
+    assertion: "assertion failures often surface in rendered Angular component output",
+    locator: "locator failures usually come from changed Angular template markup or missing elements",
+    navigation: "navigation failures can come from broken Angular bootstrap",
+    state: "state failures can come from Angular event wiring",
+    timeout: "timeouts can come from stalled Angular rendering or change detection",
+    unexpected_ui: "unexpected UI usually comes from conditional Angular template rendering",
+    unknown: "fallback candidate from the shared Angular component shell"
+  }
 };
+
+function detectAppShape(suite: ResolvedBenchmarkSuite): AppShape {
+  const targetId = suite.target.target.targetId.toLowerCase();
+  if (targetId.includes("angular")) {
+    return "angular";
+  }
+  if (targetId.includes("next")) {
+    return "nextjs";
+  }
+
+  const touchedFiles = suite.selectedBugs.flatMap((bug) => bug.touchedFiles.map((file) => file.toLowerCase()));
+  if (touchedFiles.some((file) => file.startsWith("src/app/") || file.endsWith(".ts"))) {
+    return "angular";
+  }
+  if (touchedFiles.some((file) => file.startsWith("app/"))) {
+    return "nextjs";
+  }
+  return "react";
+}
+
+function buildRouteFiles(appShape: AppShape): Record<RouteHint, Array<{ path: string; score: number; reason: string }>> {
+  const files = appShapeFiles[appShape];
+  return {
+    overview: [
+      { path: files.shell, score: 24, reason: `overview hint points to the ${files.shellLabel}` },
+      { path: files.store, score: 20, reason: `overview hint points to ${files.storeLabel}` }
+    ],
+    composer: [
+      { path: files.store, score: 34, reason: "composer hint points to todo creation logic" },
+      { path: files.shell, score: 26, reason: "composer hint points to form wiring and rendering" }
+    ],
+    filter: [
+      { path: files.store, score: 34, reason: "filter hint points to todo filtering and completion logic" },
+      { path: files.shell, score: 24, reason: "filter hint points to filter controls and list rendering" }
+    ],
+    editor: [
+      { path: files.store, score: 32, reason: "editor hint points to todo update logic" },
+      { path: files.shell, score: 28, reason: "editor hint points to edit controls and save or cancel wiring" },
+      { path: files.editor, score: 18, reason: "editor hint points to shared edit-state helpers" }
+    ]
+  };
+}
+
+function buildCategoryFiles(
+  appShape: AppShape
+): Record<FailureCategory, Array<{ path: string; score: number; reason: string }>> {
+  const files = appShapeFiles[appShape];
+  const labels = categoryLabels[appShape];
+
+  return {
+    assertion: [
+      { path: files.shell, score: 22, reason: labels.assertion },
+      { path: files.store, score: 12, reason: "assertion failures can come from incorrect todo state helpers" }
+    ],
+    locator: [
+      { path: files.shell, score: 30, reason: labels.locator },
+      { path: files.bootstrap, score: 12, reason: `${labels.locator} or broken ${files.bootstrapLabel.toLowerCase()}` }
+    ],
+    navigation: [
+      { path: files.bootstrap, score: 22, reason: labels.navigation },
+      { path: files.shell, score: 16, reason: `navigation failures can come from broken ${files.shellLabel}` }
+    ],
+    state: [
+      { path: files.store, score: 24, reason: "state failures often originate in todo mutation helpers" },
+      { path: files.shell, score: 14, reason: labels.state }
+    ],
+    timeout: [
+      { path: files.shell, score: 18, reason: labels.timeout },
+      { path: files.bootstrap, score: 12, reason: "timeouts can come from app startup issues" }
+    ],
+    unexpected_ui: [
+      { path: files.shell, score: 30, reason: labels.unexpected_ui },
+      { path: files.store, score: 16, reason: "unexpected UI can be triggered by incorrect todo state values" }
+    ],
+    unknown: [{ path: files.shell, score: 8, reason: labels.unknown }]
+  };
+}
 
 function normalizeRelativePath(path: string): string {
   return path.replaceAll("\\", "/");
@@ -128,6 +231,10 @@ export function buildSourceCandidates(input: {
   includeBugHints?: boolean;
 }): SourceCandidate[] {
   const candidates = new Map<string, CandidateState>();
+  const appShape = detectAppShape(input.suite);
+  const routeFiles = buildRouteFiles(appShape);
+  const categoryFiles = buildCategoryFiles(appShape);
+  const files = appShapeFiles[appShape];
   const routeHint = detectRouteHint([
     input.task.id,
     input.task.instruction,
@@ -167,7 +274,7 @@ export function buildSourceCandidates(input: {
     addCandidate(
       candidates,
       input.workspacePath,
-      "src/todo-store.js",
+      files.store,
       24,
       "filter state failures often originate in todo toggle or filtering helpers"
     );
@@ -177,7 +284,7 @@ export function buildSourceCandidates(input: {
     addCandidate(
       candidates,
       input.workspacePath,
-      "src/todo-store.js",
+      files.store,
       24,
       "composer assertion failures often originate in todo creation helpers"
     );

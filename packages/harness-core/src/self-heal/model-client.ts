@@ -119,6 +119,8 @@ Return strict JSON only with this shape:
 Rules:
 - The patch must be a valid unified diff against the workspace root.
 - Prefer the smallest correct fix.
+- Treat candidate file paths as exact workspace-relative paths for this app.
+- Prefer editing existing candidate files instead of inventing framework-specific alternates.
 - Do not mention the benchmark harness.
 - If you are unsure, still provide the most plausible small patch.
 
@@ -238,17 +240,27 @@ export class MockRepairModelClient implements RepairModelClient {
     let suspectedFiles: string[] = [];
     let summary = "No likely fix found.";
 
-    const storeFile = files.find((file) => file.path === "src/todo-store.js");
+    const storeFile = files.find((file) =>
+      ["src/todo-store.js", "app/todo-store.js", "src/app/todo-store.ts"].includes(file.path)
+    );
     if (storeFile) {
-      suspectedFiles = ["src/todo-store.js"];
+      suspectedFiles = [storeFile.path];
+      const isAngularStore = storeFile.path === "src/app/todo-store.ts";
+      const toggleHunkHeader = isAngularStore
+        ? "@@ -22,7 +22,7 @@ export function addTodo(todos: Todo[], text: string): Todo[] {"
+        : "@@ -14,7 +14,7 @@ export function addTodo(todos, text) {";
 
       if (failingTaskIds.has("guided-add-task") && storeFile.content.includes('text: "New task"')) {
         summary = "Todo creation ignores the submitted label in the shared store helper.";
         patch = [
-          "--- a/src/todo-store.js",
-          "+++ b/src/todo-store.js",
-          "@@ -6,7 +6,7 @@ export const initialTodos = [",
-          " export function createTodo(text) {",
+          `--- a/${storeFile.path}`,
+          `+++ b/${storeFile.path}`,
+          isAngularStore
+            ? "@@ -14,7 +14,7 @@ export function createTodo(text: string): Todo {"
+            : "@@ -6,7 +6,7 @@ export const initialTodos = [",
+          isAngularStore
+            ? " export function createTodo(text: string): Todo {"
+            : " export function createTodo(text) {",
           "   return {",
           "     id: `todo-${Math.random().toString(36).slice(2, 10)}`,",
           '-    text: "New task",',
@@ -264,17 +276,21 @@ export class MockRepairModelClient implements RepairModelClient {
       ) {
         summary = "Todo completion never updates the `done` flag in the shared store helper.";
         patch = [
-          "--- a/src/todo-store.js",
-          "+++ b/src/todo-store.js",
-          "@@ -19,7 +19,7 @@ export function addTodo(todos, text) {",
+          `--- a/${storeFile.path}`,
+          `+++ b/${storeFile.path}`,
+          toggleHunkHeader,
           " }",
           " ",
-          " export function toggleTodo(todos, id) {",
+          isAngularStore
+            ? " export function toggleTodo(todos: Todo[], id: string): Todo[] {"
+            : " export function toggleTodo(todos, id) {",
           "-  return todos;",
           "+  return todos.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo));",
           " }",
           " ",
-          " export function updateTodoText(todos, id, text) {"
+          isAngularStore
+            ? " export function updateTodoText(todos: Todo[], id: string, text: string): Todo[] {"
+            : " export function updateTodoText(todos, id, text) {"
         ].join("\n");
       } else if (
         failingTaskIds.has("guided-edit-task") &&
@@ -283,9 +299,11 @@ export class MockRepairModelClient implements RepairModelClient {
       ) {
         summary = "Todo editing discards the updated text in the shared store helper.";
         patch = [
-          "--- a/src/todo-store.js",
-          "+++ b/src/todo-store.js",
-          "@@ -29,7 +29,7 @@ export function updateTodoText(todos, id, text) {",
+          `--- a/${storeFile.path}`,
+          `+++ b/${storeFile.path}`,
+          isAngularStore
+            ? "@@ -34,7 +34,7 @@ export function updateTodoText(todos: Todo[], id: string, text: string): Todo[] {"
+            : "@@ -29,7 +29,7 @@ export function updateTodoText(todos, id, text) {",
           "     return todos;",
           "   }",
           " ",
