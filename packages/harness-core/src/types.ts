@@ -52,7 +52,8 @@ export interface ModelRegistry {
 export type AiCostSource = "exact" | "estimated" | "unavailable";
 
 export type AiUsagePhase =
-  | "guided_task"
+  | "guided_scenario"
+  | "guided_step"
   | "exploration"
   | "probe_replay"
   | "reproduction"
@@ -109,28 +110,50 @@ export interface UsageCostSummary {
   unavailableCalls: number;
 }
 
-export type TaskExpectationType = "contains" | "url_contains" | "text_visible" | "text_not_visible";
+export type BenchmarkScenarioSource = "synthetic" | "generated";
 
-export interface TaskExpectation {
-  type: TaskExpectationType;
-  value: string;
+export interface ObserveScenarioAssertion {
+  assertionId: string;
+  type: "observe";
+  instruction: string;
+  exists: boolean;
+  method?: string;
+  descriptionContains?: string;
 }
 
-export type BenchmarkTaskSource = "synthetic" | "generated";
+export type ExtractAssertionResultType = "string" | "number" | "boolean" | "string_array";
 
-export interface BenchmarkTask {
-  id: string;
+export type ExtractScenarioAssertionMatch =
+  | { equals: string | number | boolean }
+  | { contains: string }
+  | { not_contains: string }
+  | { includes: string }
+  | { excludes: string };
+
+export interface ExtractScenarioAssertion {
+  assertionId: string;
+  type: "extract";
   instruction: string;
-  expected: TaskExpectation;
-  source: BenchmarkTaskSource;
+  selector?: string;
+  resultType: ExtractAssertionResultType;
+  match: ExtractScenarioAssertionMatch;
+}
+
+export type BenchmarkScenarioAssertion = ObserveScenarioAssertion | ExtractScenarioAssertion;
+
+export interface BenchmarkScenarioStep {
+  stepId: string;
+  title: string;
+  actionInstruction?: string;
+  assertions: BenchmarkScenarioAssertion[];
   scenarioId?: string;
 }
 
 export interface BenchmarkScenario {
   scenarioId: string;
   title: string;
-  source: BenchmarkTaskSource;
-  tasks: BenchmarkTask[];
+  source: BenchmarkScenarioSource;
+  steps: BenchmarkScenarioStep[];
 }
 
 export interface BugPackDefinition {
@@ -140,7 +163,7 @@ export interface BugPackDefinition {
   category: FailureCategory;
   severity: "low" | "medium" | "high";
   patchPath: string;
-  expectedFailureTaskIds: string[];
+  expectedFailureScenarioIds: string[];
   validationCommand?: string;
 }
 
@@ -213,7 +236,6 @@ export interface ResolvedBenchmarkSuite {
   target: ResolvedBenchmarkTarget;
   selectedScenarios: BenchmarkScenario[];
   selectedBugs: ResolvedBugPack[];
-  tasks: BenchmarkTask[];
   prompts: ResolvedPromptSet;
 }
 
@@ -255,7 +277,9 @@ export interface Finding {
   id: string;
   runId: string;
   modelId: string;
-  taskId: string;
+  scenarioId: string;
+  stepId: string;
+  assertionId?: string;
   trial: number;
   severity: "low" | "medium" | "high";
   category: FailureCategory;
@@ -278,7 +302,7 @@ export interface OperationTrace {
   details?: Record<string, unknown>;
 }
 
-export type CacheMode = "agent_native" | "act_native" | "observe_manual";
+export type CacheMode = "scenario_native" | "observe_manual";
 
 export type CacheStatus = "hit" | "miss" | "refreshed_after_failure";
 
@@ -413,8 +437,31 @@ export interface ExplorationArtifact {
   summary: ExplorationSummary;
 }
 
-export interface TaskRunResult {
-  taskId: string;
+export interface ScenarioAssertionRun {
+  assertionId: string;
+  type: BenchmarkScenarioAssertion["type"];
+  success: boolean;
+  message: string;
+  observedActions?: ObservedAction[];
+  extractedValue?: string | number | boolean | string[];
+  error?: string;
+}
+
+export interface ScenarioStepRun {
+  stepId: string;
+  title: string;
+  success: boolean;
+  message: string;
+  actionInstruction?: string;
+  observedActions?: ObservedAction[];
+  executedAction?: ObservedAction;
+  assertionRuns: ScenarioAssertionRun[];
+  urlAfter?: string;
+}
+
+export interface ScenarioRunResult {
+  scenarioId: string;
+  scenarioTitle: string;
   trial: number;
   modelId: string;
   success: boolean;
@@ -430,6 +477,7 @@ export interface TaskRunResult {
   historyEntries?: StagehandHistoryEntry[];
   cache?: CacheTelemetry;
   error?: string;
+  stepRuns: ScenarioStepRun[];
 }
 
 export interface CoverageGraphNode {
@@ -464,9 +512,9 @@ export interface StagehandRunConfig {
   };
 }
 
-export interface RunTaskInput {
+export interface RunScenarioInput {
   model: ModelAvailability;
-  task: BenchmarkTask;
+  scenario: BenchmarkScenario;
   trial: number;
   aut: AutConfig;
   runConfig: StagehandRunConfig;
@@ -476,7 +524,7 @@ export interface RunTaskInput {
 }
 
 export interface AutomationRunner {
-  runTask(input: RunTaskInput): Promise<TaskRunResult>;
+  runScenario(input: RunScenarioInput): Promise<ScenarioRunResult>;
   exploreTarget?(input: {
     model: ModelAvailability;
     trial: number;
@@ -489,5 +537,3 @@ export interface AutomationRunner {
     workspacePath: string;
   }): Promise<ExplorationArtifact>;
 }
-
-export type ExperimentTask = BenchmarkTask;

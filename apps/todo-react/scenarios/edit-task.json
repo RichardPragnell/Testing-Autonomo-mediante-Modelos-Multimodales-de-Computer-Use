@@ -1,0 +1,84 @@
+{
+  "scenarioId": "edit-task",
+  "title": "Edit an existing task label",
+  "source": "generated",
+  "steps": [
+    {
+      "stepId": "edit-task.open-editor",
+      "title": "Enter edit mode for the first task",
+      "actionInstruction": "click the Edit button for the task Plan todo benchmark",
+      "assertions": [
+        {
+          "assertionId": "edit-task.save-visible",
+          "type": "observe",
+          "instruction": "find the Save button for the task being edited",
+          "exists": true,
+          "method": "click"
+        },
+        {
+          "assertionId": "edit-task.input-seeded",
+          "type": "extract",
+          "instruction": "extract the current value of the Edit task input",
+          "resultType": "string",
+          "match": {
+            "equals": "Plan todo benchmark"
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "edit-task.fill-editor",
+      "title": "Update the edit draft",
+      "actionInstruction": "type Plan todo benchmark outline into the Edit task input",
+      "assertions": [
+        {
+          "assertionId": "edit-task.input-updated",
+          "type": "extract",
+          "instruction": "extract the current value of the Edit task input",
+          "resultType": "string",
+          "match": {
+            "equals": "Plan todo benchmark outline"
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "edit-task.save",
+      "title": "Save the edited task",
+      "actionInstruction": "click the Save button",
+      "assertions": [
+        {
+          "assertionId": "edit-task.edit-visible",
+          "type": "observe",
+          "instruction": "find the Edit button for the task Plan todo benchmark outline",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "edit-task.assert-label",
+      "title": "Verify the updated label is visible",
+      "assertions": [
+        {
+          "assertionId": "edit-task.updated-visible",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "includes": "Plan todo benchmark outline"
+          }
+        },
+        {
+          "assertionId": "edit-task.original-hidden",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "excludes": "Plan todo benchmark"
+          }
+        }
+      ]
+    }
+  ]
+}

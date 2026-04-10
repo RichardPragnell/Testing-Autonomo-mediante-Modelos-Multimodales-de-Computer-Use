@@ -1,8 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { buildOpenRouterUsageRecord, parseOpenRouterUsage } from "../../src/ai/openrouter.js";
+import {
+  buildOpenRouterUsageRecord,
+  buildPinnedOpenRouterProviderOptions,
+  parseOpenRouterUsage
+} from "../../src/ai/openrouter.js";
 import { formatUsageCost, summarizeAiUsage, summarizeUsageCosts } from "../../src/ai/usage.js";
 
 describe("openrouter usage parsing", () => {
+  it("builds provider options that pin routing to one provider", () => {
+    expect(buildPinnedOpenRouterProviderOptions("openai")).toEqual({
+      "openrouter.chat": {
+        provider: {
+          only: ["openai"],
+          allow_fallbacks: false
+        }
+      }
+    });
+  });
+
   it("normalizes exact billing and token fields from the response usage payload", () => {
     const usage = parseOpenRouterUsage({
       prompt_tokens: 100,

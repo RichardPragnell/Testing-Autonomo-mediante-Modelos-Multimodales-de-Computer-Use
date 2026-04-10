@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureDir, writeJson, writeText } from "../utils/fs.js";
-import type { DiagnosisArtifacts, ExplorationArtifact, TaskRunResult } from "../types.js";
+import type { DiagnosisArtifacts, ExplorationArtifact, ScenarioRunResult } from "../types.js";
 
 export function runDirectory(resultsRoot: string, runId: string): string {
   return join(resultsRoot, "runs", runId);
@@ -27,17 +27,17 @@ async function persistExplorationFiles(baseDir: string, artifact: ExplorationArt
   return artifactPath;
 }
 
-export async function persistTaskArtifacts(
+export async function persistScenarioArtifacts(
   resultsRoot: string,
   runId: string,
   modelId: string,
-  run: TaskRunResult
+  run: ScenarioRunResult
 ): Promise<DiagnosisArtifacts> {
   const baseDir = join(
     runDirectory(resultsRoot, runId),
     "artifacts",
     safePathSegment(modelId),
-    `${safePathSegment(run.taskId)}__trial_${run.trial}`
+    `${safePathSegment(run.scenarioId)}__trial_${run.trial}`
   );
   await ensureDir(baseDir);
 
@@ -55,6 +55,7 @@ export async function persistTaskArtifacts(
   const tracePath = join(baseDir, "trace.json");
   await writeJson(tracePath, run.trace);
   artifacts.tracePath = tracePath;
+  await writeJson(join(baseDir, "step-runs.json"), run.stepRuns);
   return artifacts;
 }
 

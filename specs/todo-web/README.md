@@ -2,14 +2,14 @@
 
 This directory is the framework-agnostic source of truth for the benchmark todo app.
 
-Use [contract.json](/c:/Projects/master/specs/todo-web/contract.json) when building another implementation in Vue, Svelte, Angular, Next, Solid, or any other web stack.
+Use [contract.json](./contract.json) when building another implementation in Vue, Svelte, Angular, Next, Solid, or any other web stack.
 
 Keep these identical across implementations:
 
 - seeded todo data and summary text
-- scenario ids, task instructions, and expected outcomes
+- scenario ids, ordered step definitions, and expected outcomes
 - capability ids and heal case ids
-- logical bug pack ids and their expected failing tasks
+- logical bug pack ids and their expected failing scenarios
 - accessible labels, button text, and automation hook attributes
 
 These can vary:
@@ -30,5 +30,5 @@ Responsibility split:
 
 - `specs/todo-web/contract.json`: canonical behavior and benchmark contract
 - `apps/<framework-app>/target.json`: local dev server and validation command for one implementation
-- `apps/<framework-app>/benchmark.json`: framework-specific binding to the shared task and heal contract
+- `apps/<framework-app>/benchmark.json`: framework-specific binding to the shared scenario and heal contract
 - `apps/<framework-app>/bugs/<bugId>`: framework-specific patch implementing the shared bug semantics

@@ -2,9 +2,9 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
-import type { ActionCacheEntry, AutomationRunner, ModelAvailability } from "../types.js";
+import type { ActionCacheEntry, AutomationRunner, BenchmarkScenario, ModelAvailability } from "../types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
-import { summarizeTaskRunCache } from "../cache/summary.js";
+import { summarizeScenarioRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { matchActionCache } from "../exploration/action-cache.js";
@@ -24,13 +24,13 @@ import {
 import {
   buildResolvedSuite,
   emitExperimentLog,
-  executeGuidedTasks,
+  executeGuidedScenarios,
   formatDurationMs,
   mapWithConcurrency,
   resolveExperimentRoot,
   resolveParallelism,
   round,
-  summarizeTaskRuns,
+  summarizeScenarioRuns,
   unique
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
@@ -59,7 +59,7 @@ import type { ExperimentLogFn } from "./types.js";
 const explorePresetSchema = z
   .object({
     capabilityIds: z.array(z.string()).optional(),
-    probeTaskIds: z.array(z.string()).optional(),
+    probeScenarioIds: z.array(z.string()).optional(),
     promptId: z.string().optional(),
     trials: z.number().int().min(1).optional(),
     models: z.array(z.string()).optional()
@@ -73,7 +73,7 @@ const EXPLORE_METRIC_COLUMNS: BenchmarkMetricColumn[] = [
   { key: "transitionCoverage", label: "Transition Coverage", kind: "percent", aggregate: "mean" },
   { key: "probeReplay", label: "Probe Replay", kind: "percent", aggregate: "mean" },
   { key: "actionDiversity", label: "Action Diversity", kind: "percent", aggregate: "mean" },
-  { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+  { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
   { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
   { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
 ];
@@ -252,7 +252,7 @@ function buildExploreSection(input: {
     })),
     notes: [
       "Score is shown on a 0-100 scale where higher is better.",
-      "Capability Discovery, State Coverage, and Transition Coverage are the primary exploration outcomes.",
+      "Capability Discovery and probe replay carry the strongest weight, with state and transition coverage providing the supporting breadth signal.",
       "Total Cost sums resolved exploration spend across the full run."
     ],
     audit: {
@@ -327,6 +327,57 @@ async function persistExploreOutput(resultsRoot: string, artifact: ExploreRunArt
   };
 }
 
+function scenarioActionHints(scenario: BenchmarkScenario): Array<{ stepId: string; instruction: string }> {
+  const hints: Array<{ stepId: string; instruction: string }> = [];
+  for (const step of scenario.steps) {
+    if (step.actionInstruction) {
+      hints.push({ stepId: step.stepId, instruction: step.actionInstruction });
+    }
+    for (const assertion of step.assertions) {
+      if (assertion.type === "observe") {
+        hints.push({ stepId: step.stepId, instruction: assertion.instruction });
+      }
+    }
+  }
+  return hints;
+}
+
+function discoverScenario(
+  scenario: BenchmarkScenario,
+  actionCache: ActionCacheEntry[],
+  hasVisitedRoot: boolean
+): { discovered: boolean; matchedStepIds: string[]; matchedActionIds: string[] } {
+  const hints = scenarioActionHints(scenario);
+  if (hints.length === 0) {
+    return {
+      discovered: hasVisitedRoot,
+      matchedStepIds: hasVisitedRoot && scenario.steps[0] ? [scenario.steps[0].stepId] : [],
+      matchedActionIds: []
+    };
+  }
+
+  const matchedStepIds: string[] = [];
+  const matchedActionIds: string[] = [];
+  for (const hint of hints) {
+    const matches = matchActionCache({
+      cache: actionCache,
+      instruction: hint.instruction,
+      limit: 3
+    });
+    if (matches.length === 0) {
+      continue;
+    }
+    matchedStepIds.push(hint.stepId);
+    matchedActionIds.push(...matches.map((entry) => entry.actionId));
+  }
+
+  return {
+    discovered: matchedActionIds.length > 0,
+    matchedStepIds: unique(matchedStepIds),
+    matchedActionIds: unique(matchedActionIds)
+  };
+}
+
 function computeModelMetrics(summaryInput: {
   model: ModelAvailability;
   trials: ExploreTrialArtifact[];
@@ -341,7 +392,7 @@ function computeModelMetrics(summaryInput: {
     ? round(discoveries.filter((item) => item.discovered).length / discoveries.length)
     : 0;
   const probeRuns = summaryInput.trials.flatMap((trial) => trial.probeRuns);
-  const probeSummary = summarizeTaskRuns(probeRuns.map((item) => item.taskRun));
+  const probeSummary = summarizeScenarioRuns(probeRuns.map((item) => item.scenarioRun));
   const totalUsage = sumAiUsageSummaries(summaryInput.trials.map((trial) => trial.totalUsage));
   const costSummary = summarizeUsageCosts(summaryInput.trials.map((trial) => trial.totalUsage), summaryInput.trials.length);
   const avgStates = summaryInput.trials.reduce((sum, trial) => sum + trial.statesDiscovered, 0) / summaryInput.trials.length;
@@ -362,7 +413,7 @@ function computeModelMetrics(summaryInput: {
   return {
     modelId: summaryInput.model.id,
     capabilityDiscoveryRate,
-    probeReplayPassRate: probeSummary.taskPassRate,
+    probeReplayPassRate: probeSummary.scenarioPassRate,
     stateCoverage,
     transitionCoverage,
     actionDiversity,
@@ -370,7 +421,7 @@ function computeModelMetrics(summaryInput: {
     avgCostUsd: costSummary.avgResolvedUsd,
     score: computeExploreScore({
       capabilityDiscoveryRate,
-      probeReplayPassRate: probeSummary.taskPassRate,
+      probeReplayPassRate: probeSummary.scenarioPassRate,
       stateCoverage,
       transitionCoverage,
       actionDiversity,
@@ -387,7 +438,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const preset = await loadExplorePreset(input.presetPath);
   const benchmark = await loadAppBenchmark(input.appId);
   const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.explore.capabilityIds;
-  const probeTaskIds = preset.probeTaskIds ?? benchmark.benchmark.explore.probeTaskIds;
+  const probeScenarioIds = preset.probeScenarioIds ?? benchmark.benchmark.explore.probeScenarioIds;
   const resultsDir = input.resultsDir ?? "results";
   if (input.resetModeResults !== false) {
     await clearExploreOutputs(resultsDir);
@@ -401,7 +452,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const spec: ExploreExperimentSpec = {
     appId: input.appId,
     capabilityIds,
-    probeTaskIds,
+    probeScenarioIds,
     models: requestedModels,
     promptId: preset.promptId ?? benchmark.benchmark.prompts.explore,
     trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.exploreTrials,
@@ -420,18 +471,18 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const startedAt = nowIso();
   emitExperimentLog(
     input.onLog,
-    `[explore] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.probeTaskIds.length} probe task(s), model parallelism ${parallelism}`
+    `[explore] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.probeScenarioIds.length} probe scenario(s), model parallelism ${parallelism}`
   );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
-    taskIds: spec.probeTaskIds,
+    scenarioIds: spec.probeScenarioIds,
     bugIds: [],
     explorationMode: "autonomous",
     suiteId: runId,
     resultsDir,
     runtime: spec.runtime,
     promptIds: {
-      guided: benchmark.benchmark.prompts.qa,
+      guided: benchmark.benchmark.prompts.guided,
       autonomous: spec.promptId
     }
   });
@@ -456,7 +507,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
     }
 
     const trials: ExploreTrialArtifact[] = [];
-    const probeTaskRuns: ExploreProbeRun["taskRun"][] = [];
+    const probeScenarioRuns: ExploreProbeRun["scenarioRun"][] = [];
     const explorationPrompt = resolvedSuite.prompts.autonomous ?? spec.promptId;
     const runConfig = {
       timeoutMs: spec.runtime.timeoutMs,
@@ -514,21 +565,26 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
 
       const capabilityDiscovery: ExploreCapabilityDiscovery[] = capabilityIds.map((capabilityId) => {
         const capability = benchmark.capabilityMap.get(capabilityId)!;
-        const matchedActionIds = unique(
-          capability.taskIds.flatMap((taskId) =>
-            matchActionCache({
-              cache: explorationArtifact.actionCache,
-              instruction: benchmark.tasks.get(taskId)?.instruction ?? "",
-              limit: 3
-            }).map((entry) => entry.actionId)
-          )
-        );
+        const discoveredScenarios = capability.scenarioIds.map((scenarioId) => {
+          const scenario = benchmark.scenarios.get(scenarioId)!;
+          const discovery = discoverScenario(
+            scenario,
+            explorationArtifact.actionCache,
+            explorationArtifact.pages.length > 0
+          );
+          return {
+            scenarioId,
+            ...discovery
+          };
+        });
         return {
           capabilityId,
           title: capability.title,
           trial,
-          discovered: matchedActionIds.length > 0,
-          matchedActionIds
+          discovered: discoveredScenarios.length > 0 && discoveredScenarios.every((item) => item.discovered),
+          matchedScenarioIds: discoveredScenarios.filter((item) => item.discovered).map((item) => item.scenarioId),
+          matchedStepIds: unique(discoveredScenarios.flatMap((item) => item.matchedStepIds)),
+          matchedActionIds: unique(discoveredScenarios.flatMap((item) => item.matchedActionIds))
         };
       });
 
@@ -545,7 +601,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
       let probeExecution;
       try {
         probeAutHandle = await startAut(probeWorkspace.aut);
-        probeExecution = await executeGuidedTasks({
+        probeExecution = await executeGuidedScenarios({
           runId: `${runId}-model-${modelIndex + 1}-trial-${trial}-probe`,
           resultsRoot,
           resolvedSuite,
@@ -555,27 +611,27 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
           trial,
           usagePhase: "probe_replay",
           systemPrompt: resolvedSuite.prompts.guided,
-          taskIds: spec.probeTaskIds,
+          scenarioIds: spec.probeScenarioIds,
           onLog: input.onLog,
-          taskLabel: `[explore][${model.id}][trial ${trial}] probe task`
+          scenarioLabel: `[explore][${model.id}][trial ${trial}] probe scenario`
         });
       } finally {
         await probeAutHandle?.stop();
       }
 
-      probeTaskRuns.push(...probeExecution.taskRuns);
-      const probeSummary = summarizeTaskRuns(probeExecution.taskRuns);
-      const passedProbeTasks = probeExecution.taskRuns.filter((taskRun) => taskRun.success).length;
+      probeScenarioRuns.push(...probeExecution.scenarioRuns);
+      const probeSummary = summarizeScenarioRuns(probeExecution.scenarioRuns);
+      const passedProbeScenarios = probeExecution.scenarioRuns.filter((scenarioRun) => scenarioRun.success).length;
       emitExperimentLog(
         input.onLog,
-        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay completed with ${passedProbeTasks}/${probeExecution.taskRuns.length} task(s) passing`
+        `[explore] Trial ${trial}/${spec.trials} for ${model.id}: probe replay completed with ${passedProbeScenarios}/${probeExecution.scenarioRuns.length} scenario(s) passing`
       );
-      const probeRuns: ExploreProbeRun[] = probeExecution.taskRuns.map((taskRun) => ({
+      const probeRuns: ExploreProbeRun[] = probeExecution.scenarioRuns.map((scenarioRun) => ({
         trial,
-        taskId: taskRun.taskId,
-        success: taskRun.success,
+        scenarioId: scenarioRun.scenarioId,
+        success: scenarioRun.success,
         matchedActionIds: [],
-        taskRun
+        scenarioRun
       }));
 
       trials.push({
@@ -602,7 +658,7 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
     const summary = {
       model,
       metrics,
-      probeCacheSummary: summarizeTaskRunCache(probeTaskRuns),
+      probeCacheSummary: summarizeScenarioRunCache(probeScenarioRuns),
       trials
     } satisfies ExploreModelSummary;
     emitExperimentLog(

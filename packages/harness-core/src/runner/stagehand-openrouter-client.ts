@@ -1,7 +1,12 @@
 import { generateObject, generateText } from "ai";
 import { LLMClient } from "@browserbasehq/stagehand";
 import type { AiOperation, AiUsagePhase, AiUsageRecord } from "../types.js";
-import { buildOpenRouterUsageRecord, createOpenRouterLanguageModel } from "../ai/openrouter.js";
+import {
+  buildOpenRouterUsageRecord,
+  buildPinnedOpenRouterProviderOptions,
+  createOpenRouterLanguageModel
+} from "../ai/openrouter.js";
+import { runWithOpenRouterModelLimit } from "../ai/openrouter-limiter.js";
 
 function normalizeMessageContent(content: any): any {
   if (!Array.isArray(content)) {
@@ -115,6 +120,7 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
   private readonly defaultMaxOutputTokens?: number;
   private readonly phase: AiUsagePhase;
   private readonly requestedProvider: string;
+  private readonly providerOptions: ReturnType<typeof buildPinnedOpenRouterProviderOptions>;
   private readonly usageSink: AiUsageRecord[];
 
   constructor(options: StagehandOpenRouterTrackingClientOptions) {
@@ -122,6 +128,7 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
     this.type = options.provider;
     this.phase = options.phase;
     this.requestedProvider = options.provider;
+    this.providerOptions = buildPinnedOpenRouterProviderOptions(options.provider);
     this.usageSink = options.usageSink;
     this.defaultMaxOutputTokens = options.defaultMaxOutputTokens;
     this.model = createOpenRouterLanguageModel(options.modelId, options.env ?? process.env);
@@ -146,12 +153,20 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
 
   override generateText = async (options: any): Promise<any> => {
     const startedAt = Date.now();
-    const result = await generateText({
-      ...options,
-      maxOutputTokens:
-        toOptionalNumber(options?.maxOutputTokens) ??
-        toOptionalNumber(options?.max_tokens) ??
-        this.defaultMaxOutputTokens
+    const result = await runWithOpenRouterModelLimit({
+      modelId: this.modelName,
+      run: () =>
+        generateText({
+          ...options,
+          providerOptions: {
+            ...(options?.providerOptions ?? {}),
+            ...this.providerOptions
+          },
+          maxOutputTokens:
+            toOptionalNumber(options?.maxOutputTokens) ??
+            toOptionalNumber(options?.max_tokens) ??
+            this.defaultMaxOutputTokens
+        })
     });
     await this.recordUsage(result, "agent", startedAt);
     return result;
@@ -166,16 +181,24 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
     const startedAt = Date.now();
 
     if (options.response_model) {
-      const response = await generateObject({
-        ...buildGenerationOptions(
-          {
-            model: this.model,
-            messages
-          },
-          options,
-          this.defaultMaxOutputTokens
-        ),
-        schema: options.response_model.schema
+      const response = await runWithOpenRouterModelLimit({
+        modelId: this.modelName,
+        run: () =>
+          generateObject({
+            ...buildGenerationOptions(
+              {
+                model: this.model,
+                messages
+              },
+              options,
+              this.defaultMaxOutputTokens
+            ),
+            providerOptions: {
+              ...(options?.providerOptions ?? {}),
+              ...this.providerOptions
+            },
+            schema: options.response_model.schema
+          })
       });
       await this.recordUsage(response, operation, startedAt);
       return {
@@ -198,16 +221,24 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
       };
     }
 
-    const response = await generateText({
-      ...buildGenerationOptions(
-        {
-          model: this.model,
-          messages
-        },
-        options,
-        this.defaultMaxOutputTokens
-      ),
-      tools
+    const response = await runWithOpenRouterModelLimit({
+      modelId: this.modelName,
+      run: () =>
+        generateText({
+          ...buildGenerationOptions(
+            {
+              model: this.model,
+              messages
+            },
+            options,
+            this.defaultMaxOutputTokens
+          ),
+          providerOptions: {
+            ...(options?.providerOptions ?? {}),
+            ...this.providerOptions
+          },
+          tools
+        })
     });
     await this.recordUsage(response, operation, startedAt);
     return {

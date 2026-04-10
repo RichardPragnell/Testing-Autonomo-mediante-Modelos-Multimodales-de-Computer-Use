@@ -33,6 +33,7 @@ const todoApps = [
 ] as const;
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url));
+const scenarioIds = ["smoke-load", "add-task", "complete-task", "filter-active", "edit-task", "create-delete-task"];
 
 describe("todo benchmark contract parity", () => {
   it.each(todoApps)("keeps $appId benchmark manifests aligned with the canonical todo-web contract", async ({
@@ -41,16 +42,19 @@ describe("todo benchmark contract parity", () => {
   }) => {
     const contract = await readJson<any>(join(repoRoot, "specs", "todo-web", "contract.json"));
     const benchmark = await readJson<any>(join(repoRoot, "apps", appId, "benchmark.json"));
-    const smokeScenario = await readJson<any>(join(repoRoot, "apps", appId, "scenarios", "smoke.json"));
-    const guidedScenario = await readJson<any>(join(repoRoot, "apps", appId, "scenarios", "guided.json"));
+    const appScenarios = await Promise.all(
+      scenarioIds.map(async (scenarioId) => {
+        const scenario = await readJson<any>(join(repoRoot, "apps", appId, "scenarios", `${scenarioId}.json`));
+        return [scenarioId, scenario] as const;
+      })
+    );
 
-    expect(smokeScenario).toEqual(contract.scenarios.smoke);
-    expect(guidedScenario).toEqual(contract.scenarios.guided);
+    expect(Object.fromEntries(appScenarios)).toEqual(contract.scenarios);
     expect(benchmark.capabilities).toEqual(contract.benchmark.capabilities);
-    expect(benchmark.qa).toEqual(contract.benchmark.qa);
+    expect(benchmark.guided).toEqual(contract.benchmark.guided);
     expect(benchmark.explore).toEqual({
       capabilityIds: contract.benchmark.explore.capabilityIds,
-      probeTaskIds: contract.benchmark.explore.probeTaskIds,
+      probeScenarioIds: contract.benchmark.explore.probeScenarioIds,
       heuristicTargets: contract.benchmark.explore.heuristicTargets
     });
     expect(benchmark.heal.caseIds).toEqual(contract.benchmark.heal.caseIds);
@@ -74,7 +78,7 @@ describe("todo benchmark contract parity", () => {
         category: bug.category,
         severity: bug.severity,
         patchPath: bug.patchPath,
-        expectedFailureTaskIds: bug.expectedFailureTaskIds
+        expectedFailureScenarioIds: bug.expectedFailureScenarioIds
       });
     }
   });

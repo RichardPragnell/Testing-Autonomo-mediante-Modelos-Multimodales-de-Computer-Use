@@ -1,0 +1,61 @@
+{
+  "scenarioId": "filter-active",
+  "title": "Show only active tasks",
+  "source": "generated",
+  "steps": [
+    {
+      "stepId": "filter-active.complete-one",
+      "title": "Complete the Draft Stagehand checklist task",
+      "actionInstruction": "click the checkbox for the task Draft Stagehand checklist",
+      "assertions": [
+        {
+          "assertionId": "filter-active.progress",
+          "type": "extract",
+          "instruction": "extract the text shown in the Progress summary card",
+          "resultType": "string",
+          "match": {
+            "equals": "1 of 2 tasks done"
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "filter-active.select-active",
+      "title": "Select the Active filter",
+      "actionInstruction": "click the Active filter button",
+      "assertions": [
+        {
+          "assertionId": "filter-active.completed-filter-visible",
+          "type": "observe",
+          "instruction": "find the Completed filter button",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "filter-active.assert-list",
+      "title": "Verify only active tasks remain visible",
+      "assertions": [
+        {
+          "assertionId": "filter-active.plan-visible",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "includes": "Plan todo benchmark"
+          }
+        },
+        {
+          "assertionId": "filter-active.draft-hidden",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "excludes": "Draft Stagehand checklist"
+          }
+        }
+      ]
+    }
+  ]
+}

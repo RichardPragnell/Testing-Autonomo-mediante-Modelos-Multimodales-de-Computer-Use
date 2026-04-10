@@ -1,9 +1,11 @@
 import { generateText } from "ai";
 import {
   buildOpenRouterUsageRecord,
+  buildPinnedOpenRouterProviderOptions,
   createOpenRouterLanguageModel,
   isOpenRouterCostTrackingEnabled
 } from "../ai/openrouter.js";
+import { runWithOpenRouterModelLimit } from "../ai/openrouter-limiter.js";
 import { summarizeAiUsage } from "../ai/usage.js";
 import type { ModelAvailability } from "../types.js";
 import type { RepairModelResult, RepairPromptContext, RepairUsage } from "../experiments/types.js";
@@ -83,7 +85,9 @@ function formatRepairPrompt(context: RepairPromptContext): string {
   const findings = context.findings
     .map(
       (finding, index) => `Finding ${index + 1}
-task: ${finding.taskId}
+scenario: ${finding.scenarioId}
+step: ${finding.stepId}
+assertion: ${finding.assertionId ?? "(none)"}
 message: ${finding.message}
 category: ${finding.category}
 severity: ${finding.severity}`
@@ -176,11 +180,16 @@ async function runOpenRouterRepairModel(input: {
   }
 
   const startedAt = Date.now();
-  const result = await generateText({
-    model: createOpenRouterLanguageModel(input.model.id),
-    temperature: 0.1,
-    system: input.systemPrompt,
-    prompt: input.prompt
+  const result = await runWithOpenRouterModelLimit({
+    modelId: input.model.id,
+    run: () =>
+      generateText({
+        model: createOpenRouterLanguageModel(input.model.id),
+        providerOptions: buildPinnedOpenRouterProviderOptions(input.model.provider),
+        temperature: 0.1,
+        system: input.systemPrompt,
+        prompt: input.prompt
+      })
   });
 
   const record = await buildOpenRouterUsageRecord({
@@ -235,7 +244,7 @@ export class MockRepairModelClient implements RepairModelClient {
   }): Promise<RepairModelResult> {
     const startedAt = Date.now();
     const files = input.context.candidateFiles;
-    const failingTaskIds = new Set(input.context.findings.map((finding) => finding.taskId));
+    const failingScenarioIds = new Set(input.context.findings.map((finding) => finding.scenarioId));
     let patch: string | undefined;
     let suspectedFiles: string[] = [];
     let summary = "No likely fix found.";
@@ -250,7 +259,7 @@ export class MockRepairModelClient implements RepairModelClient {
         ? "@@ -22,7 +22,7 @@ export function addTodo(todos: Todo[], text: string): Todo[] {"
         : "@@ -14,7 +14,7 @@ export function addTodo(todos, text) {";
 
-      if (failingTaskIds.has("guided-add-task") && storeFile.content.includes('text: "New task"')) {
+      if (failingScenarioIds.has("add-task") && storeFile.content.includes('text: "New task"')) {
         summary = "Todo creation ignores the submitted label in the shared store helper.";
         patch = [
           `--- a/${storeFile.path}`,
@@ -270,7 +279,7 @@ export class MockRepairModelClient implements RepairModelClient {
           " }"
         ].join("\n");
       } else if (
-        (failingTaskIds.has("guided-complete-task") || failingTaskIds.has("guided-filter-active")) &&
+        (failingScenarioIds.has("complete-task") || failingScenarioIds.has("filter-active")) &&
         storeFile.content.includes("export function toggleTodo") &&
         storeFile.content.includes("return todos;")
       ) {
@@ -293,7 +302,7 @@ export class MockRepairModelClient implements RepairModelClient {
             : " export function updateTodoText(todos, id, text) {"
         ].join("\n");
       } else if (
-        failingTaskIds.has("guided-edit-task") &&
+        failingScenarioIds.has("edit-task") &&
         storeFile.content.includes("updateTodoText") &&
         storeFile.content.includes("return todos;")
       ) {

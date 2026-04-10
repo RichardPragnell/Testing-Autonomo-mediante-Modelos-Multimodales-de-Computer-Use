@@ -29,11 +29,11 @@ function buildMultiModeReport(): BenchmarkComparisonReport {
     {
       kind: "qa",
       title: "Guided",
-      summary: "Guided summary.",
+      summary: "Resumen del modo guiado.",
       appIds: ["todo-react", "todo-vue"],
       metricColumns: [
         { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-        { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+        { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
         { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
         { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
       ],
@@ -100,11 +100,11 @@ function buildMultiModeReport(): BenchmarkComparisonReport {
     {
       kind: "explore",
       title: "Explore",
-      summary: "Explore summary.",
+      summary: "Resumen del modo de exploración.",
       appIds: ["todo-react"],
       metricColumns: [
         { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-        { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+        { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
         { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
         { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
       ],
@@ -196,13 +196,13 @@ function buildSingleModeReport(): BenchmarkComparisonReport {
     finalJsonPath: "",
     modeSections: [
       {
-        kind: "explore",
-        title: "Explore",
-        summary: "Single-model explore summary.",
+      kind: "explore",
+      title: "Explore",
+      summary: "Resumen de exploración para un único modelo.",
         appIds: ["todo-react"],
         metricColumns: [
           { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-          { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+          { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
           { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
           { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
         ],
@@ -269,19 +269,24 @@ describe("matrix report renderer", () => {
   it("renders the redesigned final benchmark report with mixed cross-mode sections", () => {
     const html = renderBenchmarkFinalComparisonHtml(buildMultiModeReport());
 
-    expect(html).toContain("Benchmark Final Report");
-    expect(html).toContain("At a Glance");
-    expect(html).toContain("Models Across Modes");
-    expect(html).toContain("Apps Across Modes");
-    expect(html).toContain("Benchmark Matrix");
-    expect(html).toContain("Overall Leaderboard");
-    expect(html).toContain("Efficiency Frontier by Mode");
+    expect(html).toContain("Informe final del benchmark");
+    expect(html).toContain("Marco interpretativo");
+    expect(html).toContain("Guía de lectura");
+    expect(html).toContain("Visión de conjunto");
+    expect(html).toContain("Modelos a través de los modos");
+    expect(html).toContain("Aplicaciones a través de los modos");
+    expect(html).toContain("Matriz global del benchmark");
+    expect(html).toContain("Clasificación global");
+    expect(html).toContain("Frontera de eficiencia por modo");
     expect(html).toContain("latest-per-app-mode-model");
     expect(html).toContain("todo-react");
     expect(html).toContain("todo-vue");
-    expect(html).toContain("Mode Winner");
-    expect(html).toContain("Mean Rank");
+    expect(html).toContain("Líder del modo");
+    expect(html).toContain("Rango medio");
+    expect(html).toContain('<strong class="best-score">1.00</strong>');
+    expect(html).toContain('<strong class="best-score">$0.0222</strong>');
     expect(html).toContain("mode-cell-missing");
+    expect(html).not.toContain("At a Glance");
     expect(html).not.toContain("Benchmark Scorecard");
     expect(html).not.toContain("Per-App Model Comparison");
     expect(html).not.toContain("Guided Cost Audit");
@@ -293,11 +298,15 @@ describe("matrix report renderer", () => {
   it("keeps mode comparison pages on the existing layout", () => {
     const html = renderBenchmarkComparisonHtml(buildSingleModeReport());
 
-    expect(html).toContain("Explore Cost Audit");
-    expect(html).toContain("How the score is calculated");
-    expect(html).toContain("Explore score formula.");
-    expect(html).toContain("How to read this report");
-    expect(html).toContain("Price vs Speed Frontier");
+    expect(html).toContain("Informe del modo de exploración para todo-react");
+    expect(html).toContain("Cómo interpretar este informe");
+    expect(html).toContain("Fundamento de la puntuación");
+    expect(html).toContain("Puntuación = 100 x clamp(0.3375 x Descubrimiento de capacidades");
+    expect(html).toContain("Auditoría de coste del modo de exploración");
+    expect(html).toContain("Frontera coste-latencia");
+    expect(html).toContain('<strong class="best-score">91.795</strong>');
+    expect(html).toContain('<strong class="best-score">3574 ms</strong>');
+    expect(html).toContain('<strong class="best-score">$0.0070</strong>');
     expect(html).toContain("plot-chip");
     expect(html).toContain('text-anchor="end"');
     expect(html).not.toContain("At a Glance");
@@ -309,16 +318,19 @@ describe("matrix report renderer", () => {
   it("renders the standardized benchmark tables report with mode-first tables and per-app comparisons", () => {
     const html = renderBenchmarkStandardizedComparisonHtml(buildMultiModeReport());
 
-    expect(html).toContain("Standardized Results by Mode");
-    expect(html).toContain("Compare Model Performance per App");
-    expect(html).toContain("Reading Guide");
-    expect(html).toContain("Guided summary.");
-    expect(html).toContain("Explore summary.");
+    expect(html).toContain("Tablas normalizadas del benchmark");
+    expect(html).toContain("Resultados normalizados por modo");
+    expect(html).toContain("Comparación del rendimiento por aplicación");
+    expect(html).toContain("Guía de lectura");
+    expect(html).toContain("presenta el mejor desempeño en el modo guiado");
+    expect(html).toContain("presenta el mejor desempeño en el modo de exploración");
     expect(html).toContain("todo-react");
     expect(html).toContain("todo-vue");
     expect(html).toContain("latest-per-app-mode-model");
+    expect(html).toContain('<strong class="best-score">1.00</strong>');
     expect(html).toContain('<strong class="best-score">88.900</strong>');
     expect(html).toContain('<strong class="best-score">82.100</strong>');
+    expect(html).toContain('<strong class="best-score">$0.0222</strong>');
     expect(html).not.toContain("At a Glance");
     expect(html).not.toContain("Benchmark Matrix");
     expect(html).not.toContain("Efficiency Frontier by Mode");
@@ -335,8 +347,8 @@ describe("matrix report renderer", () => {
   it("falls back to the mode renderer when a final benchmark report only has one mode", () => {
     const html = renderBenchmarkFinalComparisonHtml(buildSingleModeReport());
 
-    expect(html).toContain("Explore Cost Audit");
-    expect(html).toContain("Price vs Speed Frontier");
+    expect(html).toContain("Informe del modo de exploración para todo-react");
+    expect(html).toContain("Frontera coste-latencia");
     expect(html).not.toContain("At a Glance");
     expect(html).not.toContain("Models Across Modes");
     expect(html).not.toContain("Apps Across Modes");

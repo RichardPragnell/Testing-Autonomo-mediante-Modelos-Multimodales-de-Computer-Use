@@ -6,9 +6,14 @@ import { loadProjectEnv } from "./env/load.js";
 import { loadAppBenchmark } from "./experiments/benchmark.js";
 import { persistComparisonReport } from "./experiments/comparison.js";
 import {
+  renderBenchmarkComparisonHtml,
+  renderBenchmarkFinalComparisonHtml,
+  renderBenchmarkStandardizedComparisonHtml
+} from "./experiments/report-matrix.js";
+import {
   buildResolvedSuite,
   emitExperimentLog,
-  executeGuidedTasks,
+  executeGuidedScenarios,
   formatDurationMs,
   mapWithConcurrency,
   resolveExperimentRoot,
@@ -58,7 +63,7 @@ import type {
   QaSavedReport
 } from "./experiments/types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "./cache/config.js";
-import { summarizeTaskRunCache } from "./cache/summary.js";
+import { summarizeScenarioRunCache } from "./cache/summary.js";
 import { resolveExplorationCompatibility } from "./exploration/action-cache.js";
 import { persistRunExplorationArtifacts } from "./persistence/store.js";
 import { StagehandAutomationRunner } from "./runner/stagehand-runner.js";
@@ -74,8 +79,8 @@ import type {
   Finding,
   ExecutionCacheConfig,
   ModelAvailability,
+  ScenarioRunResult,
   StagehandRunConfig,
-  TaskRunResult
 } from "./types.js";
 import { ensureDir, readText, resolveWorkspacePath, writeJson, writeText } from "./utils/fs.js";
 import { nowIso } from "./utils/time.js";
@@ -99,8 +104,8 @@ interface RuntimeGuidedRunRecord {
   workspacePath: string;
   validationCommand: string;
   explorationCacheUsage?: ExplorationCacheUsage;
-  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
-  taskRuns: TaskRunResult[];
+  cacheSummary?: ReturnType<typeof summarizeScenarioRunCache>;
+  scenarioRuns: ScenarioRunResult[];
   findings: Finding[];
 }
 
@@ -118,7 +123,7 @@ interface RuntimeExploreRunRecord {
   workspacePath: string;
   explorationRunId: string;
   artifactPath: string;
-  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
+  cacheSummary?: ReturnType<typeof summarizeScenarioRunCache>;
   summary: ExplorationArtifact["summary"];
 }
 
@@ -232,6 +237,7 @@ export interface RebuiltModeReport {
 export interface RebuildBenchmarkReportsInput {
   mode?: ExperimentKind;
   resultsDir?: string;
+  htmlScope?: "compare" | "all";
 }
 
 export interface RebuildBenchmarkReportsResult {
@@ -317,12 +323,12 @@ async function resolveRuntimeRoot(
   return join(await resolveWorkspacePath(resultsDir), kind);
 }
 
-function summarizeTaskRuns(taskRuns: TaskRunResult[]) {
+function summarizeScenarioRuns(scenarioRuns: ScenarioRunResult[]) {
   return {
-    total: taskRuns.length,
-    passed: taskRuns.filter((taskRun) => taskRun.success).length,
-    failed: taskRuns.filter((taskRun) => !taskRun.success).length,
-    cacheSummary: summarizeTaskRunCache(taskRuns)
+    total: scenarioRuns.length,
+    passed: scenarioRuns.filter((scenarioRun) => scenarioRun.success).length,
+    failed: scenarioRuns.filter((scenarioRun) => !scenarioRun.success).length,
+    cacheSummary: summarizeScenarioRunCache(scenarioRuns)
   };
 }
 
@@ -381,31 +387,6 @@ async function resolveSuiteManifest(pathLike: string): Promise<{
     appId,
     suitePath
   };
-}
-
-function scenarioTaskIds(
-  input: {
-    targetId: string;
-    scenarioIds: string[];
-  },
-  scenarios: Awaited<ReturnType<typeof describeBenchmarkTarget>>["scenarios"]
-): string[] {
-  const scenarioMap = new Map(scenarios.map((scenario) => [scenario.scenarioId, scenario]));
-  const taskIds: string[] = [];
-
-  for (const scenarioId of input.scenarioIds) {
-    const scenario = scenarioMap.get(scenarioId);
-    if (!scenario) {
-      throw new Error(`unknown scenario ${scenarioId} for target ${input.targetId}`);
-    }
-    for (const task of scenario.tasks) {
-      if (!taskIds.includes(task.id)) {
-        taskIds.push(task.id);
-      }
-    }
-  }
-
-  return taskIds;
 }
 
 async function locateExplorationArtifactInRuns(
@@ -705,6 +686,120 @@ function toProvenance(
   };
 }
 
+function singleRunReportTitle(kind: BenchmarkRunKind, appId: string): string {
+  if (kind === "qa") {
+    return `${appId} Guided Report`;
+  }
+  if (kind === "explore") {
+    return `${appId} Explore Report`;
+  }
+  return `${appId} Self-Heal Report`;
+}
+
+function singleRunReportSubtitle(kind: BenchmarkRunKind, modelCount: number): string {
+  if (kind === "qa") {
+    return `Matrix summary for guided execution across ${modelCount} model(s).`;
+  }
+  if (kind === "explore") {
+    return `Matrix summary for autonomous exploration across ${modelCount} model(s).`;
+  }
+  return `Matrix summary for repair evaluation across ${modelCount} model(s).`;
+}
+
+function toSingleRunComparisonReport(savedReport: SavedBenchmarkReport, reportPath: string): BenchmarkComparisonReport {
+  const kind = benchmarkRunKind(savedReport.runId);
+  if (!kind) {
+    throw new Error(`unsupported saved benchmark report ${savedReport.runId}`);
+  }
+
+  return {
+    title: singleRunReportTitle(kind, savedReport.appId),
+    subtitle: singleRunReportSubtitle(kind, savedReport.section.rows.length),
+    generatedAt: savedReport.generatedAt,
+    runIds: [savedReport.runId],
+    appIds: [savedReport.appId],
+    modeSections: [savedReport.section],
+    finalReportPath: reportPath.replace(/\.json$/i, ".html"),
+    finalJsonPath: reportPath
+  };
+}
+
+function renderSavedComparisonHtml(reportPath: string, report: BenchmarkComparisonReport): string {
+  const fileName = basename(reportPath).toLowerCase();
+  if (fileName.includes("standardized")) {
+    return renderBenchmarkStandardizedComparisonHtml(report);
+  }
+  if (report.modeSections.length > 1) {
+    return renderBenchmarkFinalComparisonHtml(report);
+  }
+  return renderBenchmarkComparisonHtml(report);
+}
+
+async function rebuildSavedModeReportHtml(kind: BenchmarkRunKind, resultsDir: string): Promise<void> {
+  const reportsDir = join(await resolveExperimentRoot(resultsDir, kind), "reports");
+  let entries;
+  try {
+    entries = await readdir(reportsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) {
+        return;
+      }
+
+      const reportPath = join(reportsDir, entry.name);
+      try {
+        const savedReport = await readJsonFile<SavedBenchmarkReport>(reportPath);
+        if (benchmarkRunKind(savedReport.runId) !== kind) {
+          return;
+        }
+        const htmlReport = toSingleRunComparisonReport(savedReport, reportPath);
+        await writeText(join(reportsDir, `${basename(entry.name, ".json")}.html`), renderBenchmarkComparisonHtml(htmlReport));
+      } catch {
+        return;
+      }
+    })
+  );
+}
+
+async function rebuildSavedComparisonHtml(resultsDir: string): Promise<void> {
+  const compareDir = join(await resolveWorkspacePath(resultsDir), "compare");
+  let entries;
+  try {
+    entries = await readdir(compareDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  await Promise.all(
+    entries.map(async (entry) => {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) {
+        return;
+      }
+
+      const reportPath = join(compareDir, entry.name);
+      try {
+        const report = await readJsonFile<BenchmarkComparisonReport>(reportPath);
+        await writeText(join(compareDir, `${basename(entry.name, ".json")}.html`), renderSavedComparisonHtml(reportPath, report));
+      } catch {
+        return;
+      }
+    })
+  );
+}
+
+async function rebuildAllSavedBenchmarkHtml(resultsDir: string): Promise<void> {
+  await Promise.all([
+    rebuildSavedModeReportHtml("qa", resultsDir),
+    rebuildSavedModeReportHtml("explore", resultsDir),
+    rebuildSavedModeReportHtml("heal", resultsDir),
+    rebuildSavedComparisonHtml(resultsDir)
+  ]);
+}
+
 async function persistModeComparisonForReports(
   kind: BenchmarkRunKind,
   reports: SavedBenchmarkReport[],
@@ -865,7 +960,7 @@ export async function describeTarget(targetId: string, appsRoot = "apps") {
       prompts: benchmark.benchmark.prompts,
       runtime: benchmark.benchmark.runtime,
       capabilities: benchmark.benchmark.capabilities,
-      qa: benchmark.benchmark.qa,
+      guided: benchmark.benchmark.guided,
       explore: benchmark.benchmark.explore,
       heal: benchmark.benchmark.heal
     }
@@ -1132,6 +1227,7 @@ export async function rebuildBenchmarkReports(
 ): Promise<RebuildBenchmarkReportsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  const htmlScope = input.htmlScope ?? "compare";
   const requestedKinds = input.mode ? [input.mode] : (["qa", "explore", "heal"] as const);
   const selectedRecordsByKind = new Map<BenchmarkRunKind, SelectedBenchmarkRowRecord[]>();
 
@@ -1228,6 +1324,10 @@ export async function rebuildBenchmarkReports(
     finalJsonPath = finalReport.finalJsonPath;
   }
 
+  if (htmlScope === "all") {
+    await rebuildAllSavedBenchmarkHtml(resultsDir);
+  }
+
   return {
     selectionPolicy: "latest-per-app-mode-model",
     selectedReports,
@@ -1249,14 +1349,14 @@ export async function exploreTarget(input: ExploreTargetInput) {
   const bugIds = input.bugIds ?? [];
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
-    taskIds: benchmark.benchmark.explore.probeTaskIds,
+    scenarioIds: benchmark.benchmark.explore.probeScenarioIds,
     bugIds,
     explorationMode: "autonomous",
     suiteId: runId,
     resultsDir,
     runtime,
     promptIds: {
-      guided: benchmark.benchmark.prompts.qa,
+      guided: benchmark.benchmark.prompts.guided,
       autonomous: input.prompt
     }
   });
@@ -1336,11 +1436,10 @@ export async function runGuided(input: RunGuidedInput) {
   const resultsRoot = await resolveRuntimeRoot(resultsDir, "guided");
   const runId = `guided-${input.targetId}-${Date.now()}`;
   const bugIds = input.bugIds ?? [];
-  const taskIds = scenarioTaskIds(input, benchmark.target.scenarios);
-  const promptId = input.guidedPromptId ?? benchmark.benchmark.prompts.qa;
+  const promptId = input.guidedPromptId ?? benchmark.benchmark.prompts.guided;
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
-    taskIds,
+    scenarioIds: input.scenarioIds,
     bugIds,
     explorationMode: "guided",
     suiteId: runId,
@@ -1394,7 +1493,7 @@ export async function runGuided(input: RunGuidedInput) {
   const runner = input.runner ?? new StagehandAutomationRunner();
   const aut = await startAut(workspace.aut);
   try {
-    const execution = await executeGuidedTasks({
+    const execution = await executeGuidedScenarios({
       runId,
       resultsRoot,
       resolvedSuite,
@@ -1421,8 +1520,8 @@ export async function runGuided(input: RunGuidedInput) {
       workspacePath: workspace.workspacePath,
       validationCommand: workspace.validationCommand,
       explorationCacheUsage,
-      cacheSummary: summarizeTaskRunCache(execution.taskRuns),
-      taskRuns: execution.taskRuns,
+      cacheSummary: summarizeScenarioRunCache(execution.scenarioRuns),
+      scenarioRuns: execution.scenarioRuns,
       findings: execution.findings
     };
     const runPath = join(resultsRoot, "runs", runId, "run.json");
@@ -1430,7 +1529,7 @@ export async function runGuided(input: RunGuidedInput) {
 
     return {
       ...record,
-      summary: summarizeTaskRuns(execution.taskRuns),
+      summary: summarizeScenarioRuns(execution.scenarioRuns),
       runPath
     };
   } finally {
@@ -1458,7 +1557,7 @@ export async function runSelfHeal(input: RunSelfHealInput) {
   const stderrPath = join(runDir, "agent.stderr.txt");
   const findingPath = join(runDir, "finding.json");
   const validationCommand = input.validationCommand ?? guidedRun.validationCommand;
-  const taskRuns = guidedRun.taskRuns.filter((taskRun) => taskRun.taskId === finding.taskId);
+  const scenarioRuns = guidedRun.scenarioRuns.filter((scenarioRun) => scenarioRun.scenarioId === finding.scenarioId);
   const candidateFiles = await readCandidateFileSnippets({
     workspacePath: guidedRun.workspacePath,
     candidates: finding.sourceCandidates.map((candidate) => ({
@@ -1474,7 +1573,7 @@ export async function runSelfHeal(input: RunSelfHealInput) {
       targetId: guidedRun.targetId,
       runId: guidedRun.runId,
       finding,
-      taskRuns,
+      scenarioRuns,
       candidateFiles,
       validationCommand
     }
@@ -1494,7 +1593,7 @@ export async function runSelfHeal(input: RunSelfHealInput) {
       cwd: guidedRun.workspacePath,
       patch,
       validationCommand,
-      attemptId: `${repairRunId}-${finding.taskId}`
+      attemptId: `${repairRunId}-${finding.scenarioId}-${finding.stepId}`
     });
     repair = {
       ...result,

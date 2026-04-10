@@ -190,6 +190,35 @@ describe("startAut", () => {
     expect(releasedPorts).toBe(1);
   });
 
+  it("surfaces AUT stderr when the process exits before readiness", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "aut-exit-stderr-"));
+    tempDirs.push(dir);
+    const scriptPath = join(dir, "fail-fast.cjs");
+    const port = await allocatePort();
+    const url = `http://127.0.0.1:${port}`;
+
+    await writeFile(
+      scriptPath,
+      [
+        'console.error("missing dependency: benchmark fixture failed");',
+        "process.exit(1);"
+      ].join("\n"),
+      "utf8"
+    );
+
+    await expect(
+      startAut(
+        {
+          command: `node "${scriptPath}"`,
+          cwd: dir,
+          url
+        },
+        2_000,
+        25
+      )
+    ).rejects.toThrow(/missing dependency: benchmark fixture failed/);
+  });
+
   it("kills the AUT process tree when the parent process exits without calling stop", async () => {
     const dir = await mkdtemp(join(tmpdir(), "aut-exit-cleanup-"));
     tempDirs.push(dir);

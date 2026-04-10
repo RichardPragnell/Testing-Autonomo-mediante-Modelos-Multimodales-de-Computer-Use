@@ -40,13 +40,13 @@ The goal is to reduce conceptual ambiguity, remove duplication, and make the ben
 ## Workstream C: Benchmark Fixtures and Repo Hygiene
 
 1. Create one source-of-truth benchmark manifest for `todo-react`.
-   Define canonical target metadata, stable task ids, bug ids, default labels, and clean vs bugged suite permutations in one structured file.
+   Define canonical target metadata, stable scenario ids, bug ids, default labels, and clean vs bugged suite permutations in one structured file.
 2. Normalize scenario semantics around capability, not mode.
-   Keep `smoke` as baseline availability checks. Rework guided task ids around capabilities such as add, complete, filter, edit, and create-delete. Keep the invariant that scenario tasks describe user intent plus expected outcome, never low-level navigation steps.
+   Keep `smoke` as baseline availability checks. Rework guided scenario ids around capabilities such as add, complete, filter, edit, and create-delete. Keep the invariant that scenarios describe user intent plus expected outcome, while ordered steps capture the navigation and interaction details.
 3. Pull benchmark literals into shared fixture constants.
    Centralize default todo labels, edited labels, created task names, and other recurring benchmark strings so scenarios, tests, bug packs, and sample fixtures do not drift independently.
 4. Add a fixture validation script.
-   Validate that every `expectedFailureTaskId` exists, every patch still applies to the current template, every suite references valid scenario ids and prompt ids, and every sample fixture references current suite and bug ids.
+   Validate that every `expectedFailureScenarioId` exists, every patch still applies to the current template, every suite references valid scenario ids and prompt ids, and every sample fixture references current suite and bug ids.
 5. Collapse duplicated suite configuration.
    Derive guided vs autonomous and clean vs bugged suites from shared defaults or a generator so model lists, viewport, timeout, retry, and prompt wiring stop drifting across near-duplicate JSON files.
 6. Simplify prompt maintenance.
@@ -60,7 +60,7 @@ The goal is to reduce conceptual ambiguity, remove duplication, and make the ben
 
 - Splitting orchestration too aggressively can break current CLI or MCP behavior unless run contracts are locked first.
 - Persistence cleanup can silently break exploration reuse if artifact compatibility rules are not made explicit first.
-- Renaming task ids or regenerating suites will break bug mappings, sample fixtures, and historical artifacts unless migrated in one pass.
+- Renaming scenario ids or regenerating suites will break bug mappings, sample fixtures, and historical artifacts unless migrated in one pass.
 - Over-normalizing prompts or generated defaults can blur the intended difference between guided and autonomous modes.
 
 ## Suggested Sequence

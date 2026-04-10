@@ -100,6 +100,98 @@ function printReportRebuild(result: {
   });
 }
 
+function printFullBench(result: {
+  guided: {
+    mode: string;
+    appIds: string[];
+    runs: Array<{
+      appId: string;
+      runId: string;
+      artifactPath: string;
+      reportPath: string;
+      htmlPath: string;
+    }>;
+    finalReportPath: string;
+    finalJsonPath: string;
+  };
+  explore: {
+    mode: string;
+    appIds: string[];
+    runs: Array<{
+      appId: string;
+      runId: string;
+      artifactPath: string;
+      reportPath: string;
+      htmlPath: string;
+    }>;
+    finalReportPath: string;
+    finalJsonPath: string;
+  };
+  heal: {
+    mode: string;
+    appIds: string[];
+    runs: Array<{
+      appId: string;
+      runId: string;
+      artifactPath: string;
+      reportPath: string;
+      htmlPath: string;
+    }>;
+    finalReportPath: string;
+    finalJsonPath: string;
+  };
+  report: {
+    selectionPolicy: string;
+    selectedReports: Array<{
+      kind: string;
+      appId: string;
+      modelId: string;
+      runId: string;
+      generatedAt: string;
+      reportPath: string;
+    }>;
+    modeReports: Array<{
+      kind: string;
+      appIds: string[];
+      runIds: string[];
+      finalReportPath: string;
+      finalJsonPath: string;
+    }>;
+    finalReportPath?: string;
+    finalJsonPath?: string;
+  };
+}): void {
+  print({
+    guided: {
+      mode: toPublicMode(result.guided.mode),
+      appIds: result.guided.appIds,
+      runs: result.guided.runs,
+      finalReportPath: result.guided.finalReportPath,
+      finalJsonPath: result.guided.finalJsonPath
+    },
+    explore: {
+      mode: toPublicMode(result.explore.mode),
+      appIds: result.explore.appIds,
+      runs: result.explore.runs,
+      finalReportPath: result.explore.finalReportPath,
+      finalJsonPath: result.explore.finalJsonPath
+    },
+    heal: {
+      mode: toPublicMode(result.heal.mode),
+      appIds: result.heal.appIds,
+      runs: result.heal.runs,
+      finalReportPath: result.heal.finalReportPath,
+      finalJsonPath: result.heal.finalJsonPath
+    },
+    rebuiltReports: result.report.modeReports.map((entry) => ({
+      ...entry,
+      kind: toPublicMode(entry.kind)
+    })),
+    finalReportPath: result.report.finalReportPath,
+    finalJsonPath: result.report.finalJsonPath
+  });
+}
+
 function normalizeReportMode(mode: string | undefined): "qa" | "explore" | "heal" | undefined {
   if (!mode) {
     return undefined;
@@ -111,6 +203,16 @@ function normalizeReportMode(mode: string | undefined): "qa" | "explore" | "heal
     return mode;
   }
   throw new Error(`unsupported report mode ${mode}`);
+}
+
+function normalizeHtmlScope(scope: string | undefined): "compare" | "all" {
+  if (!scope || scope === "compare") {
+    return "compare";
+  }
+  if (scope === "all") {
+    return "all";
+  }
+  throw new Error(`unsupported html scope ${scope}`);
 }
 
 function createProgressLogger(): ((message: string) => void) | undefined {
@@ -138,8 +240,8 @@ function registerGuidedCommand(
     .option("--trials <n>", "Override trial count", parsePositiveInt)
     .option("--parallelism <n>", "Run up to this many models in parallel per app", parsePositiveInt)
     .option("--app-parallelism <n>", "Run up to this many apps in parallel for multi-app mode", parsePositiveInt)
-    .option("--max-steps <n>", "Override guided step budget", parsePositiveInt)
-    .option("--timeout-ms <n>", "Override per-task timeout in milliseconds", parsePositiveInt)
+    .option("--max-steps <n>", "Override guided scenario step budget", parsePositiveInt)
+    .option("--timeout-ms <n>", "Override per-scenario timeout in milliseconds", parsePositiveInt)
     .option("--max-output-tokens <n>", "Cap output tokens per model call", parsePositiveInt)
     .argument("[app]", "Benchmark app identifier")
     .action(async (app: string | undefined, options: {
@@ -250,14 +352,78 @@ async function main(): Promise<void> {
     });
 
   program
+    .command("fullbench")
+    .description("Run guided, explore, and heal sequentially across all benchmark apps, then rebuild final reports")
+    .option("--models <ids...>", "Explicit OpenRouter model IDs for the guided phase")
+    .option("--trials <n>", "Override guided trial count", parsePositiveInt)
+    .option("--parallel <n>", "Alias for --parallelism", parsePositiveInt)
+    .option("--parallelism <n>", "Run up to this many models in parallel per app within each phase", parsePositiveInt)
+    .option("--app-parallelism <n>", "Run up to this many apps in parallel within each phase", parsePositiveInt)
+    .option("--max-steps <n>", "Override guided scenario step budget", parsePositiveInt)
+    .option("--timeout-ms <n>", "Override guided per-scenario timeout in milliseconds", parsePositiveInt)
+    .option("--max-output-tokens <n>", "Cap guided output tokens per model call", parsePositiveInt)
+    .option("--html-scope <scope>", "Final report rebuild HTML scope: compare or all")
+    .action(async (options: {
+      models?: string[];
+      trials?: number;
+      parallel?: number;
+      parallelism?: number;
+      appParallelism?: number;
+      maxSteps?: number;
+      timeoutMs?: number;
+      maxOutputTokens?: number;
+      htmlScope?: string;
+    }) => {
+      const htmlScope = normalizeHtmlScope(options.htmlScope ?? "all");
+      const parallelism = options.parallel ?? options.parallelism;
+
+      const guided = await runQaAcrossApps({
+        models: options.models,
+        trials: options.trials,
+        parallelism,
+        appParallelism: options.appParallelism,
+        maxSteps: options.maxSteps,
+        timeoutMs: options.timeoutMs,
+        maxOutputTokens: options.maxOutputTokens,
+        onLog
+      });
+
+      const explore = await runExploreAcrossApps({
+        parallelism,
+        appParallelism: options.appParallelism,
+        onLog
+      });
+
+      const heal = await runHealAcrossApps({
+        parallelism,
+        appParallelism: options.appParallelism,
+        onLog
+      });
+
+      const report = await rebuildBenchmarkReports({
+        htmlScope
+      });
+
+      printFullBench({
+        guided,
+        explore,
+        heal,
+        report
+      });
+    });
+
+  program
     .command("report")
     .description("Rebuild comparison reports from saved benchmark report JSON files")
+    .option("--html-scope <scope>", "HTML rebuild scope: compare (default) or all")
     .argument("[mode]", "Benchmark mode to rebuild (guided, explore, or heal)")
-    .action(async (mode: string | undefined) => {
+    .action(async (mode: string | undefined, options: { htmlScope?: string }) => {
       const reportMode = normalizeReportMode(mode);
+      const htmlScope = normalizeHtmlScope(options.htmlScope);
 
       const result = await rebuildBenchmarkReports({
-        mode: reportMode
+        mode: reportMode,
+        htmlScope
       });
       printReportRebuild(result);
     });

@@ -9,21 +9,44 @@ import type {
 } from "../types.js";
 import { resolveWorkspacePath } from "../utils/fs.js";
 
-const taskSchema = z.object({
-  id: z.string().min(1),
+const extractMatchSchema = z.union([
+  z.object({ equals: z.union([z.string(), z.number(), z.boolean()]) }).strict(),
+  z.object({ contains: z.string().min(1) }).strict(),
+  z.object({ not_contains: z.string().min(1) }).strict(),
+  z.object({ includes: z.string().min(1) }).strict(),
+  z.object({ excludes: z.string().min(1) }).strict()
+]);
+
+const observeAssertionSchema = z.object({
+  assertionId: z.string().min(1),
+  type: z.literal("observe"),
   instruction: z.string().min(1),
-  expected: z.object({
-    type: z.enum(["contains", "url_contains", "text_visible", "text_not_visible"]),
-    value: z.string().min(1)
-  }),
-  source: z.enum(["synthetic", "generated"]).optional()
+  exists: z.boolean(),
+  method: z.string().min(1).optional(),
+  descriptionContains: z.string().min(1).optional()
+});
+
+const extractAssertionSchema = z.object({
+  assertionId: z.string().min(1),
+  type: z.literal("extract"),
+  instruction: z.string().min(1),
+  selector: z.string().min(1).optional(),
+  resultType: z.enum(["string", "number", "boolean", "string_array"]),
+  match: extractMatchSchema
+});
+
+const stepSchema = z.object({
+  stepId: z.string().min(1),
+  title: z.string().min(1),
+  actionInstruction: z.string().min(1).optional(),
+  assertions: z.array(z.union([observeAssertionSchema, extractAssertionSchema])).min(1)
 });
 
 const scenarioSchema = z.object({
   scenarioId: z.string().min(1),
   title: z.string().min(1),
   source: z.enum(["synthetic", "generated"]),
-  tasks: z.array(taskSchema).min(1)
+  steps: z.array(stepSchema).min(1)
 });
 
 const bugSchema = z.object({
@@ -33,7 +56,7 @@ const bugSchema = z.object({
   category: z.enum(["navigation", "locator", "state", "assertion", "timeout", "unexpected_ui", "unknown"]),
   severity: z.enum(["low", "medium", "high"]),
   patchPath: z.string().default("patch.diff"),
-  expectedFailureTaskIds: z.array(z.string()).default([]),
+  expectedFailureScenarioIds: z.array(z.string()).default([]),
   validationCommand: z.string().optional()
 });
 
@@ -61,11 +84,11 @@ async function loadScenario(targetRoot: string, scenarioId: string, scenariosDir
     scenarioId: parsed.scenarioId,
     title: parsed.title,
     source: parsed.source,
-    tasks: parsed.tasks.map((task) => ({
-      id: task.id,
-      instruction: task.instruction,
-      expected: task.expected,
-      source: task.source ?? parsed.source,
+    steps: parsed.steps.map((step) => ({
+      stepId: step.stepId,
+      title: step.title,
+      actionInstruction: step.actionInstruction,
+      assertions: step.assertions,
       scenarioId: parsed.scenarioId
     }))
   };

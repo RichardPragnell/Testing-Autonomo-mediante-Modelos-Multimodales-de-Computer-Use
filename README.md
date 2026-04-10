@@ -7,6 +7,7 @@ The benchmark surface is intentionally narrow:
 - `pnpm guided`: guided scenario execution against clean app clones
 - `pnpm explore`: autonomous exploration and coverage discovery
 - `pnpm heal`: diagnosis and repair of seeded defects
+- `pnpm fullbench`: guided, explore, and heal across all apps, then final report rebuild
 - `pnpm report`: rebuild mode and benchmark comparison reports from saved benchmark report JSON files
 
 ## Repository Layout
@@ -78,11 +79,22 @@ pnpm report
 pnpm report guided
 pnpm report explore
 pnpm report heal
+pnpm report --html-scope all
 ```
 
-While a run is active the CLI streams progress logs to the terminal, and the final JSON summary remains on stdout. `pnpm report` prints the latest-per-app-mode-model selection it used plus the rebuilt report paths.
+Full benchmark:
+
+```bash
+pnpm fullbench
+pnpm fullbench --parallel 2 --app-parallelism 2
+pnpm fullbench --parallelism 2 --html-scope all
+```
+
+While a run is active the CLI streams progress logs to the terminal, and the final JSON summary remains on stdout. `pnpm report` prints the latest-per-app-mode-model selection it used plus the rebuilt report paths. `pnpm fullbench` runs all three modes sequentially and finishes by rebuilding the benchmark-wide comparison outputs.
 
 `--parallelism` controls per-app model concurrency. When you omit the app and run across the full benchmark set, `--app-parallelism` controls how many apps run at once. Each parallel execution still gets its own freshly copied template workspace and reserved AUT port.
+
+For `pnpm fullbench`, `--parallel <n>` is a direct alias for `--parallelism <n>`.
 
 ## Full Benchmark
 
@@ -90,15 +102,14 @@ Typical clean end-to-end run:
 
 ```powershell
 Remove-Item -Recurse -Force results\guided, results\explore, results\heal, results\compare -ErrorAction SilentlyContinue
-pnpm guided
-pnpm explore
-pnpm heal
-pnpm report
+pnpm fullbench --parallel 2 --app-parallelism 2
 ```
 
-This runs all enabled models across all discoverable apps, then rebuilds the final benchmark comparison report under `results/compare` as `benchmark-compare-latest.html|json`.
+This runs all enabled models across all discoverable apps for guided, exploration, and self-heal, then rebuilds the final benchmark comparison report under `results/compare` as `benchmark-compare-latest.html|json`.
 
 It also emits `benchmark-compare-standardized-latest.html|json`, a table-first benchmark report organized by mode and then by app.
+
+Rendered HTML reports are now written in formal Spanish. Persisted JSON report artifacts and schema keys remain in English for compatibility.
 
 ## Documentation
 
@@ -112,5 +123,7 @@ It also emits `benchmark-compare-standardized-latest.html|json`, a table-first b
 - Local configuration template: `.env.example`
 - The CLI and benchmark app server auto-load `.env` from the repository root when present
 - Omitting the app for `pnpm guided`, `pnpm explore`, or `pnpm heal` runs that mode across all discoverable benchmark apps and writes one aggregate comparison report
+- `pnpm fullbench` runs `guided`, `explore`, and `heal` sequentially across all discoverable benchmark apps, then rebuilds the benchmark comparison outputs
 - `pnpm report` rebuilds comparison pages from `results/<mode>/reports/*.json`, using the latest available report per `mode+app+model`, and writes stable latest outputs under `results/compare`
+- `pnpm report --html-scope all` also regenerates saved per-run HTML under `results/<mode>/reports` in addition to comparison pages under `results/compare`
 - JSON summaries live under `results/<experiment>/reports` and full run artifacts live under `results/<experiment>/runs`

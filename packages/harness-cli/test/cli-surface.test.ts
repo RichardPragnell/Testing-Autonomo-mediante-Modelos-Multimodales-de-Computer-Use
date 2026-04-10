@@ -20,6 +20,7 @@ describe("CLI surface", () => {
       expect(stdout).toContain("guided");
       expect(stdout).toContain("explore");
       expect(stdout).toContain("heal");
+      expect(stdout).toContain("fullbench");
       expect(stdout).toContain("report");
       expect(stdout).not.toContain("suite");
       expect(stdout).not.toContain("compare");
@@ -30,7 +31,13 @@ describe("CLI surface", () => {
   it(
     "uses optional app arguments for guided, explore, and heal and exposes report rebuild help",
     async () => {
-      const [{ stdout: guidedHelp }, { stdout: exploreHelp }, { stdout: healHelp }, { stdout: reportHelp }] = await Promise.all([
+      const [
+        { stdout: guidedHelp },
+        { stdout: exploreHelp },
+        { stdout: healHelp },
+        { stdout: fullbenchHelp },
+        { stdout: reportHelp }
+      ] = await Promise.all([
         execFileAsync(process.execPath, [tsxCli, "src/index.ts", "guided", "--help"], {
           cwd: cliDir
         }),
@@ -38,6 +45,9 @@ describe("CLI surface", () => {
           cwd: cliDir
         }),
         execFileAsync(process.execPath, [tsxCli, "src/index.ts", "heal", "--help"], {
+          cwd: cliDir
+        }),
+        execFileAsync(process.execPath, [tsxCli, "src/index.ts", "fullbench", "--help"], {
           cwd: cliDir
         }),
         execFileAsync(process.execPath, [tsxCli, "src/index.ts", "report", "--help"], {
@@ -65,8 +75,15 @@ describe("CLI surface", () => {
       expect(healHelp).toContain("heal [options] [app]");
       expect(healHelp).toContain("--parallelism <n>");
       expect(healHelp).toContain("--app-parallelism <n>");
+      expect(fullbenchHelp).toContain("fullbench [options]");
+      expect(fullbenchHelp).toContain("--parallel <n>");
+      expect(fullbenchHelp).toContain("--parallelism <n>");
+      expect(fullbenchHelp).toContain("--app-parallelism <n>");
+      expect(fullbenchHelp).toContain("--html-scope <scope>");
       expect(reportHelp).toContain("report [options] [mode]");
       expect(reportHelp).toContain("guided, explore, or heal");
+      expect(reportHelp).toContain("--html-scope <scope>");
+      expect(reportHelp).toContain("compare (default) or all");
     },
     15_000
   );

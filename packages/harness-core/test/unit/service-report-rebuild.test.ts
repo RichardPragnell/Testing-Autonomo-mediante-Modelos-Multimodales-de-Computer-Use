@@ -18,7 +18,7 @@ afterEach(async () => {
 function metricColumns() {
   return [
     { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-    { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+    { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
     { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
     { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
   ];
@@ -128,7 +128,8 @@ describe("report rebuild", () => {
 
     const rebuilt = await rebuildBenchmarkReports({
       mode: "qa",
-      resultsDir: dir
+      resultsDir: dir,
+      htmlScope: "all"
     });
 
     expect(rebuilt.selectionPolicy).toBe("latest-per-app-mode-model");
@@ -143,6 +144,11 @@ describe("report rebuild", () => {
     expect(rebuilt.modeReports[0]?.finalJsonPath).toContain("compare\\guided-compare-latest.json");
     expect(rebuilt.finalReportPath).toBeUndefined();
     expect(rebuilt.finalJsonPath).toBeUndefined();
+
+    const perRunHtmlPath = join(dir, "guided", "reports", "guided-todo-react-2.html");
+    const perRunHtml = await readFile(perRunHtmlPath, "utf8");
+    expect(perRunHtml).toContain("Informe del modo guiado para todo-react");
+    expect(perRunHtml).toContain("Fundamento de la puntuación");
 
     const modeJson = JSON.parse(await readFile(rebuilt.modeReports[0]!.finalJsonPath, "utf8")) as {
       provenance?: {
@@ -207,22 +213,26 @@ describe("report rebuild", () => {
         efficiencyFrontier?: { panels: unknown[] };
       };
     };
-    expect(html).toContain("Benchmark Final Report");
-    expect(html).toContain("At a Glance");
-    expect(html).toContain("Models Across Modes");
-    expect(html).toContain("Apps Across Modes");
-    expect(html).toContain("Benchmark Matrix");
-    expect(html).toContain("Overall Leaderboard");
-    expect(html).toContain("Efficiency Frontier by Mode");
-    expect(html).toContain("Guided");
-    expect(html).toContain("Self-Heal");
+    expect(html).toContain("Informe final del benchmark");
+    expect(html).toContain("Marco interpretativo");
+    expect(html).toContain("Guía de lectura");
+    expect(html).toContain("Visión de conjunto");
+    expect(html).toContain("Modelos a través de los modos");
+    expect(html).toContain("Aplicaciones a través de los modos");
+    expect(html).toContain("Matriz global del benchmark");
+    expect(html).toContain("Clasificación global");
+    expect(html).toContain("Frontera de eficiencia por modo");
+    expect(html).toContain("Modo guiado");
+    expect(html).toContain("Modo de autorreparación");
     expect(html).toContain("latest-per-app-mode-model");
+    expect(html).not.toContain("At a Glance");
     expect(html).not.toContain("Guided Cost Audit");
     expect(html).not.toContain("Rebuild Provenance");
     expect(html).not.toContain("Explore Mode Comparison");
-    expect(standardizedHtml).toContain("Standardized Results by Mode");
-    expect(standardizedHtml).toContain("Compare Model Performance per App");
-    expect(standardizedHtml).toContain("Reading Guide");
+    expect(standardizedHtml).toContain("Tablas normalizadas del benchmark");
+    expect(standardizedHtml).toContain("Resultados normalizados por modo");
+    expect(standardizedHtml).toContain("Comparación del rendimiento por aplicación");
+    expect(standardizedHtml).toContain("Guía de lectura");
     expect(standardizedHtml).not.toContain("At a Glance");
     expect(standardizedJson.title).toBe("Benchmark Standardized Tables Report");
     expect(standardizedJson.subtitle).toContain("Standardized benchmark tables by mode");

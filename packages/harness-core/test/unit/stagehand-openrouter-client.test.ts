@@ -12,6 +12,14 @@ vi.mock("ai", () => ({
 
 vi.mock("../../src/ai/openrouter.js", () => ({
   buildOpenRouterUsageRecord: buildOpenRouterUsageRecordMock,
+  buildPinnedOpenRouterProviderOptions: (provider: string) => ({
+    "openrouter.chat": {
+      provider: {
+        only: [provider],
+        allow_fallbacks: false
+      }
+    }
+  }),
   createOpenRouterLanguageModel: createOpenRouterLanguageModelMock
 }));
 
@@ -26,7 +34,7 @@ describe("stagehand openrouter client", () => {
 
     createOpenRouterLanguageModelMock.mockReturnValue({ provider: "mock-model" });
     buildOpenRouterUsageRecordMock.mockResolvedValue({
-      phase: "guided_task",
+      phase: "guided_scenario",
       operation: "act",
       requestedModelId: "z-ai/glm-4-32b",
       requestedProvider: "z-ai",
@@ -58,7 +66,7 @@ describe("stagehand openrouter client", () => {
     const client = new StagehandOpenRouterTrackingClient({
       modelId: "z-ai/glm-4-32b",
       provider: "z-ai",
-      phase: "guided_task",
+      phase: "guided_scenario",
       usageSink: usageSink as never[],
       defaultMaxOutputTokens: 300
     });
@@ -81,6 +89,14 @@ describe("stagehand openrouter client", () => {
     expect(generateObjectMock).toHaveBeenCalledWith(
       expect.objectContaining({
         maxOutputTokens: 123,
+        providerOptions: {
+          "openrouter.chat": {
+            provider: {
+              only: ["z-ai"],
+              allow_fallbacks: false
+            }
+          }
+        },
         temperature: 0.1,
         topP: 1,
         frequencyPenalty: 0,
@@ -106,7 +122,7 @@ describe("stagehand openrouter client", () => {
     const client = new StagehandOpenRouterTrackingClient({
       modelId: "z-ai/glm-4-32b",
       provider: "z-ai",
-      phase: "guided_task",
+      phase: "guided_scenario",
       usageSink: usageSink as never[],
       defaultMaxOutputTokens: 300
     });
@@ -129,6 +145,14 @@ describe("stagehand openrouter client", () => {
     expect(generateTextMock).toHaveBeenCalledWith(
       expect.objectContaining({
         maxOutputTokens: 300,
+        providerOptions: {
+          "openrouter.chat": {
+            provider: {
+              only: ["z-ai"],
+              allow_fallbacks: false
+            }
+          }
+        },
         temperature: 0.2,
         topP: 0.9,
         tools: {
@@ -141,4 +165,86 @@ describe("stagehand openrouter client", () => {
     );
     expect(usageSink).toHaveLength(1);
   });
+
+  it("pins the configured provider for direct text generations", async () => {
+    generateTextMock.mockResolvedValue({
+      text: "done",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 15
+      }
+    });
+
+    const client = new StagehandOpenRouterTrackingClient({
+      modelId: "z-ai/glm-4-32b",
+      provider: "z-ai",
+      phase: "guided_scenario",
+      usageSink: [] as never[],
+      defaultMaxOutputTokens: 300
+    });
+
+    await client.generateText({ prompt: "perform one action" });
+
+    expect(generateTextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerOptions: {
+          "openrouter.chat": {
+            provider: {
+              only: ["z-ai"],
+              allow_fallbacks: false
+            }
+          }
+        }
+      })
+    );
+  });
+
+  it.each([
+    { responseModelName: "observation", expectedOperation: "observe" },
+    { responseModelName: "extraction", expectedOperation: "extract" }
+  ])(
+    "records %s usage operations for structured generations",
+    async ({ responseModelName, expectedOperation }) => {
+      generateObjectMock.mockResolvedValue({
+        object: { ok: true },
+        usage: {
+          inputTokens: 40,
+          outputTokens: 10,
+          reasoningTokens: 0,
+          cachedInputTokens: 0,
+          totalTokens: 50
+        }
+      });
+
+      const client = new StagehandOpenRouterTrackingClient({
+        modelId: "z-ai/glm-4-32b",
+        provider: "z-ai",
+        phase: "guided_scenario",
+        usageSink: [] as never[],
+        defaultMaxOutputTokens: 300
+      });
+
+      await client.createChatCompletion({
+        options: {
+          messages: [{ role: "user", content: "inspect the page" }],
+          response_model: {
+            name: responseModelName,
+            schema: { type: "object" }
+          }
+        }
+      });
+
+      expect(buildOpenRouterUsageRecordMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: expectedOperation,
+          phase: "guided_scenario",
+          requestedModelId: "z-ai/glm-4-32b",
+          requestedProvider: "z-ai"
+        })
+      );
+    }
+  );
 });

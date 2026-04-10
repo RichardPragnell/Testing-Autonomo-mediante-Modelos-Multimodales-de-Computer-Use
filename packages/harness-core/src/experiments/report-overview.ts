@@ -265,7 +265,7 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
   return {
     title: "Overall Rank Matrix",
     caption:
-      "Cells are ranked within each mode/app column using score descending, then total cost ascending, latency ascending, and model id. Darker cells indicate better rank. Hatched N/A cells indicate missing runs and are excluded from row means.",
+      "Cells are ranked within each mode/app column using score descending, then total cost ascending, run latency ascending, and model id. Darker cells indicate better rank. Hatched N/A cells indicate missing runs and are excluded from row means.",
     modeOrder: MODE_ORDER,
     columns,
     rows
@@ -360,7 +360,7 @@ function buildEfficiencyFrontier(
   return {
     title: "Efficiency Frontier by Mode",
     caption:
-      "Each panel aggregates models across apps within a mode. Shared axes show mean latency and mean cost, bubble size shows mean raw score within that mode, and the frontier line traces Pareto-optimal models.",
+      "Each panel aggregates models across apps within a mode. Shared axes show mean run latency and mean cost, bubble size shows mean raw score within that mode, and the frontier line traces Pareto-optimal models.",
     modeOrder: MODE_ORDER,
     xDomain: { min: 0, max: maxLatency },
     yDomain: { min: 0, max: maxCost },

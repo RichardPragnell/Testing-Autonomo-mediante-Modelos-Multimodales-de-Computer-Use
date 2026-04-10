@@ -5,5 +5,7 @@
   "category": "assertion",
   "severity": "medium",
   "patchPath": "patch.diff",
-  "expectedFailureTaskIds": ["guided-add-task"]
+  "expectedFailureScenarioIds": [
+    "add-task"
+  ]
 }

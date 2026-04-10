@@ -2,13 +2,13 @@ import type {
   AiCostSource,
   AiUsageRecord,
   AiUsageSummary,
-  BenchmarkTask,
+  BenchmarkScenario,
   CacheUsageSummary,
   Finding,
   ModelAvailability,
   OperationTrace,
   ResolvedBenchmarkTarget,
-  TaskRunResult,
+  ScenarioRunResult,
   UsageCostSummary
 } from "../types.js";
 
@@ -19,7 +19,7 @@ export type QaExecutionProfile = "fast" | "full";
 export interface CapabilityDefinition {
   capabilityId: string;
   title: string;
-  taskIds: string[];
+  scenarioIds: string[];
 }
 
 export interface ExploreHeuristicTargets {
@@ -32,8 +32,8 @@ export interface HealCaseDefinition {
   caseId: string;
   title: string;
   bugId: string;
-  reproductionTaskIds: string[];
-  regressionTaskIds: string[];
+  reproductionScenarioIds: string[];
+  regressionScenarioIds: string[];
   goldTouchedFiles: string[];
   validationCommand?: string;
 }
@@ -42,7 +42,7 @@ export interface AppBenchmarkManifest {
   appId: string;
   displayName: string;
   prompts: {
-    qa: string;
+    guided: string;
     explore: string;
     heal: string;
   };
@@ -54,17 +54,17 @@ export interface AppBenchmarkManifest {
       width: number;
       height: number;
     };
-    qaTrials: number;
+    guidedTrials: number;
     exploreTrials: number;
     healTrials: number;
   };
   capabilities: CapabilityDefinition[];
-  qa: {
+  guided: {
     capabilityIds: string[];
   };
   explore: {
     capabilityIds: string[];
-    probeTaskIds: string[];
+    probeScenarioIds: string[];
     heuristicTargets: ExploreHeuristicTargets;
   };
   heal: {
@@ -77,7 +77,7 @@ export interface ResolvedAppBenchmark {
   manifestPath: string;
   benchmark: AppBenchmarkManifest;
   target: ResolvedBenchmarkTarget;
-  tasks: Map<string, BenchmarkTask>;
+  scenarios: Map<string, BenchmarkScenario>;
   capabilityMap: Map<string, CapabilityDefinition>;
   healCaseMap: Map<string, HealCaseDefinition>;
 }
@@ -97,7 +97,7 @@ export interface ExperimentRuntime {
 export interface QaExperimentSpec {
   appId: string;
   capabilityIds: string[];
-  taskIds: string[];
+  scenarioIds: string[];
   models: string[];
   promptId: string;
   profile: QaExecutionProfile;
@@ -109,7 +109,7 @@ export interface QaExperimentSpec {
 export interface ExploreExperimentSpec {
   appId: string;
   capabilityIds: string[];
-  probeTaskIds: string[];
+  probeScenarioIds: string[];
   models?: string[];
   promptId: string;
   trials: number;
@@ -172,28 +172,28 @@ export interface QaCapabilityTrialResult {
   title: string;
   trial: number;
   success: boolean;
-  taskIds: string[];
-  failedTaskIds: string[];
+  scenarioIds: string[];
+  failedScenarioIds: string[];
 }
 
 export interface QaModelMetrics {
   modelId: string;
   capabilityPassRate: number;
-  fullScenarioCompletionRate: number;
+  scenarioCompletionRate: number;
   stability: number;
-  taskPassRate: number;
+  stepPassRate: number;
   avgLatencyMs: number;
   avgCostUsd: number;
   score: number;
-  executedTasks: number;
-  skippedTasks: number;
+  executedScenarios: number;
+  skippedScenarios: number;
 }
 
 export interface QaModelSummary {
   model: ModelAvailability;
   metrics: QaModelMetrics;
   cacheSummary?: CacheUsageSummary;
-  taskRuns: TaskRunResult[];
+  scenarioRuns: ScenarioRunResult[];
   capabilityRuns: QaCapabilityTrialResult[];
 }
 
@@ -212,9 +212,9 @@ export interface QaLeaderboardEntry {
   modelId: string;
   provider: string;
   score: number;
-  taskPassRate: number;
+  stepPassRate: number;
   capabilityPassRate: number;
-  fullScenarioCompletionRate: number;
+  scenarioCompletionRate: number;
   stability: number;
   avgLatencyMs: number;
   avgCostUsd: number;
@@ -246,15 +246,17 @@ export interface ExploreCapabilityDiscovery {
   title: string;
   trial: number;
   discovered: boolean;
+  matchedScenarioIds: string[];
+  matchedStepIds: string[];
   matchedActionIds: string[];
 }
 
 export interface ExploreProbeRun {
   trial: number;
-  taskId: string;
+  scenarioId: string;
   success: boolean;
   matchedActionIds: string[];
-  taskRun: TaskRunResult;
+  scenarioRun: ScenarioRunResult;
 }
 
 export interface ExploreTrialArtifact {
@@ -340,7 +342,7 @@ export interface HealCaseTrialResult {
   caseId: string;
   title: string;
   trial: number;
-  reproductionRuns: TaskRunResult[];
+  reproductionRuns: ScenarioRunResult[];
   findings: Finding[];
   diagnosis?: RepairDiagnosis;
   suspectedFiles: string[];
@@ -349,7 +351,7 @@ export interface HealCaseTrialResult {
   patchApplied: boolean;
   validationPassed: boolean;
   validationExitCode?: number;
-  failingTaskFixRate: number;
+  failingScenarioFixRate: number;
   regressionFreeRate: number;
   localizationScore: number;
   fixed: boolean;
@@ -359,8 +361,8 @@ export interface HealCaseTrialResult {
   totalUsage?: AiUsageSummary;
   patchPath?: string;
   note: string;
-  postPatchReproductionRuns: TaskRunResult[];
-  postPatchRegressionRuns: TaskRunResult[];
+  postPatchReproductionRuns: ScenarioRunResult[];
+  postPatchRegressionRuns: ScenarioRunResult[];
 }
 
 export interface HealModelMetrics {
@@ -368,7 +370,7 @@ export interface HealModelMetrics {
   localizationAccuracy: number;
   patchApplyRate: number;
   validationPassRate: number;
-  failingTaskFixRate: number;
+  failingScenarioFixRate: number;
   regressionFreeRate: number;
   fixRate: number;
   avgLatencyMs: number;
@@ -401,7 +403,7 @@ export interface HealLeaderboardEntry {
   localizationAccuracy: number;
   patchApplyRate: number;
   validationPassRate: number;
-  failingTaskFixRate: number;
+  failingScenarioFixRate: number;
   regressionFreeRate: number;
   fixRate: number;
   avgLatencyMs: number;

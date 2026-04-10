@@ -1,0 +1,66 @@
+{
+  "scenarioId": "create-delete-task",
+  "title": "Create and remove a temporary task",
+  "source": "generated",
+  "steps": [
+    {
+      "stepId": "create-delete-task.fill-composer",
+      "title": "Fill the composer with a removable task",
+      "actionInstruction": "type Remove benchmark draft into the New task input",
+      "assertions": [
+        {
+          "assertionId": "create-delete-task.composer-filled",
+          "type": "extract",
+          "instruction": "extract the current value of the New task input",
+          "resultType": "string",
+          "match": {
+            "equals": "Remove benchmark draft"
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "create-delete-task.submit",
+      "title": "Create the temporary task",
+      "actionInstruction": "click the Add task button",
+      "assertions": [
+        {
+          "assertionId": "create-delete-task.remove-visible",
+          "type": "observe",
+          "instruction": "find the Remove button for the task Remove benchmark draft",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "create-delete-task.remove",
+      "title": "Delete the temporary task",
+      "actionInstruction": "click the Remove button for the task Remove benchmark draft",
+      "assertions": [
+        {
+          "assertionId": "create-delete-task.add-button-still-visible",
+          "type": "observe",
+          "instruction": "find the Add task button",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "create-delete-task.assert-removed",
+      "title": "Verify the task is gone",
+      "assertions": [
+        {
+          "assertionId": "create-delete-task.todo-hidden",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "excludes": "Remove benchmark draft"
+          }
+        }
+      ]
+    }
+  ]
+}

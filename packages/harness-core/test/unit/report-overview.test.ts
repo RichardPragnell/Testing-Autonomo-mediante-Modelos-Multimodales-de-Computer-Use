@@ -4,7 +4,7 @@ import type { BenchmarkComparisonSection, BenchmarkMetricColumn } from "../../sr
 
 const METRIC_COLUMNS: BenchmarkMetricColumn[] = [
   { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-  { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+  { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
   { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
   { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
 ];

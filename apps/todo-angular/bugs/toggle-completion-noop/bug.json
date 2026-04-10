@@ -5,5 +5,8 @@
   "category": "state",
   "severity": "high",
   "patchPath": "patch.diff",
-  "expectedFailureTaskIds": ["guided-complete-task", "guided-filter-active"]
+  "expectedFailureScenarioIds": [
+    "complete-task",
+    "filter-active"
+  ]
 }

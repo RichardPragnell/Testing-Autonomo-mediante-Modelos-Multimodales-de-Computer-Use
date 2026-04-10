@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExploreModelSummary, ExploreTrialArtifact, HealModelSummary, QaModelSummary } from "../../src/experiments/types.js";
-import type { ModelAvailability, TaskRunResult } from "../../src/types.js";
+import type { ModelAvailability, ScenarioRunResult } from "../../src/types.js";
 import {
   buildHealModelScorecard,
   selectExploreBestTrial,
@@ -17,9 +17,10 @@ function createModel(id: string): ModelAvailability {
   };
 }
 
-function createTaskRun(taskId: string, success: boolean, screenshotBase64 = "demo"): TaskRunResult {
+function createScenarioRun(scenarioId: string, success: boolean, screenshotBase64 = "demo"): ScenarioRunResult {
   return {
-    taskId,
+    scenarioId,
+    scenarioTitle: scenarioId,
     trial: 1,
     modelId: "test/model",
     success,
@@ -27,7 +28,8 @@ function createTaskRun(taskId: string, success: boolean, screenshotBase64 = "dem
     latencyMs: 10,
     costUsd: 0.001,
     screenshotBase64,
-    trace: []
+    trace: [],
+    stepRuns: []
   };
 }
 
@@ -36,7 +38,7 @@ function createExploreTrial(
   discovered: number,
   states: number,
   transitions: number,
-  successfulProbeTaskId = "guided-add-task"
+  successfulProbeScenarioId = "add-task"
 ): ExploreTrialArtifact {
   return {
     trial,
@@ -50,67 +52,69 @@ function createExploreTrial(
       title: `Capability ${index}`,
       trial,
       discovered: index < discovered,
+      matchedScenarioIds: [],
+      matchedStepIds: [],
       matchedActionIds: []
     })),
     probeRuns: [
       {
         trial,
-        taskId: successfulProbeTaskId,
+        scenarioId: successfulProbeScenarioId,
         success: true,
         matchedActionIds: [],
-        taskRun: createTaskRun(successfulProbeTaskId, true)
+        scenarioRun: createScenarioRun(successfulProbeScenarioId, true)
       }
     ]
   };
 }
 
 describe("report figure selectors", () => {
-  it("prefers guided-edit-task for QA representative screenshots", () => {
+  it("prefers edit-task for QA representative screenshots", () => {
     const summary: QaModelSummary = {
       model: createModel("google/gemini-2.5-flash"),
       metrics: {
         modelId: "google/gemini-2.5-flash",
         capabilityPassRate: 1,
-        fullScenarioCompletionRate: 1,
+        scenarioCompletionRate: 1,
         stability: 1,
-        taskPassRate: 1,
+        stepPassRate: 1,
         avgLatencyMs: 10,
         avgCostUsd: 0.001,
         score: 90,
-        executedTasks: 5,
-        skippedTasks: 0
+        executedScenarios: 5,
+        skippedScenarios: 0
       },
-      taskRuns: [
-        createTaskRun("guided-add-task", true),
-        createTaskRun("guided-edit-task", true),
-        createTaskRun("guided-complete-task", true)
+      scenarioRuns: [
+        createScenarioRun("add-task", true),
+        createScenarioRun("edit-task", true),
+        createScenarioRun("complete-task", true)
       ],
       capabilityRuns: []
     };
 
-    expect(selectQaRepresentativeRun(summary)?.taskId).toBe("guided-edit-task");
+    expect(selectQaRepresentativeRun(summary)?.scenarioId).toBe("edit-task");
   });
 
-  it("falls back to the first successful QA screenshot when preferred tasks are absent", () => {
+  it("falls back to the first successful QA screenshot when preferred scenarios are absent", () => {
     const summary: QaModelSummary = {
       model: createModel("google/gemini-2.5-flash"),
       metrics: {
         modelId: "google/gemini-2.5-flash",
         capabilityPassRate: 1,
-        fullScenarioCompletionRate: 1,
+        scenarioCompletionRate: 1,
         stability: 1,
-        taskPassRate: 1,
+        stepPassRate: 1,
         avgLatencyMs: 10,
         avgCostUsd: 0.001,
         score: 90,
-        executedTasks: 2,
-        skippedTasks: 0
+        executedScenarios: 1,
+        skippedScenarios: 0
       },
-      taskRuns: [createTaskRun("smoke-home-title", true), createTaskRun("smoke-default-count", true)],
+      scenarioRuns: [createScenarioRun("smoke-load", true)],
       capabilityRuns: []
     };
 
-    expect(selectQaRepresentativeRun(summary)?.taskId).toBe("smoke-home-title");
+    expect(selectQaRepresentativeRun(summary)?.scenarioId).toBe("smoke-load");
   });
 
   it("selects the exploration best trial by discovery, then states, then transitions", () => {
@@ -128,14 +132,14 @@ describe("report figure selectors", () => {
         score: 99
       },
       trials: [
-        createExploreTrial(1, 1, 5, 5, "guided-add-task"),
-        createExploreTrial(2, 2, 4, 4, "guided-edit-task"),
-        createExploreTrial(3, 2, 3, 6, "guided-complete-task")
+        createExploreTrial(1, 1, 5, 5, "add-task"),
+        createExploreTrial(2, 2, 4, 4, "edit-task"),
+        createExploreTrial(3, 2, 3, 6, "complete-task")
       ]
     };
 
     expect(selectExploreBestTrial(summary)?.trial).toBe(2);
-    expect(selectExploreRepresentativeProbeRun(summary)?.taskId).toBe("guided-edit-task");
+    expect(selectExploreRepresentativeProbeRun(summary)?.scenarioId).toBe("edit-task");
   });
 
   it("builds self-heal scorecards with overall and per-case badges", () => {
@@ -146,7 +150,7 @@ describe("report figure selectors", () => {
         localizationAccuracy: 1,
         patchApplyRate: 1,
         validationPassRate: 1,
-        failingTaskFixRate: 1,
+        failingScenarioFixRate: 1,
         regressionFreeRate: 1,
         fixRate: 1,
         avgLatencyMs: 100,
@@ -166,7 +170,7 @@ describe("report figure selectors", () => {
           patchGenerated: true,
           patchApplied: true,
           validationPassed: true,
-          failingTaskFixRate: 1,
+          failingScenarioFixRate: 1,
           regressionFreeRate: 1,
           localizationScore: 1,
           fixed: true,
@@ -198,7 +202,7 @@ describe("report figure selectors", () => {
           patchGenerated: true,
           patchApplied: true,
           validationPassed: false,
-          failingTaskFixRate: 0,
+          failingScenarioFixRate: 0,
           regressionFreeRate: 0,
           localizationScore: 1,
           fixed: false,
