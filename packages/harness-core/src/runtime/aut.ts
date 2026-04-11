@@ -85,6 +85,16 @@ async function isUrlReachable(url: string): Promise<boolean> {
   }
 }
 
+async function waitForUrlToStop(url: string, timeoutMs = 5_000, pollIntervalMs = 100): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!(await isUrlReachable(url))) {
+      return;
+    }
+    await delay(pollIntervalMs);
+  }
+}
+
 function signalChildProcessGroup(child: SpawnedChild, signal: "SIGTERM" | "SIGKILL"): boolean {
   if (!child.pid) {
     return false;
@@ -231,6 +241,7 @@ export async function startAut(
       stop: async () => {
         try {
           await stopSpawnedAut(child);
+          await waitForUrlToStop(aut.url);
         } finally {
           releasePort();
         }
@@ -239,6 +250,7 @@ export async function startAut(
   } catch (error) {
     try {
       await stopSpawnedAut(child);
+      await waitForUrlToStop(aut.url);
     } finally {
       releasePort();
     }

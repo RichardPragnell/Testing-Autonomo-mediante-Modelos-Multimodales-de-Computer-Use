@@ -1,6 +1,6 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 export async function ensureDir(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
@@ -24,9 +24,20 @@ export async function removeDir(path: string): Promise<void> {
   }
 }
 
-export async function copyDir(source: string, destination: string): Promise<void> {
+export async function copyDir(
+  source: string,
+  destination: string,
+  options: {
+    excludeNames?: string[];
+  } = {}
+): Promise<void> {
   await ensureDir(dirname(destination));
-  await cp(source, destination, { recursive: true, force: true });
+  const excludedNames = new Set(options.excludeNames ?? []);
+  await cp(source, destination, {
+    recursive: true,
+    force: true,
+    filter: (sourcePath) => !excludedNames.has(basename(sourcePath))
+  });
 }
 
 export async function readText(path: string): Promise<string> {

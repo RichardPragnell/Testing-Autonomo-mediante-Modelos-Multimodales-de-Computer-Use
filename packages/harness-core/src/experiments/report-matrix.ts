@@ -1200,7 +1200,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         margin: 24px auto 40px;
         padding: 24px 18px 30px;
         background: var(--paper);
-        border: 1px solid var(--rule);
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
         box-shadow: 0 20px 60px rgba(24, 20, 16, 0.08);
       }
       header {
@@ -2649,7 +2650,8 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         margin: 24px auto 40px;
         padding: 24px 18px 30px;
         background: var(--paper);
-        border: 1px solid var(--rule);
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
         box-shadow: 0 20px 60px rgba(24, 20, 16, 0.08);
       }
       .report-header {
@@ -3410,7 +3412,8 @@ export function renderBenchmarkStandardizedComparisonHtml(report: BenchmarkCompa
         margin: 24px auto 40px;
         padding: 24px 18px 30px;
         background: var(--paper);
-        border: 1px solid var(--rule);
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
         box-shadow: 0 20px 60px rgba(24, 20, 16, 0.08);
       }
       .report-header {

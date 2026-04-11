@@ -17,6 +17,8 @@ describe("report copy", () => {
         })
       ])
     );
+    expect(definition.formula).not.toContain("latencia");
+    expect(definition.formula).not.toContain("coste");
   });
 
   it("localizes heal metrics with failing scenario wording", () => {
@@ -31,5 +33,7 @@ describe("report copy", () => {
       ])
     );
     expect(spanishMetricLabel("failingScenarioFix", "fallback")).toBe("Corrección de escenarios fallidos");
+    expect(definition.formula).not.toContain("latencia");
+    expect(definition.formula).not.toContain("coste");
   });
 });

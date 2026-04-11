@@ -60,9 +60,9 @@ const METRIC_LABELS: Record<string, string> = {
 const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = {
   qa: {
     modeDescription:
-      "El modo guiado prioriza la finalización íntegra del escenario y, en segundo término, la consistencia y la eficiencia operativa.",
+      "El modo guiado prioriza la finalización íntegra del escenario y, en segundo término, la calidad por paso y la consistencia.",
     formula:
-      "Puntuación = 100 x clamp(0.44 x Finalización del escenario + 0.24 x Éxito por paso + 0.12 x Éxito por capacidad + 0.15 x Estabilidad + 0.03 x Eficiencia de latencia de ejecución + 0.02 x Eficiencia de coste)",
+      "Puntuación = 100 x clamp(0.45 x Finalización del escenario + 0.25 x Éxito por paso + 0.15 x Éxito por capacidad + 0.15 x Estabilidad)",
     metrics: QA_SCORE_DEFINITION.metrics.map((metric) => {
       switch (metric.key) {
         case "scenarioCompletionRate":
@@ -101,38 +101,20 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
             contribution:
               "Penaliza la variabilidad entre repeticiones y refuerza la lectura de robustez experimental."
           };
-        case "latencyEfficiency":
-          return {
-            ...metric,
-            label: "Eficiencia de latencia de ejecución",
-            description:
-              "Término de eficiencia calculado a partir de la latencia media de ejecución y del pivote compartido de latencia.",
-            contribution:
-              "Introduce una preferencia secundaria por ejecuciones más ágiles cuando la calidad funcional es similar."
-          };
         default:
-          return {
-            ...metric,
-            label: "Eficiencia de coste",
-            description:
-              "Término de eficiencia calculado a partir del coste medio resuelto y del pivote compartido de coste.",
-            contribution:
-              "Favorece soluciones menos costosas sin desplazar la evidencia funcional."
-          };
+          return metric;
       }
     }),
     specialRules: [
       "La estabilidad se normaliza como 1 - (desviación típica binaria media / 0.5), de modo que el intervalo efectivo vuelve a ser 0-1.",
-      "Eficiencia de latencia de ejecución = 1 / (1 + avgLatencyMs / 2000).",
-      "Eficiencia de coste = 1 / (1 + avgCostUsd / 0.05).",
       "Una mayor puntuación indica mejor rendimiento; la puntuación final se acota al intervalo 0-100 tras ponderar los términos."
     ]
   },
   explore: {
     modeDescription:
-      "El modo de exploración valora la cobertura útil del sistema, la reutilización de lo descubierto y, en un plano secundario, la eficiencia operativa.",
+      "El modo de exploración valora la cobertura útil del sistema y la reutilización de lo descubierto.",
     formula:
-      "Puntuación = 100 x clamp(0.3375 x Descubrimiento de capacidades + 0.1875 x Cobertura de estados + 0.15 x Cobertura de transiciones + 0.075 x Diversidad de acciones + 0.20 x Reejecución de escenarios sonda + 0.03 x Eficiencia de latencia de ejecución + 0.02 x Eficiencia de coste)",
+      "Puntuación = 100 x clamp(0.35 x Descubrimiento de capacidades + 0.20 x Cobertura de estados + 0.15 x Cobertura de transiciones + 0.10 x Diversidad de acciones + 0.20 x Reejecución de escenarios sonda)",
     metrics: EXPLORE_SCORE_DEFINITION.metrics.map((metric) => {
       switch (metric.key) {
         case "capabilityDiscoveryRate":
@@ -180,42 +162,22 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
             contribution:
               "Aporta una señal complementaria de variedad conductual una vez cubiertos los objetivos principales de cobertura y reutilización."
           };
-        case "latencyEfficiency":
-          return {
-            ...metric,
-            label: "Eficiencia de latencia de ejecución",
-            description:
-              "Término de eficiencia calculado a partir de la latencia media de ejecución y del pivote compartido de latencia.",
-            contribution:
-              "Favorece exploraciones más ligeras cuando el rendimiento sustantivo es equivalente."
-          };
         default:
-          return {
-            ...metric,
-            label: "Eficiencia de coste",
-            description:
-              "Término de eficiencia calculado a partir del coste medio resuelto y del pivote compartido de coste.",
-            contribution:
-              "Introduce una preferencia secundaria por exploraciones menos costosas."
-          };
+          return metric;
       }
     }),
-    specialRules: [
-      "La cobertura de estados y de transiciones se trunca en 1.0 tras normalizarse frente a los objetivos heurísticos definidos para la aplicación.",
-      "Eficiencia de latencia de ejecución = 1 / (1 + avgLatencyMs / 2000).",
-      "Eficiencia de coste = 1 / (1 + avgCostUsd / 0.05)."
-    ]
+    specialRules: ["La cobertura de estados y de transiciones se trunca en 1.0 tras normalizarse frente a los objetivos heurísticos definidos para la aplicación."]
   },
   heal: {
     modeDescription:
       "El modo de autorreparación prioriza la corrección efectiva del caso defectuoso, la ausencia de regresiones y la calidad diagnóstica, reservando las señales operativas para una lectura complementaria.",
     formula:
-      "Puntuación = 100 x clamp(0.33 x Tasa de corrección completa + 0.27 x Corrección de escenarios fallidos + 0.15 x Ausencia de regresiones + 0.10 x Validación superada + 0.10 x Recall de localización + 0.03 x Eficiencia de latencia de ejecución + 0.02 x Eficiencia de coste)",
+      "Puntuación = 100 x clamp(0.35 x Tasa de corrección completa + 0.30 x Corrección de escenarios fallidos + 0.15 x Ausencia de regresiones + 0.10 x Validación superada + 0.10 x Recall de localización)",
     metrics: [
       {
         key: "fixRate",
         label: "Tasa de corrección completa",
-        weight: 0.33,
+        weight: 0.35,
         description:
           "Proporción de casos de reparación que terminan con validación satisfactoria, corrección total de los escenarios fallidos y ausencia de regresiones.",
         contribution:
@@ -224,7 +186,7 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
       {
         key: "failingScenarioFixRate",
         label: "Corrección de escenarios fallidos",
-        weight: 0.27,
+        weight: 0.3,
         description:
           "Fracción media de escenarios inicialmente defectuosos que quedan resueltos tras aplicar el parche.",
         contribution:
@@ -256,31 +218,11 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
           "Proporción media de ficheros oro del bug que aparecen recuperados entre los ficheros sospechosos propuestos por el sistema.",
         contribution:
           "Valora la calidad del diagnóstico, pero con un peso inferior al éxito efectivo de la reparación."
-      },
-      {
-        key: "latencyEfficiency",
-        label: "Eficiencia de latencia de ejecución",
-        weight: 0.03,
-        description:
-          "Término de eficiencia calculado a partir de la latencia media de ejecución y del pivote compartido de latencia.",
-        contribution:
-          "Aporta una preferencia secundaria por ciclos de reparación más ágiles."
-      },
-      {
-        key: "costEfficiency",
-        label: "Eficiencia de coste",
-        weight: 0.02,
-        description:
-          "Término de eficiencia calculado a partir del coste medio resuelto y del pivote compartido de coste.",
-        contribution:
-          "Favorece procesos menos costosos una vez fijadas las prioridades de efectividad."
       }
     ],
     specialRules: [
       "La aplicación del parche se mantiene como indicador operativo en tablas y auditorías, pero no forma parte de la puntuación ponderada.",
-      "Recall de localización = |ficheros sospechosos ∩ ficheros oro| / |ficheros oro|.",
-      "Eficiencia de latencia de ejecución = 1 / (1 + avgLatencyMs / 2000).",
-      "Eficiencia de coste = 1 / (1 + avgCostUsd / 0.05)."
+      "Recall de localización = |ficheros sospechosos ∩ ficheros oro| / |ficheros oro|."
     ]
   }
 };
@@ -345,7 +287,7 @@ export function localizedModeReadGuide(kind: ExperimentKind): Array<{ title: str
   const common = [
     {
       title: "Puntuación",
-      body: "Un valor más alto indica mejor rendimiento dentro del modo analizado; la puntuación combina resultados sustantivos y eficiencia en una escala 0-100."
+      body: "Un valor más alto indica mejor rendimiento dentro del modo analizado; la puntuación resume solo los criterios sustantivos definidos para ese modo en una escala 0-100."
     },
     {
       title: "Latencia de ejecución",

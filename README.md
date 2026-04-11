@@ -42,6 +42,8 @@ Run the pristine reference app directly:
 
 ```bash
 pnpm app:todo-react
+pnpm app:todo-nextjs
+pnpm app:todo-angular
 ```
 
 Open `http://127.0.0.1:3101`.

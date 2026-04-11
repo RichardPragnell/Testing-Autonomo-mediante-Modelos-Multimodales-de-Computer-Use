@@ -157,6 +157,31 @@ describe("prepareRunWorkspace", () => {
     }
   });
 
+  it("does not copy template node_modules into the prepared workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-node-modules-"));
+    tempDirs.push(root);
+    const templatePath = join(root, "template");
+    await mkdir(join(templatePath, "node_modules"), { recursive: true });
+    await writeFile(join(templatePath, "node_modules", "sentinel.txt"), "do not copy\n", "utf8");
+    await writeFile(join(templatePath, "README.md"), "# template\n", "utf8");
+
+    const preferredPort = await allocatePort();
+    const resultsDir = join(root, "results");
+    const suite = await createResolvedSuite(`http://127.0.0.1:${preferredPort}`, templatePath);
+    const workspace = await prepareRunWorkspace({
+      resolvedSuite: suite,
+      runId: "guided-test-run-node-modules",
+      resultsRoot: resultsDir
+    });
+
+    try {
+      await expect(readFile(join(workspace.workspacePath, "node_modules", "sentinel.txt"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(workspace.workspacePath, "README.md"), "utf8")).resolves.toContain("# template");
+    } finally {
+      workspace.aut.releasePort?.();
+    }
+  });
+
   it("reserves distinct AUT ports when workspaces are prepared in parallel", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-port-parallel-"));
     tempDirs.push(root);

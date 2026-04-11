@@ -11,12 +11,24 @@ import {
 
 describe("experiment scoring", () => {
   it("exposes canonical score metadata for every experiment mode", () => {
-    expect(QA_SCORE_DEFINITION.formula).toContain("0.44 x Scenario Completion");
+    expect(QA_SCORE_DEFINITION.formula).toContain("0.45 x Scenario Completion");
+    expect(QA_SCORE_DEFINITION.formula).not.toContain("Latency");
+    expect(QA_SCORE_DEFINITION.formula).not.toContain("Cost");
     expect(QA_SCORE_DEFINITION.metrics.map((metric) => metric.label)).toContain("Stability");
-    expect(EXPLORE_SCORE_DEFINITION.formula).toContain("0.3375 x Capability Discovery");
+    expect(QA_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("latencyEfficiency");
+    expect(QA_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("costEfficiency");
+    expect(EXPLORE_SCORE_DEFINITION.formula).toContain("0.35 x Capability Discovery");
+    expect(EXPLORE_SCORE_DEFINITION.formula).not.toContain("Latency");
+    expect(EXPLORE_SCORE_DEFINITION.formula).not.toContain("Cost");
     expect(EXPLORE_SCORE_DEFINITION.metrics.map((metric) => metric.label)).toContain("Probe Replay");
-    expect(HEAL_SCORE_DEFINITION.formula).toContain("0.33 x Fix Rate");
+    expect(EXPLORE_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("latencyEfficiency");
+    expect(EXPLORE_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("costEfficiency");
+    expect(HEAL_SCORE_DEFINITION.formula).toContain("0.35 x Fix Rate");
+    expect(HEAL_SCORE_DEFINITION.formula).not.toContain("Latency");
+    expect(HEAL_SCORE_DEFINITION.formula).not.toContain("Cost");
     expect(HEAL_SCORE_DEFINITION.metrics.map((metric) => metric.label)).toContain("Localization Recall");
+    expect(HEAL_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("latencyEfficiency");
+    expect(HEAL_SCORE_DEFINITION.metrics.map((metric) => metric.key)).not.toContain("costEfficiency");
     expect(HEAL_SCORE_DEFINITION.specialRules.some((rule) => rule.includes("Patch Apply"))).toBe(true);
     expect(HEAL_SCORE_DEFINITION.specialRules.some((rule) => rule.includes("Localization Recall"))).toBe(true);
   });

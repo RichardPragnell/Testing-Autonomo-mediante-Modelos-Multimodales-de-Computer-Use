@@ -37,13 +37,19 @@ corepack pnpm test
 
 ## 3. Start A Benchmark App
 
-The repo ships benchmark apps for React, Next.js, and Angular. You can run a pristine template directly without the harness, for example `apps/todo-react`:
+The repo ships benchmark apps for React, Next.js, and Angular. You can run a pristine template directly without the harness:
 
 ```bash
 corepack pnpm app:todo-react
+corepack pnpm app:todo-nextjs
+corepack pnpm app:todo-angular
 ```
 
-Open `http://127.0.0.1:3101`.
+These serve on:
+
+- React: `http://127.0.0.1:3101`
+- Next.js: `http://127.0.0.1:3102`
+- Angular: `http://127.0.0.1:3103`
 
 This gives you the clean app template from `apps/todo-react/template`, with no benchmark clone and no bug packs applied.
 

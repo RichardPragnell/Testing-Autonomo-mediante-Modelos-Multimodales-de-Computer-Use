@@ -301,7 +301,7 @@ describe("matrix report renderer", () => {
     expect(html).toContain("Informe del modo de exploración para todo-react");
     expect(html).toContain("Cómo interpretar este informe");
     expect(html).toContain("Fundamento de la puntuación");
-    expect(html).toContain("Puntuación = 100 x clamp(0.3375 x Descubrimiento de capacidades");
+    expect(html).toContain("Puntuación = 100 x clamp(0.35 x Descubrimiento de capacidades");
     expect(html).toContain("Auditoría de coste del modo de exploración");
     expect(html).toContain("Frontera coste-latencia");
     expect(html).toContain('<strong class="best-score">91.795</strong>');
