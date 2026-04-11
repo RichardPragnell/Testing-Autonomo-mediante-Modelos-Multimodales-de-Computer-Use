@@ -39,10 +39,9 @@ export default function Page() {
   }
 
   function handleSaveEdit() {
-    const next = commitTodoEdit(todos, editingId, editingDraft);
-    setTodos(next.todos);
-    setEditingId(next.editingId);
-    setEditingDraft(next.draft);
+    setTodos((currentTodos) => commitTodoEdit(currentTodos, editingId, editingDraft).todos);
+    setEditingId(null);
+    setEditingDraft("");
   }
 
   function handleEditKeyDown(event) {

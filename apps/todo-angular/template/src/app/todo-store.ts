@@ -6,6 +6,14 @@ export type Todo = {
 
 export type FilterKey = "all" | "active" | "completed";
 
+export type TodoSummary = {
+  total: number;
+  completed: number;
+  remaining: number;
+  statusLine: string;
+  progressLine: string;
+};
+
 export const initialTodos: Todo[] = [
   { id: "todo-1", text: "Plan todo benchmark", done: false },
   { id: "todo-2", text: "Draft Stagehand checklist", done: false }
@@ -45,18 +53,17 @@ export function removeTodo(todos: Todo[], id: string): Todo[] {
 }
 
 export function filterTodos(todos: Todo[], filterKey: FilterKey): Todo[] {
-  if (filterKey === "active") {
-    return todos.filter((todo) => !todo.done);
+  switch (filterKey) {
+    case "active":
+      return todos.filter((todo) => !todo.done);
+    case "completed":
+      return todos.filter((todo) => todo.done);
+    default:
+      return todos;
   }
-
-  if (filterKey === "completed") {
-    return todos.filter((todo) => todo.done);
-  }
-
-  return todos;
 }
 
-export function summarizeTodos(todos: Todo[]) {
+export function summarizeTodos(todos: Todo[]): TodoSummary {
   const completed = todos.filter((todo) => todo.done).length;
   const remaining = todos.length - completed;
   return {

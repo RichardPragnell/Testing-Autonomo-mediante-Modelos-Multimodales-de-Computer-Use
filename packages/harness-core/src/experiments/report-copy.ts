@@ -28,10 +28,10 @@ const MODE_COPY: Record<ExperimentKind, ModeCopy> = {
     nounPlural: "exploraciones"
   },
   heal: {
-    short: "Autorreparación",
-    title: "Modo de autorreparación",
-    noun: "autorreparación",
-    nounPlural: "autorreparaciones"
+    short: "Reparación",
+    title: "Modo de reparación",
+    noun: "reparación",
+    nounPlural: "reparaciones"
   }
 };
 
@@ -53,14 +53,14 @@ const METRIC_LABELS: Record<string, string> = {
   failingScenarioFix: "Corrección de escenarios fallidos",
   regressionFree: "Ausencia de regresiones",
   validationPass: "Validación superada",
-  localization: "Recall de localización",
+  localization: "Cobertura de localización",
   patchApply: "Aplicación del parche"
 };
 
 const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = {
   qa: {
     modeDescription:
-      "El modo guiado prioriza la finalización íntegra del escenario y, en segundo término, la calidad por paso y la consistencia.",
+      "El modo guiado mide si el modelo completa escenarios definidos de principio a fin. La puntuación da más peso a terminar el escenario que a superar pasos aislados.",
     formula:
       "Puntuación = 100 x clamp(0.45 x Finalización del escenario + 0.25 x Éxito por paso + 0.15 x Éxito por capacidad + 0.15 x Estabilidad)",
     metrics: QA_SCORE_DEFINITION.metrics.map((metric) => {
@@ -70,49 +70,49 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
             ...metric,
             label: "Finalización del escenario",
             description:
-              "Proporción de escenarios guiados que concluyen satisfactoriamente en el conjunto de ensayos observados.",
+              "Porcentaje de escenarios guiados que terminan correctamente en los ensayos observados.",
             contribution:
-              "Es el término dominante porque una ejecución parcialmente correcta no debe superar a otra que completa el escenario de extremo a extremo."
+              "Es el factor con más peso: completar el flujo entero es más importante que avanzar solo hasta la mitad."
           };
         case "stepPassRate":
           return {
             ...metric,
             label: "Éxito por paso",
             description:
-              "Proporción de pasos guiados superados sobre el total de pasos ejecutados en todos los ensayos.",
+              "Porcentaje de pasos superados sobre el total de pasos ejecutados.",
             contribution:
-              "Aporta granularidad analítica cuando el escenario completo no llega a cerrarse, pero el comportamiento sigue mostrando señales útiles."
+              "Permite ver progreso parcial cuando el escenario completo no llega a cerrarse."
           };
         case "capabilityPassRate":
           return {
             ...metric,
             label: "Éxito por capacidad",
             description:
-              "Proporción de capacidades del benchmark cuyos escenarios agrupados se resuelven de forma completa.",
+              "Porcentaje de capacidades del benchmark cuyos escenarios se resuelven por completo.",
             contribution:
-              "Favorece la amplitud funcional y evita que un modelo destaque solo por repetir con éxito una trayectoria estrecha."
+              "Premia la amplitud funcional y evita que un modelo destaque solo por repetir bien un flujo concreto."
           };
         case "stability":
           return {
             ...metric,
             label: "Estabilidad",
             description:
-              "Consistencia entre ensayos, normalizada en el intervalo 0-1 a partir de la desviación típica de resultados binarios por escenario.",
+              "Consistencia entre ensayos, calculada a partir de la variación entre resultados correctos e incorrectos.",
             contribution:
-              "Penaliza la variabilidad entre repeticiones y refuerza la lectura de robustez experimental."
+              "Penaliza resultados que cambian mucho de una repetición a otra."
           };
         default:
           return metric;
       }
     }),
     specialRules: [
-      "La estabilidad se normaliza como 1 - (desviación típica binaria media / 0.5), de modo que el intervalo efectivo vuelve a ser 0-1.",
-      "Una mayor puntuación indica mejor rendimiento; la puntuación final se acota al intervalo 0-100 tras ponderar los términos."
+      "La estabilidad se calcula como 1 - (desviación típica binaria media / 0.5), con el resultado limitado al intervalo 0-1.",
+      "La puntuación final se expresa en una escala de 0 a 100 después de aplicar las ponderaciones."
     ]
   },
   explore: {
     modeDescription:
-      "El modo de exploración valora la cobertura útil del sistema y la reutilización de lo descubierto.",
+      "El modo de exploración mide cuánta funcionalidad descubre el modelo y si esa exploración sirve para repetir escenarios después.",
     formula:
       "Puntuación = 100 x clamp(0.35 x Descubrimiento de capacidades + 0.20 x Cobertura de estados + 0.15 x Cobertura de transiciones + 0.10 x Diversidad de acciones + 0.20 x Reejecución de escenarios sonda)",
     metrics: EXPLORE_SCORE_DEFINITION.metrics.map((metric) => {
@@ -122,110 +122,114 @@ const SCORE_DEFINITION_COPY: Record<ExperimentKind, BenchmarkScoreDefinition> = 
             ...metric,
             label: "Descubrimiento de capacidades",
             description:
-              "Proporción de capacidades del benchmark que la exploración autónoma consigue aflorar.",
+              "Porcentaje de capacidades del benchmark que la exploración autónoma consigue identificar.",
             contribution:
-              "Constituye el objetivo principal, porque descubrir funcionalidades útiles es más relevante que aumentar el volumen de trazas sin contenido analítico."
+              "Es el objetivo principal: descubrir funciones útiles pesa más que generar trazas largas pero repetitivas."
           };
         case "stateCoverage":
           return {
             ...metric,
             label: "Cobertura de estados",
             description:
-              "Número medio de estados observados, normalizado respecto al umbral heurístico mínimo configurado.",
+              "Promedio de estados observados, normalizado con el objetivo mínimo configurado.",
             contribution:
-              "Mide la amplitud de la superficie navegada y evita sobrerrepresentar secuencias repetitivas."
+              "Mide la amplitud de la navegación sin premiar en exceso secuencias repetidas."
           };
         case "transitionCoverage":
           return {
             ...metric,
             label: "Cobertura de transiciones",
             description:
-              "Número medio de transiciones observadas, normalizado respecto al objetivo heurístico mínimo configurado.",
+              "Promedio de transiciones observadas, normalizado con el objetivo mínimo configurado.",
             contribution:
-              "Captura la riqueza de la navegación y distingue la exploración verdaderamente conectada de la acumulación de instantáneas aisladas."
+              "Distingue una exploración conectada de una simple acumulación de pantallas aisladas."
           };
         case "probeReplayPassRate":
           return {
             ...metric,
             label: "Reejecución de escenarios sonda",
             description:
-              "Proporción de escenarios sonda que se resuelven al reejecutarlos desde los artefactos obtenidos en exploración.",
+              "Porcentaje de escenarios sonda que se resuelven al reutilizar los artefactos de exploración.",
             contribution:
-              "Evalúa la utilidad práctica de lo descubierto y no solo su novedad aparente."
+              "Comprueba si lo descubierto se puede reutilizar, no solo si parece nuevo."
           };
         case "actionDiversity":
           return {
             ...metric,
             label: "Diversidad de acciones",
             description:
-              "Fracción de tipos de acción esperados que aparecen en la traza de exploración.",
+              "Porcentaje de tipos de acción esperados que aparecen en la traza de exploración.",
             contribution:
-              "Aporta una señal complementaria de variedad conductual una vez cubiertos los objetivos principales de cobertura y reutilización."
+              "Añade una señal de variedad cuando ya se han medido cobertura y reutilización."
           };
         default:
           return metric;
       }
     }),
-    specialRules: ["La cobertura de estados y de transiciones se trunca en 1.0 tras normalizarse frente a los objetivos heurísticos definidos para la aplicación."]
+    specialRules: ["La cobertura de estados y transiciones se limita a 1.0 al alcanzar los objetivos definidos para la aplicación."]
   },
   heal: {
     modeDescription:
-      "El modo de autorreparación prioriza la corrección efectiva del caso defectuoso, la ausencia de regresiones y la calidad diagnóstica, reservando las señales operativas para una lectura complementaria.",
+      "El modo de reparación mide si el modelo corrige fallos concretos sin romper comportamientos que ya funcionaban.",
     formula:
-      "Puntuación = 100 x clamp(0.35 x Tasa de corrección completa + 0.30 x Corrección de escenarios fallidos + 0.15 x Ausencia de regresiones + 0.10 x Validación superada + 0.10 x Recall de localización)",
+      "Puntuación = 100 x clamp(0.35 x Tasa de corrección completa + 0.30 x Corrección de escenarios fallidos + 0.15 x Ausencia de regresiones + 0.10 x Validación superada + 0.10 x Cobertura de localización)",
     metrics: [
       {
         key: "fixRate",
         label: "Tasa de corrección completa",
         weight: 0.35,
         description:
-          "Proporción de casos de reparación que terminan con validación satisfactoria, corrección total de los escenarios fallidos y ausencia de regresiones.",
+          "Porcentaje de casos que terminan con validación correcta, escenarios fallidos corregidos y sin regresiones.",
         contribution:
-          "Es la señal principal, porque sintetiza el éxito integral del proceso de autorreparación."
+          "Es la señal principal porque resume si la reparación funciona de verdad."
       },
       {
         key: "failingScenarioFixRate",
         label: "Corrección de escenarios fallidos",
         weight: 0.3,
         description:
-          "Fracción media de escenarios inicialmente defectuosos que quedan resueltos tras aplicar el parche.",
+          "Porcentaje medio de escenarios inicialmente fallidos que quedan resueltos tras aplicar el parche.",
         contribution:
-          "Recoge la capacidad de reparación incluso cuando la corrección completa del caso aún no se alcanza."
+          "Mide avance real incluso cuando el caso completo todavía no queda resuelto."
       },
       {
         key: "regressionFreeRate",
         label: "Ausencia de regresiones",
         weight: 0.15,
         description:
-          "Fracción media de comprobaciones de regresión que siguen siendo válidas después de la intervención.",
+          "Porcentaje medio de comprobaciones que siguen pasando después de la reparación.",
         contribution:
-          "Evita que una reparación aparente se interprete como positiva si deteriora comportamiento previamente correcto."
+          "Evita contar como buena una reparación que arregla un fallo pero rompe otra parte."
       },
       {
         key: "validationPassRate",
         label: "Validación superada",
         weight: 0.1,
         description:
-          "Proporción de casos en los que el comando de validación finaliza satisfactoriamente.",
+          "Porcentaje de casos en los que el comando de validación termina correctamente.",
         contribution:
-          "Introduce una evidencia operativa directa de que la solución propuesta soporta el filtro de verificación."
+          "Aporta una comprobación directa de que la solución supera el filtro de verificación."
       },
       {
         key: "localizationAccuracy",
-        label: "Recall de localización",
+        label: "Cobertura de localización",
         weight: 0.1,
         description:
-          "Proporción media de ficheros oro del bug que aparecen recuperados entre los ficheros sospechosos propuestos por el sistema.",
+          "Porcentaje medio de ficheros esperados del bug que aparecen entre los ficheros sospechosos propuestos.",
         contribution:
-          "Valora la calidad del diagnóstico, pero con un peso inferior al éxito efectivo de la reparación."
+          "Valora la calidad del diagnóstico, aunque pesa menos que corregir el fallo."
       }
     ],
     specialRules: [
-      "La aplicación del parche se mantiene como indicador operativo en tablas y auditorías, pero no forma parte de la puntuación ponderada.",
-      "Recall de localización = |ficheros sospechosos ∩ ficheros oro| / |ficheros oro|."
+      "La aplicación del parche se muestra en tablas y auditorías, pero no entra en la puntuación ponderada.",
+      "Cobertura de localización = |ficheros sospechosos ∩ ficheros esperados| / |ficheros esperados|."
     ]
   }
 };
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${String(count)} ${count === 1 ? singular : plural}`;
+}
 
 export function modeCopy(kind: ExperimentKind): ModeCopy {
   return MODE_COPY[kind];
@@ -251,21 +255,21 @@ export function reportHeaderCopy(input: {
   if (input.variant === "benchmark-final") {
     return {
       title: "Informe final del benchmark",
-      subtitle: `Comparación consolidada de ${String(input.runCount)} ejecuciones en ${String(input.appCount)} aplicaciones y ${String(input.modeCount)} modos.`
+      subtitle: `Comparación consolidada de ${countLabel(input.runCount, "ejecución", "ejecuciones")} en ${countLabel(input.appCount, "aplicación", "aplicaciones")} y ${countLabel(input.modeCount, "modo", "modos")}.`
     };
   }
 
   if (input.variant === "benchmark-standardized") {
     return {
       title: "Tablas normalizadas del benchmark",
-      subtitle: `Vista homogénea por modo y comparación por aplicación para ${String(input.runCount)} ejecuciones disponibles.`
+      subtitle: `Tablas comparables por modo y por aplicación para ${countLabel(input.runCount, "ejecución", "ejecuciones")}.`
     };
   }
 
   if (!input.modeKind) {
     return {
       title: "Informe de benchmark",
-      subtitle: "Síntesis matricial de los resultados disponibles."
+      subtitle: "Resultados disponibles organizados en matriz."
     };
   }
 
@@ -273,13 +277,13 @@ export function reportHeaderCopy(input: {
   if (input.runCount === 1 && input.appId) {
     return {
       title: `Informe del ${mode.title.toLowerCase()} para ${input.appId}`,
-      subtitle: `Síntesis matricial del experimento correspondiente al ${mode.title.toLowerCase()} para ${String(input.modelCount)} modelo(s).`
+      subtitle: `Resumen del ${mode.title.toLowerCase()} con ${countLabel(input.modelCount, "modelo", "modelos")}.`
     };
   }
 
   return {
     title: `Comparativa del ${mode.title.toLowerCase()}`,
-    subtitle: `Comparación matricial de ${String(input.runCount)} ejecución(es) correspondientes al ${mode.title.toLowerCase()} en ${String(input.appCount)} aplicación(es).`
+    subtitle: `Comparación de ${countLabel(input.runCount, "ejecución", "ejecuciones")} del ${mode.title.toLowerCase()} en ${countLabel(input.appCount, "aplicación", "aplicaciones")}.`
   };
 }
 
@@ -287,15 +291,15 @@ export function localizedModeReadGuide(kind: ExperimentKind): Array<{ title: str
   const common = [
     {
       title: "Puntuación",
-      body: "Un valor más alto indica mejor rendimiento dentro del modo analizado; la puntuación resume solo los criterios sustantivos definidos para ese modo en una escala 0-100."
+      body: "Cuanto más alta, mejor dentro de este modo. No debe compararse directamente con puntuaciones de otros modos."
     },
     {
       title: "Latencia de ejecución",
-      body: "Un valor más bajo es preferible. La latencia resume el tiempo medio observado en las ejecuciones mostradas."
+      body: "Cuanto más baja, mejor. Resume el tiempo medio de las ejecuciones mostradas."
     },
     {
       title: "Coste",
-      body: "Un valor más bajo es preferible. El coste medio resume el gasto por ejecución, mientras que el coste total agrega el gasto del alcance mostrado."
+      body: "Cuanto más bajo, mejor. El coste medio es el gasto por ejecución; el coste total suma todo lo mostrado."
     }
   ];
 
@@ -303,8 +307,8 @@ export function localizedModeReadGuide(kind: ExperimentKind): Array<{ title: str
     return [
       ...common,
       {
-        title: "Lectura sustantiva",
-        body: "La interpretación debe priorizar la finalización completa del escenario y la estabilidad; las métricas auxiliares solo refinan empates cercanos."
+        title: "Qué mirar",
+        body: "Prioriza escenarios completados y estabilidad. Las métricas por paso ayudan a explicar empates o fallos parciales."
       }
     ];
   }
@@ -312,16 +316,16 @@ export function localizedModeReadGuide(kind: ExperimentKind): Array<{ title: str
     return [
       ...common,
       {
-        title: "Lectura sustantiva",
-        body: "La lectura debe centrarse en el descubrimiento de capacidades, la cobertura alcanzada y la posibilidad de reutilizar la exploración mediante escenarios sonda."
+        title: "Qué mirar",
+        body: "Prioriza capacidades descubiertas, cobertura y reutilización de la exploración en los escenarios sonda."
       }
     ];
   }
   return [
     ...common,
     {
-      title: "Lectura sustantiva",
-      body: "La interpretación debe priorizar la corrección completa del caso, la reparación de los escenarios fallidos y la ausencia de regresiones; la aplicación del parche se informa aparte."
+      title: "Qué mirar",
+      body: "Prioriza correcciones completas, escenarios fallidos resueltos y ausencia de regresiones. La aplicación del parche se muestra aparte."
     }
   ];
 }
@@ -330,19 +334,19 @@ export function localizedComparisonGuide(): Array<{ title: string; body: string 
   return [
     {
       title: "Puntuación",
-      body: "Un valor más alto indica mejor rendimiento, pero las puntuaciones brutas solo deben compararse dentro del mismo modo."
+      body: "Cuanto más alta, mejor. Úsala solo para comparar resultados del mismo modo."
     },
     {
       title: "Rango",
-      body: "Un valor más bajo indica mejor posición relativa. El rango sintetiza la ordenación por modo y aplicación."
+      body: "Cuanto más bajo, mejor. Sirve para comparar posiciones entre modos y aplicaciones."
     },
     {
       title: "Cobertura",
-      body: "La cobertura informa de cuántas celdas contienen resultados observados. Las ausencias no se incorporan a medias ni totales."
+      body: "Indica cuántas combinaciones tienen datos. Las ausencias no entran en medias ni totales."
     },
     {
       title: "Latencia y coste",
-      body: "Ambas magnitudes se interpretan a la baja. Sirven para contextualizar las diferencias de eficacia, no para sustituirlas."
+      body: "En ambos casos, un valor menor es mejor. Ayudan a valorar el resultado, pero no sustituyen a las métricas de eficacia."
     }
   ];
 }
@@ -350,19 +354,19 @@ export function localizedComparisonGuide(): Array<{ title: string; body: string 
 export function localizedSectionNotes(kind: ExperimentKind): string[] {
   if (kind === "qa") {
     return [
-      "La estabilidad se normaliza sobre todo el intervalo 0-1 a partir de la variabilidad binaria entre ensayos.",
-      "La comparación principal debe establecerse dentro del modo guiado."
+      "La estabilidad se calcula en el intervalo 0-1 a partir de la variación entre ensayos.",
+      "Compara las puntuaciones del modo guiado solo con otras puntuaciones del modo guiado."
     ];
   }
   if (kind === "explore") {
     return [
-      "La cobertura de estados y transiciones se satura en 1.0 al alcanzar el umbral heurístico fijado para la aplicación.",
-      "La reejecución de escenarios sonda mide la utilidad práctica de la exploración y no solo su amplitud."
+      "La cobertura de estados y transiciones se limita a 1.0 al alcanzar el objetivo fijado para la aplicación.",
+      "La reejecución de escenarios sonda mide si la exploración se puede reutilizar."
     ];
   }
   return [
-    "La tasa de corrección completa es la señal dominante de la puntuación en autorreparación.",
-    "La aplicación del parche se informa como indicador operativo, pero no altera la puntuación ponderada."
+    "La tasa de corrección completa es el factor con más peso en el modo de reparación.",
+    "La aplicación del parche se muestra como indicador operativo, pero no cambia la puntuación ponderada."
   ];
 }
 

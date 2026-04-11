@@ -150,7 +150,7 @@ function sectionSummary(section: BenchmarkComparisonSection): string {
     typeof evidence === "number"
       ? `${comparisonLabel(section.kind)} del ${(evidence * 100).toFixed(1)}%`
       : `puntuación media de ${topModel.avgScore.toFixed(3)}`;
-  return `${topModel.modelId} presenta el mejor desempeño en el ${localizedModeContext(section.kind)}, con una puntuación media de ${topModel.avgScore.toFixed(3)}, ${evidenceText} y un coste total agregado de ${formatCompactValue("usd", totalCost)}.`;
+  return `${topModel.modelId} obtiene el mejor resultado en el ${localizedModeContext(section.kind)}: puntuación media de ${topModel.avgScore.toFixed(3)}, ${evidenceText} y coste total de ${formatCompactValue("usd", totalCost)}.`;
 }
 
 function sectionFinding(section: BenchmarkComparisonSection): string {
@@ -164,7 +164,7 @@ function sectionFinding(section: BenchmarkComparisonSection): string {
     typeof evidence === "number"
       ? `${comparisonLabel(section.kind)} del ${(evidence * 100).toFixed(1)}%`
       : `puntuación media de ${topModel.avgScore.toFixed(3)}`;
-  return `El patrón dominante sitúa a ${topModel.modelId} como referencia del modo, con ${evidenceText}.`;
+  return `${topModel.modelId} lidera este modo con ${evidenceText}.`;
 }
 
 function renderAcademicFrame(input: {
@@ -188,7 +188,7 @@ function renderAcademicFrame(input: {
           <p>${escapeHtml(input.method)}</p>
         </article>
         <article class="read-guide-card">
-          <h3>Conclusión sintética</h3>
+          <h3>Conclusión</h3>
           <p>${escapeHtml(input.conclusion)}</p>
         </article>
       </div>
@@ -213,13 +213,13 @@ function renderProvenance(report: BenchmarkComparisonReport): string {
 
   return `
     <section class="provenance-block">
-      <h2>Proveniencia de la reconstrucción</h2>
+      <h2>Origen de la reconstrucción</h2>
       <p class="section-summary">
-        Política de selección <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
+        Selección <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
         ${escapeHtml(
           report.modeSections.length > 1
-            ? "La reconstrucción utiliza el informe más reciente disponible para cada combinación de modo, aplicación y modelo; por ello, las marcas temporales pueden diferir entre secciones."
-            : "La reconstrucción utiliza el informe más reciente disponible para cada combinación de aplicación y modelo dentro del modo mostrado; por ello, las marcas temporales pueden diferir entre celdas."
+            ? "La reconstrucción usa el informe más reciente para cada combinación de modo, aplicación y modelo. Por eso las fechas pueden variar entre secciones."
+            : "La reconstrucción usa el informe más reciente para cada combinación de aplicación y modelo dentro de este modo. Por eso las fechas pueden variar entre resultados."
         )}
       </p>
       <div class="table-wrap audit-wrap">
@@ -275,6 +275,10 @@ function formatCoverage(populated: number, total: number): string {
   return `${Math.round((populated / total) * 100)}% (${String(populated)}/${String(total)})`;
 }
 
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${String(count)} ${count === 1 ? singular : plural}`;
+}
+
 function renderModeWinnerCard(section: BenchmarkComparisonSection): string {
   const winner = section.rows[0];
   if (!winner) {
@@ -312,7 +316,7 @@ function renderModeWinnerCard(section: BenchmarkComparisonSection): string {
           <dd>${escapeHtml(formatCompactValue("usd", totalCost))}</dd>
         </div>
       </dl>
-      <p class="scorecard-note">${String(winner.cells.length)} celda(s) de aplicación</p>
+      <p class="scorecard-note">${escapeHtml(countLabel(winner.cells.length, "resultado por aplicación", "resultados por aplicación"))}</p>
     </article>
   `;
 }
@@ -349,7 +353,7 @@ function renderOverallLeaderboard(report: BenchmarkComparisonReport): string {
     <article class="overview-figure">
       <header class="overview-header">
         <h3>Clasificación global</h3>
-        <p>La cobertura cuenta las celdas pobladas en las columnas de modo y aplicación mostradas. Los modelos se ordenan por rango medio, y después por puntuación, coste y latencia de ejecución.</p>
+        <p>La cobertura indica cuántas combinaciones de modo y aplicación tienen datos. Los modelos se ordenan por rango medio; los empates se resuelven por puntuación, coste y latencia.</p>
       </header>
       <div class="table-wrap">
         <table class="leaderboard-table rank-matrix-table">
@@ -382,7 +386,7 @@ function renderTopSummary(report: BenchmarkComparisonReport): string {
   return `
     <section class="overview-section">
       <h2>Panel de síntesis</h2>
-      <p class="section-summary">Se muestran primero los mejores resultados por modo y, a continuación, la clasificación consolidada del benchmark seleccionado.</p>
+      <p class="section-summary">Primero aparecen los mejores resultados de cada modo y después la clasificación global del benchmark.</p>
       <div class="scorecard-grid">${cards}</div>
       ${leaderboard}
     </section>
@@ -515,7 +519,7 @@ function renderEfficiencyFrontierFigure(report: BenchmarkComparisonReport): stri
     <article class="overview-figure">
       <header class="overview-header">
         <h3>Frontera de eficiencia por modo</h3>
-        <p>Cada panel agrega los modelos disponibles dentro de un modo. Los ejes comunes representan latencia media de ejecución y coste medio, mientras que el tamaño del punto refleja la puntuación media del modo.</p>
+        <p>Cada panel reúne los modelos de un modo. Los ejes muestran latencia media y coste medio; el tamaño del punto indica la puntuación media.</p>
       </header>
       <div class="frontier-panel-grid">${panels}</div>
       <ul class="frontier-legend" aria-label="Leyenda de la frontera de eficiencia">${legend}</ul>
@@ -822,7 +826,7 @@ function renderSectionVisuals(section: BenchmarkComparisonSection): string {
   const charts = [
     renderHorizontalBarChart({
       title: "Coste por modelo",
-      subtitle: "Coste total agregado en las celdas de aplicación mostradas para este modo.",
+      subtitle: "Coste total sumado en las aplicaciones mostradas para este modo.",
       color: "#8b6c32",
       kind: "usd",
       sort: "desc",
@@ -830,7 +834,7 @@ function renderSectionVisuals(section: BenchmarkComparisonSection): string {
     }),
     renderHorizontalBarChart({
       title: "Latencia de ejecución por modelo",
-      subtitle: "Latencia media de ejecución en las celdas de aplicación mostradas para este modo.",
+      subtitle: "Latencia media en las aplicaciones mostradas para este modo.",
       color: "#42577a",
       kind: "ms",
       sort: "asc",
@@ -838,7 +842,7 @@ function renderSectionVisuals(section: BenchmarkComparisonSection): string {
     }),
     renderScatterChart({
       title: "Frontera coste-latencia",
-      subtitle: "Cada punto representa un modelo; los puntos mayores indican una puntuación superior dentro del benchmark.",
+      subtitle: "Cada punto representa un modelo; los puntos mayores indican una puntuación más alta.",
       data: scatterData
     })
   ].filter(Boolean);
@@ -913,7 +917,7 @@ function renderPerAppVisuals(section: BenchmarkComparisonSection): string {
       const charts = [
         renderHorizontalBarChart({
           title: `${appId} · puntuación por modelo`,
-          subtitle: "Ordenación de puntuaciones restringida a la aplicación seleccionada.",
+          subtitle: "Puntuaciones de los modelos en esta aplicación.",
           color: "#5f8065",
           kind: "score",
           sort: "desc",
@@ -921,7 +925,7 @@ function renderPerAppVisuals(section: BenchmarkComparisonSection): string {
         }),
         renderScatterChart({
           title: `${appId} · coste frente a latencia`,
-          subtitle: "Frontera de coste y latencia de ejecución para esta aplicación; los puntos mayores indican una puntuación superior.",
+          subtitle: "Relación entre coste y latencia en esta aplicación; los puntos mayores indican una puntuación más alta.",
           data: scatterData
         })
       ].filter(Boolean);
@@ -934,7 +938,7 @@ function renderPerAppVisuals(section: BenchmarkComparisonSection): string {
         <article class="app-compare-block">
           <header class="app-compare-header">
             <h4>${escapeHtml(appId)}</h4>
-            <p>Comparación de modelos circunscrita a esta aplicación.</p>
+            <p>Comparación de modelos en esta aplicación.</p>
           </header>
           <div class="section-visuals">${charts.join("")}</div>
         </article>
@@ -1131,7 +1135,7 @@ function renderModeReadGuide(section: BenchmarkComparisonSection): string {
     <article class="read-guide">
       <header class="read-guide-header">
         <h3>Cómo interpretar este informe</h3>
-        <p>La matriz resume resultados por aplicación dentro del modo mostrado. La comparación debe centrarse en la puntuación y en las métricas operativas que contextualizan sus compromisos.</p>
+        <p>La matriz resume resultados por aplicación dentro del modo mostrado. Compara primero la puntuación y usa coste y latencia para entender el contexto.</p>
       </header>
       <div class="read-guide-grid">
         ${items
@@ -1166,11 +1170,11 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
   const header = reportHeader(report, "mode");
   const primarySection = report.modeSections[0];
   const objective = primarySection
-    ? `Examinar el rendimiento de los modelos en el ${localizedModeContext(primarySection.kind)} para ${String(report.appIds.length)} aplicación(es) y ${String(report.runIds.length)} ejecución(es) observadas.`
-    : "Examinar el rendimiento comparado de los modelos en el conjunto de resultados disponible.";
+    ? `Examinar el rendimiento de los modelos en el ${localizedModeContext(primarySection.kind)} para ${countLabel(report.appIds.length, "aplicación", "aplicaciones")} y ${countLabel(report.runIds.length, "ejecución", "ejecuciones")}.`
+    : "Examinar los resultados disponibles para los modelos comparados.";
   const method = primarySection
-    ? `La interpretación debe priorizar la puntuación del ${localizedModeContext(primarySection.kind)} y contrastarla con latencia y coste como métricas de apoyo.`
-    : "La interpretación combina evidencia funcional y eficiencia operativa.";
+    ? `Prioriza la puntuación del ${localizedModeContext(primarySection.kind)} y usa latencia y coste como contexto.`
+    : "Combina resultados funcionales con coste y latencia.";
   const conclusion = primarySection ? sectionFinding(primarySection) : "No se dispone de evidencia suficiente para una conclusión comparativa.";
   return `<!doctype html>
 <html lang="es">
@@ -1965,8 +1969,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         ${renderMeta(report)}
       </header>
       ${renderAcademicFrame({
-        title: "Planteamiento analítico",
-        summary: "La lectura del informe se formula en clave académica breve, con atención prioritaria a la evidencia sustantiva del modo evaluado.",
+        title: "Resumen del informe",
+        summary: "Este informe resume el resultado principal del modo evaluado y añade coste y latencia para contextualizarlo.",
         objective,
         method,
         conclusion
@@ -2169,7 +2173,7 @@ function renderComparisonGuide(): string {
   return `
     <section>
       <h2>Guía de lectura</h2>
-      <p class="section-summary">Utilice esta referencia para interpretar de forma homogénea las tablas reconstruidas por modo y por aplicación.</p>
+      <p class="section-summary">Usa esta referencia para leer de la misma forma las tablas por modo y por aplicación.</p>
       <div class="read-guide-grid">
         ${items
           .map(
@@ -2302,11 +2306,11 @@ function renderProvenanceNote(report: BenchmarkComparisonReport): string {
 
   return `
     <p class="provenance-note">
-      Política de selección <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
+      Selección <span class="provenance-chip">${escapeHtml(report.provenance.selectionPolicy)}</span>.
       ${escapeHtml(
         report.modeSections.length > 1
-          ? "La reconstrucción emplea el informe más reciente por modo, aplicación y modelo; las marcas temporales pueden diferir entre secciones."
-          : "La reconstrucción emplea el informe más reciente por aplicación y modelo dentro del modo mostrado; las marcas temporales pueden diferir entre celdas."
+          ? "La reconstrucción usa el informe más reciente por modo, aplicación y modelo; las fechas pueden variar entre secciones."
+          : "La reconstrucción usa el informe más reciente por aplicación y modelo dentro de este modo; las fechas pueden variar entre resultados."
       )}
     </p>
   `;
@@ -2325,7 +2329,7 @@ function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalRepo
       <article class="glance-card glance-card-stat">
         <p class="glance-eyebrow">Modelos</p>
         <p class="glance-value">${String(viewModel.models.length)}</p>
-        <p class="glance-copy">Ordenación unificada derivada de la matriz global de rangos del benchmark.</p>
+        <p class="glance-copy">Orden común tomada de la matriz global de rangos del benchmark.</p>
       </article>
     `,
     `
@@ -2345,7 +2349,7 @@ function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalRepo
       <article class="glance-card glance-card-winner">
         <div class="glance-card-topline">
           <p class="glance-eyebrow">${escapeHtml(winner.title)}</p>
-          <span class="winner-chip">Líder del modo</span>
+          <span class="winner-chip">Mejor resultado</span>
         </div>
         <h3>${escapeHtml(label.primary)}</h3>
         ${label.secondary ? `<p class="glance-subtitle">${escapeHtml(label.secondary)}</p>` : ""}
@@ -2370,7 +2374,7 @@ function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalRepo
   return `
     <section>
       <h2>Visión de conjunto</h2>
-      <p class="section-summary">Este bloque resume la cobertura observada y los líderes actuales por modo. Las ausencias de modo o aplicación no se incorporan al recuento.</p>
+      <p class="section-summary">Resumen de cobertura y mejores resultados por modo. Las ausencias de modo o aplicación no entran en el recuento.</p>
       <div class="glance-grid">${[...cards, ...winnerCards].join("")}</div>
     </section>
   `;
@@ -2411,7 +2415,7 @@ function renderModelsAcrossModes(viewModel: FinalReportViewModel): string {
   return `
     <section>
       <h2>Modelos a través de los modos</h2>
-      <p class="section-summary">Cada modelo aparece una sola vez. La cobertura cuenta las celdas pobladas, el rango medio se interpreta a la baja y la puntuación media a la alza; las ausencias no se agregan.</p>
+      <p class="section-summary">Cada modelo aparece una sola vez. La cobertura indica cuántas combinaciones tienen datos; en el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Las ausencias no se agregan.</p>
       <div class="table-wrap">
         <table class="unified-table">
           <thead>
@@ -2516,7 +2520,7 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
           <header class="app-block-header">
             <div>
               <h3>${escapeHtml(app.appId)}</h3>
-              <p>Rangos y métricas por aplicación, alineados entre los modos del benchmark disponibles.</p>
+              <p>Rangos y métricas de esta aplicación en los modos disponibles.</p>
             </div>
             <div class="winner-chip-list">${renderAppWinnerChips(app, viewModel.modes)}</div>
           </header>
@@ -2584,7 +2588,7 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
   return `
     <section>
       <h2>Aplicaciones a través de los modos</h2>
-      <p class="section-summary">Cada aplicación mantiene la misma ordenación de modelos para hacer visibles las brechas entre modos. El rango se interpreta a la baja y la puntuación a la alza; las celdas discontinuas indican ausencia de ejecución.</p>
+      <p class="section-summary">Cada aplicación mantiene la misma ordenación de modelos para comparar los modos. En el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
       <div class="app-block-list">${blocks}</div>
     </section>
   `;
@@ -2600,7 +2604,7 @@ function renderBenchmarkMatrixBlock(report: BenchmarkComparisonReport): string {
   return `
     <section>
       <h2>Matriz global del benchmark</h2>
-      <p class="section-summary">Bloque comparativo preservado para el conjunto de modos y aplicaciones seleccionados.</p>
+      <p class="section-summary">Comparación global para los modos y aplicaciones seleccionados.</p>
       <div class="benchmark-matrix-stack">
         ${leaderboard}
         ${frontier}
@@ -3106,10 +3110,10 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
       </header>
       ${renderAcademicFrame({
         title: "Marco interpretativo",
-        summary: "Esta versión integra una lectura sintética del benchmark y mantiene separadas la comparación intramodo de puntuaciones y la comparación intermodo mediante rangos.",
-        objective: `Sintetizar ${String(report.runIds.length)} ejecuciones del benchmark sobre ${String(report.appIds.length)} aplicaciones y ${String(viewModel.modes.length)} modos analíticos.`,
+        summary: "Este informe combina el resumen global del benchmark con tablas que separan puntuaciones por modo y rangos entre modos.",
+        objective: `Sintetizar ${countLabel(report.runIds.length, "ejecución", "ejecuciones")} del benchmark sobre ${countLabel(report.appIds.length, "aplicación", "aplicaciones")} y ${countLabel(viewModel.modes.length, "modo", "modos")}.`,
         method:
-          "Las puntuaciones brutas solo son comparables dentro de cada modo; para la lectura transversal deben priorizarse el rango medio, la cobertura y las métricas operativas.",
+          "Compara puntuaciones solo dentro del mismo modo. Para comparar entre modos, usa rango medio, cobertura, coste y latencia.",
         conclusion: overallConclusion
       })}
       ${renderComparisonGuide()}
@@ -3264,7 +3268,7 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
   return `
     <section>
       <h2>Resultados normalizados por modo</h2>
-      <p class="section-summary">Cada modo utiliza la misma estructura tabular para facilitar una lectura homogénea de rangos, cobertura y puntuaciones por aplicación. Los valores en negrita señalan el mejor resultado comparable de cada columna.</p>
+      <p class="section-summary">Cada modo usa la misma tabla para comparar rangos, cobertura y puntuaciones por aplicación. La negrita marca el mejor valor comparable de cada columna.</p>
       <div class="mode-block-list">${blocks}</div>
     </section>
   `;
@@ -3311,7 +3315,7 @@ function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): stri
           <header class="app-block-header">
             <div>
               <h3>${escapeHtml(app.appId)}</h3>
-              <p>Compare el mismo modelo a través de los modos disponibles para esta aplicación. Los valores en negrita marcan el mejor resultado comparable de cada columna modal.</p>
+              <p>Compara el mismo modelo en los modos disponibles para esta aplicación. La negrita marca el mejor valor comparable de cada columna.</p>
             </div>
             <div class="winner-chip-list">${renderAppWinnerChips(app, viewModel.modes)}</div>
           </header>
@@ -3369,7 +3373,7 @@ function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): stri
   return `
     <section>
       <h2>Comparación del rendimiento por aplicación</h2>
-      <p class="section-summary">Tras la vista por modo, cada aplicación dispone de una tabla específica para comparar el comportamiento de todos los modelos. El rango se interpreta a la baja, la puntuación a la alza y las celdas discontinuas indican ausencia de ejecución.</p>
+      <p class="section-summary">Cada aplicación tiene una tabla propia para comparar todos los modelos. En el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
       <div class="app-block-list">${blocks}</div>
     </section>
   `;
@@ -3635,12 +3639,12 @@ export function renderBenchmarkStandardizedComparisonHtml(report: BenchmarkCompa
       </header>
       ${renderAcademicFrame({
         title: "Criterio de estandarización",
-        summary: "La tabla normalizada homogeneiza la lectura por modo y desplaza la comparación intermodo al plano del rango, no al de la puntuación bruta.",
-        objective: `Uniformar la lectura de ${String(report.runIds.length)} ejecuciones y facilitar la comparación por modo y por aplicación.`,
+        summary: "Las tablas normalizadas mantienen el mismo formato por modo y usan rangos para comparar entre modos.",
+        objective: `Unificar la lectura de ${countLabel(report.runIds.length, "ejecución", "ejecuciones")} y facilitar la comparación por modo y por aplicación.`,
         method:
-          "Cada bloque por modo mantiene una estructura constante; después, cada aplicación se revisa con la misma ordenación de modelos para hacer visibles las diferencias entre modos.",
+          "Cada modo mantiene la misma estructura; después, cada aplicación usa la misma ordenación de modelos para comparar diferencias entre modos.",
         conclusion:
-          "La lectura estandarizada permite detectar rápidamente liderazgos, vacíos de cobertura y compromisos entre eficacia, coste y latencia."
+          "La lectura estandarizada permite detectar liderazgos, ausencias de cobertura y diferencias entre eficacia, coste y latencia."
       })}
       ${renderComparisonGuide()}
       ${renderStandardizedModeTables(report, viewModel)}

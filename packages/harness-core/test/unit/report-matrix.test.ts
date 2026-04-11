@@ -281,7 +281,7 @@ describe("matrix report renderer", () => {
     expect(html).toContain("latest-per-app-mode-model");
     expect(html).toContain("todo-react");
     expect(html).toContain("todo-vue");
-    expect(html).toContain("Líder del modo");
+    expect(html).toContain("Mejor resultado");
     expect(html).toContain("Rango medio");
     expect(html).toContain('<strong class="best-score">1.00</strong>');
     expect(html).toContain('<strong class="best-score">$0.0222</strong>');
@@ -322,8 +322,8 @@ describe("matrix report renderer", () => {
     expect(html).toContain("Resultados normalizados por modo");
     expect(html).toContain("Comparación del rendimiento por aplicación");
     expect(html).toContain("Guía de lectura");
-    expect(html).toContain("presenta el mejor desempeño en el modo guiado");
-    expect(html).toContain("presenta el mejor desempeño en el modo de exploración");
+    expect(html).toContain("obtiene el mejor resultado en el modo guiado");
+    expect(html).toContain("obtiene el mejor resultado en el modo de exploración");
     expect(html).toContain("todo-react");
     expect(html).toContain("todo-vue");
     expect(html).toContain("latest-per-app-mode-model");

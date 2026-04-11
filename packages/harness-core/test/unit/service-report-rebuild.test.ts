@@ -223,7 +223,7 @@ describe("report rebuild", () => {
     expect(html).toContain("Clasificación global");
     expect(html).toContain("Frontera de eficiencia por modo");
     expect(html).toContain("Modo guiado");
-    expect(html).toContain("Modo de autorreparación");
+    expect(html).toContain("Modo de reparación");
     expect(html).toContain("latest-per-app-mode-model");
     expect(html).not.toContain("At a Glance");
     expect(html).not.toContain("Guided Cost Audit");
