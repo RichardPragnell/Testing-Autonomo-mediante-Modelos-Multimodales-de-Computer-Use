@@ -30,6 +30,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
+import { isReportableQaModelSummary } from "./reportability.js";
 import { computeQaScore, QA_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -91,6 +92,10 @@ export interface RunQaExperimentInput {
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
+  reusableModelSummaries?: Array<{
+    sourceRunId: string;
+    summary: QaModelSummary;
+  }>;
   onLog?: ExperimentLogFn;
 }
 
@@ -182,13 +187,12 @@ function zeroMetrics(model: ModelAvailability): QaModelMetrics {
 function buildLeaderboard(modelSummaries: QaModelSummary[]): QaLeaderboardEntry[] {
   return [...modelSummaries]
     .sort((left, right) => right.metrics.score - left.metrics.score)
-    .map((summary, index) => {
+    .map((summary) => {
       const costSummary = summarizeUsageCosts(
         summary.scenarioRuns.map((run) => run.usageSummary),
         summary.scenarioRuns.length
       );
       return {
-        rank: index + 1,
         modelId: summary.model.id,
         provider: summary.model.provider,
         score: summary.metrics.score,
@@ -288,7 +292,8 @@ function buildQaSection(input: {
 }
 
 function buildReport(artifact: QaRunArtifact): QaReport {
-  const leaderboard = buildLeaderboard(artifact.modelSummaries);
+  const reportableModelSummaries = artifact.modelSummaries.filter(isReportableQaModelSummary);
+  const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
     kind: "qa",
     runId: artifact.runId,
@@ -296,8 +301,8 @@ function buildReport(artifact: QaRunArtifact): QaReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard,
-    modelSummaries: artifact.modelSummaries,
-    costGraph: buildQaCostGraph(artifact.modelSummaries),
+    modelSummaries: reportableModelSummaries,
+    costGraph: buildQaCostGraph(reportableModelSummaries),
     section: buildQaSection({
       appId: artifact.appId,
       runId: artifact.runId,
@@ -400,8 +405,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const resultsRoot = await resolveExperimentRoot(resultsDir, "qa");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels =
-    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
+  const requestedModels = input.models ?? preset.models;
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: QaExperimentSpec = {
     appId: input.appId,
@@ -465,7 +469,19 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
   await writeProgress(buildProgress({ completedScenarios: 0 }));
   const runner = input.runner ?? new StagehandAutomationRunner();
+  const reusableModelSummaries = new Map(
+    (input.reusableModelSummaries ?? []).map((entry) => [entry.summary.metrics.modelId, entry])
+  );
   const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
+    const reusableModelSummary = reusableModelSummaries.get(model.id);
+    if (reusableModelSummary) {
+      emitExperimentLog(
+        input.onLog,
+        `[guided] Model ${modelIndex + 1}/${models.length}: ${model.id} skipped; reusing existing run data from ${reusableModelSummary.sourceRunId}`
+      );
+      return reusableModelSummary.summary;
+    }
+
     if (!model.available) {
       emitExperimentLog(
         input.onLog,

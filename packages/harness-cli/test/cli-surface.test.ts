@@ -80,6 +80,7 @@ describe("CLI surface", () => {
       expect(fullbenchHelp).toContain("--parallelism <n>");
       expect(fullbenchHelp).toContain("--app-parallelism <n>");
       expect(fullbenchHelp).toContain("--html-scope <scope>");
+      expect(fullbenchHelp).toContain("--skip-existing");
       expect(reportHelp).toContain("report [options] [mode]");
       expect(reportHelp).toContain("guided, explore, or heal");
       expect(reportHelp).toContain("--html-scope <scope>");

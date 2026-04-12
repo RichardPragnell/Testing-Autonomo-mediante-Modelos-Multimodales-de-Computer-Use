@@ -6,6 +6,7 @@ import type {
   BenchmarkMetricColumn,
   ExperimentKind
 } from "./types.js";
+import { buildScoreMatrix } from "./report-overview.js";
 import {
   localizedComparisonGuide,
   localizedCostBadge,
@@ -255,13 +256,9 @@ function renderProvenance(report: BenchmarkComparisonReport): string {
   `;
 }
 
-function formatOverviewValue(kind: "rank" | "score" | "ms" | "usd", value: number | null): string {
+function formatOverviewValue(kind: "score" | "ms" | "usd", value: number | null): string {
   if (value === null) {
     return "&mdash;";
-  }
-
-  if (kind === "rank") {
-    return value.toFixed(2);
   }
 
   return escapeHtml(formatCompactValue(kind, value));
@@ -322,12 +319,12 @@ function renderModeWinnerCard(section: BenchmarkComparisonSection): string {
 }
 
 function renderOverallLeaderboard(report: BenchmarkComparisonReport): string {
-  const rankMatrix = report.summaryFigures?.rankMatrix;
-  if (!rankMatrix || !rankMatrix.rows.length) {
+  const scoreMatrix = report.summaryFigures?.scoreMatrix ?? buildScoreMatrix(report.modeSections);
+  if (!scoreMatrix.rows.length) {
     return "";
   }
 
-  const body = rankMatrix.rows
+  const body = scoreMatrix.rows
     .map((row) => {
       const label = describeModelLabel(row.modelId);
       const populatedCells = row.cells.filter((cell) => !cell.missing).length;
@@ -336,11 +333,10 @@ function renderOverallLeaderboard(report: BenchmarkComparisonReport): string {
       return `
         <tr>
           <th class="leaderboard-model-cell">
-            <span class="rank-model-label">${escapeHtml(label.primary)}</span>
-            ${label.secondary ? `<span class="rank-model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+            <span class="model-label">${escapeHtml(label.primary)}</span>
+            ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
           </th>
           <td class="leaderboard-summary-cell">${formatCoverage(populatedCells, totalCells)}</td>
-          <td class="leaderboard-summary-cell">${formatOverviewValue("rank", row.meanRank)}</td>
           <td class="leaderboard-summary-cell">${formatOverviewValue("score", row.meanScore)}</td>
           <td class="leaderboard-summary-cell">${formatOverviewValue("usd", row.meanTotalCost)}</td>
           <td class="leaderboard-summary-cell">${formatOverviewValue("ms", row.meanAvgLatency)}</td>
@@ -352,16 +348,15 @@ function renderOverallLeaderboard(report: BenchmarkComparisonReport): string {
   return `
     <article class="overview-figure">
       <header class="overview-header">
-        <h3>Clasificación global</h3>
-        <p>La cobertura indica cuántas combinaciones de modo y aplicación tienen datos. Los modelos se ordenan por rango medio; los empates se resuelven por puntuación, coste y latencia.</p>
+        <h3>Resumen global</h3>
+        <p>La cobertura indica cuántas combinaciones de modo y aplicación tienen datos. Los modelos se ordenan por puntuación media; los empates se resuelven por coste y latencia.</p>
       </header>
       <div class="table-wrap">
-        <table class="leaderboard-table rank-matrix-table">
+        <table class="leaderboard-table score-matrix-table">
           <thead>
             <tr>
               <th class="leaderboard-model-head">Modelo</th>
               <th class="leaderboard-summary-head">Cobertura</th>
-              <th class="leaderboard-summary-head">Rango medio</th>
               <th class="leaderboard-summary-head">Puntuación media</th>
               <th class="leaderboard-summary-head">Coste total medio</th>
               <th class="leaderboard-summary-head">Latencia media de ejecución</th>
@@ -386,7 +381,7 @@ function renderTopSummary(report: BenchmarkComparisonReport): string {
   return `
     <section class="overview-section">
       <h2>Panel de síntesis</h2>
-      <p class="section-summary">Primero aparecen los mejores resultados de cada modo y después la clasificación global del benchmark.</p>
+      <p class="section-summary">Primero aparecen los mejores resultados de cada modo y después el resumen global del benchmark.</p>
       <div class="scorecard-grid">${cards}</div>
       ${leaderboard}
     </section>
@@ -414,12 +409,12 @@ function renderEfficiencyFrontierFigure(report: BenchmarkComparisonReport): stri
   }
 
   const ticks = [0, 0.25, 0.5, 0.75, 1];
-  const width = 360;
-  const height = 280;
+  const width = 860;
+  const height = 430;
   const marginLeft = 68;
-  const marginRight = 22;
-  const marginTop = 18;
-  const marginBottom = 52;
+  const marginRight = 34;
+  const marginTop = 24;
+  const marginBottom = 64;
   const chartWidth = width - marginLeft - marginRight;
   const chartHeight = height - marginTop - marginBottom;
 
@@ -634,14 +629,13 @@ function renderHorizontalBarChart(input: {
   );
   const maxValue = Math.max(...sorted.map((item) => item.value), 0.0001);
   const bars = sorted
-    .map((item, index) => {
+    .map((item) => {
       const label = describeModelLabel(item.label);
       const width = Math.max(item.value > 0 ? 10 : 0, (item.value / maxValue) * 100);
       return `
         <li class="metric-bar-row">
           <div class="metric-bar-head">
             <div class="metric-bar-copy">
-              <span class="metric-rank">${String(index + 1).padStart(2, "0")}</span>
               <div class="metric-labels">
                 <span class="metric-label">${escapeHtml(label.primary)}</span>
                 ${label.secondary ? `<span class="metric-detail">${escapeHtml(label.secondary)}</span>` : ""}
@@ -1475,14 +1469,6 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         gap: 12px;
         min-width: 0;
       }
-      .metric-rank {
-        min-width: 2.2rem;
-        padding-top: 1px;
-        color: var(--muted);
-        font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-      }
       .metric-labels {
         min-width: 0;
       }
@@ -1629,7 +1615,7 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         color: var(--muted);
         font-size: 0.88rem;
       }
-      .rank-matrix-table thead th {
+      .score-matrix-table thead th {
         padding: 10px 12px;
         border-bottom: 1px solid var(--rule-strong);
         text-align: center;
@@ -1643,8 +1629,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-size: 0.9rem;
         white-space: nowrap;
       }
-      .rank-matrix-table tbody th,
-      .rank-matrix-table tbody td {
+      .score-matrix-table tbody th,
+      .score-matrix-table tbody td {
         padding: 0;
         border-bottom: 1px solid var(--rule);
         text-align: center;
@@ -1655,8 +1641,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         border-bottom: 1px solid var(--rule);
         text-align: center;
       }
-      .rank-model-head,
-      .rank-model-cell,
+      .score-model-head,
+      .score-model-cell,
       .leaderboard-model-head,
       .leaderboard-model-cell {
         position: sticky;
@@ -1667,15 +1653,15 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         text-align: left !important;
         background: #fcfaf6;
       }
-      .rank-group-head {
+      .score-group-head {
         font-size: 0.96rem !important;
       }
-      .rank-model-label {
+      .score-model-label {
         display: block;
         font-weight: 700;
         line-height: 1.25;
       }
-      .rank-model-detail {
+      .score-model-detail {
         display: block;
         margin-top: 4px;
         color: var(--muted);
@@ -1683,19 +1669,19 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         line-height: 1.35;
         word-break: break-word;
       }
-      .rank-cell,
-      .rank-summary-cell,
+      .score-cell,
+      .score-summary-cell,
       .leaderboard-summary-cell {
         min-width: 104px;
       }
-      .rank-cell {
+      .score-cell {
         padding: 10px 8px !important;
         color: #241c14;
       }
-      .rank-cell-strong {
+      .score-cell-strong {
         color: #fffdf8;
       }
-      .rank-cell-missing {
+      .score-cell-missing {
         background:
           repeating-linear-gradient(
             135deg,
@@ -1706,19 +1692,19 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
           );
         color: var(--muted);
       }
-      .rank-cell-main,
-      .rank-cell-detail {
+      .score-cell-main,
+      .score-cell-detail {
         display: block;
       }
-      .rank-cell-main {
+      .score-cell-main {
         font-size: 0.98rem;
         font-weight: 700;
       }
-      .rank-cell-detail {
+      .score-cell-detail {
         margin-top: 4px;
         font-size: 0.76rem;
       }
-      .rank-summary-cell {
+      .score-summary-cell {
         padding: 10px 12px !important;
         background: rgba(255, 255, 255, 0.72);
         font-size: 0.88rem;
@@ -1733,12 +1719,12 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         font-size: 0.88rem;
         font-weight: 700;
       }
-      .leaderboard-table .rank-model-label {
+      .leaderboard-table .model-label {
         white-space: normal;
       }
       .frontier-panel-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: 1fr;
         gap: 14px;
         margin-top: 14px;
       }
@@ -1935,8 +1921,8 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         .plot-legend-values {
           justify-content: flex-start;
         }
-        .rank-model-head,
-        .rank-model-cell,
+        .score-model-head,
+        .score-model-cell,
         .leaderboard-model-head,
         .leaderboard-model-cell {
           min-width: 180px;
@@ -1947,9 +1933,9 @@ export function renderBenchmarkComparisonHtml(report: BenchmarkComparisonReport)
         .matrix-table thead th,
         .matrix-table tbody td,
         .matrix-table tbody th,
-        .rank-matrix-table thead th,
-        .rank-matrix-table tbody td,
-        .rank-matrix-table tbody th,
+        .score-matrix-table thead th,
+        .score-matrix-table tbody td,
+        .score-matrix-table tbody th,
         .leaderboard-table thead th,
         .leaderboard-table tbody td,
         .leaderboard-table tbody th,
@@ -2009,7 +1995,6 @@ interface FinalModeDescriptor {
 interface FinalModelModeStats {
   coveragePopulated: number;
   coverageTotal: number;
-  meanRank: number | null;
   meanScore: number | null;
   meanLatency: number | null;
   totalCost: number | null;
@@ -2017,7 +2002,6 @@ interface FinalModelModeStats {
 
 interface FinalPerAppCell {
   missing: boolean;
-  rank: number | null;
   score: number | null;
   avgLatency: number | null;
   totalCost: number | null;
@@ -2075,17 +2059,15 @@ function sumNullableValues(values: Array<number | null | undefined>): number | n
   return usable.reduce((sum, value) => sum + value, 0);
 }
 
-type FinalMatrixMetricKind = "coverage" | "rank" | "score" | "ms" | "usd";
+type FinalMatrixMetricKind = "coverage" | "score" | "ms" | "usd";
 type MetricDirection = "asc" | "desc";
 
-function formatFinalMetricValue(kind: "rank" | "score" | "ms" | "usd", value: number | null): string {
+function formatFinalMetricValue(kind: "score" | "ms" | "usd", value: number | null): string {
   if (value === null) {
     return "&mdash;";
   }
 
   switch (kind) {
-    case "rank":
-      return value.toFixed(2);
     case "score":
       return escapeHtml(formatCompactValue("score", value));
     case "ms":
@@ -2121,15 +2103,11 @@ function metricDirectionForColumn(column: BenchmarkMetricColumn): MetricDirectio
   if (column.kind === "ms" || column.kind === "usd") {
     return "asc";
   }
-  if (column.key === "rank") {
-    return "asc";
-  }
   return "desc";
 }
 
 function metricDirectionForFinalKind(kind: FinalMatrixMetricKind): MetricDirection {
   switch (kind) {
-    case "rank":
     case "ms":
     case "usd":
       return "asc";
@@ -2190,9 +2168,13 @@ function renderComparisonGuide(): string {
   `;
 }
 
+function resolveScoreMatrix(report: BenchmarkComparisonReport) {
+  return report.summaryFigures?.scoreMatrix ?? buildScoreMatrix(report.modeSections);
+}
+
 function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalReportViewModel | null {
-  const rankMatrix = report.summaryFigures?.rankMatrix;
-  if (!rankMatrix) {
+  const scoreMatrix = resolveScoreMatrix(report);
+  if (!scoreMatrix.rows.length) {
     return null;
   }
 
@@ -2206,7 +2188,7 @@ function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalRepo
     return null;
   }
 
-  const models = rankMatrix.rows.map<FinalModelView>((row) => {
+  const models = scoreMatrix.rows.map<FinalModelView>((row) => {
     const modeStats = new Map<ExperimentKind, FinalModelModeStats>();
     const appCells = new Map<string, Map<ExperimentKind, FinalPerAppCell>>();
 
@@ -2216,7 +2198,6 @@ function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalRepo
       modeStats.set(mode.kind, {
         coveragePopulated: populated.length,
         coverageTotal: cells.length,
-        meanRank: averageNullableValues(populated.map((cell) => cell.rank)),
         meanScore: averageNullableValues(populated.map((cell) => cell.score)),
         meanLatency: averageNullableValues(populated.map((cell) => cell.avgLatency)),
         totalCost: sumNullableValues(populated.map((cell) => cell.totalCost))
@@ -2229,7 +2210,6 @@ function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalRepo
         const cell = row.cells.find((entry) => entry.kind === mode.kind && entry.appId === appId);
         perMode.set(mode.kind, {
           missing: !cell || cell.missing,
-          rank: cell?.rank ?? null,
           score: cell?.score ?? null,
           avgLatency: cell?.avgLatency ?? null,
           totalCost: cell?.totalCost ?? null
@@ -2249,17 +2229,27 @@ function buildFinalReportViewModel(report: BenchmarkComparisonReport): FinalRepo
   const apps = report.appIds.map<FinalAppView>((appId) => {
     const winners = new Map<ExperimentKind, FinalAppWinner>();
     for (const mode of modes) {
-      const winner = rankMatrix.rows.find((row) =>
-        row.cells.some((cell) => cell.kind === mode.kind && cell.appId === appId && cell.rank === 1)
-      );
+      const winner = scoreMatrix.rows
+        .flatMap((row) => {
+          const cell = row.cells.find((entry) => entry.kind === mode.kind && entry.appId === appId);
+          return cell && !cell.missing ? [{ row, cell }] : [];
+        })
+        .sort((left, right) => {
+          return (
+            compareNullableFinalDesc(left.cell.score, right.cell.score) ||
+            compareNullableFinalAsc(left.cell.totalCost, right.cell.totalCost) ||
+            compareNullableFinalAsc(left.cell.avgLatency, right.cell.avgLatency) ||
+            left.row.modelId.localeCompare(right.row.modelId)
+          );
+        })[0];
       if (!winner) {
         continue;
       }
       winners.set(mode.kind, {
         kind: mode.kind,
         title: mode.title,
-        modelId: winner.modelId,
-        provider: winner.provider
+        modelId: winner.row.modelId,
+        provider: winner.row.provider
       });
     }
 
@@ -2329,7 +2319,7 @@ function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalRepo
       <article class="glance-card glance-card-stat">
         <p class="glance-eyebrow">Modelos</p>
         <p class="glance-value">${String(viewModel.models.length)}</p>
-        <p class="glance-copy">Orden común tomada de la matriz global de rangos del benchmark.</p>
+        <p class="glance-copy">Orden común tomado de la puntuación media global del benchmark.</p>
       </article>
     `,
     `
@@ -2381,95 +2371,90 @@ function renderAtAGlance(report: BenchmarkComparisonReport, viewModel: FinalRepo
 }
 
 function renderModelsAcrossModes(viewModel: FinalReportViewModel): string {
-  const bestByMode = new Map(
-    viewModel.modes.map((mode) => [
-      mode.kind,
-      {
+  const blocks = viewModel.modes
+    .map((mode) => {
+      const sortedModels = [...viewModel.models].sort((left, right) => {
+        const leftStats = left.modeStats.get(mode.kind);
+        const rightStats = right.modeStats.get(mode.kind);
+        return (
+          compareNullableFinalDesc(leftStats?.meanScore ?? null, rightStats?.meanScore ?? null) ||
+          compareNullableFinalAsc(leftStats?.totalCost ?? null, rightStats?.totalCost ?? null) ||
+          compareNullableFinalAsc(leftStats?.meanLatency ?? null, rightStats?.meanLatency ?? null) ||
+          left.modelId.localeCompare(right.modelId)
+        );
+      });
+      const best = {
         coverage: bestMetricValue(
-          viewModel.models.map((model) => {
+          sortedModels.map((model) => {
             const stats = model.modeStats.get(mode.kind);
             return stats && stats.coverageTotal > 0 ? stats.coveragePopulated / stats.coverageTotal : null;
           }),
           metricDirectionForFinalKind("coverage")
         ),
-        rank: bestMetricValue(
-          viewModel.models.map((model) => model.modeStats.get(mode.kind)?.meanRank),
-          metricDirectionForFinalKind("rank")
-        ),
         score: bestMetricValue(
-          viewModel.models.map((model) => model.modeStats.get(mode.kind)?.meanScore),
+          sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanScore),
           metricDirectionForFinalKind("score")
         ),
         usd: bestMetricValue(
-          viewModel.models.map((model) => model.modeStats.get(mode.kind)?.totalCost),
+          sortedModels.map((model) => model.modeStats.get(mode.kind)?.totalCost),
           metricDirectionForFinalKind("usd")
         ),
         ms: bestMetricValue(
-          viewModel.models.map((model) => model.modeStats.get(mode.kind)?.meanLatency),
+          sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanLatency),
           metricDirectionForFinalKind("ms")
         )
-      }
-    ])
-  );
+      };
+
+      return `
+        <article class="mode-block">
+          <header class="mode-block-header">
+            <h3>${escapeHtml(mode.title)}</h3>
+            <p>${escapeHtml(mode.summary)}</p>
+          </header>
+          <div class="table-wrap">
+            <table class="unified-table models-mode-table">
+              <thead>
+                <tr>
+                  <th class="sticky-model-col">Modelo</th>
+                  <th>Cobertura</th>
+                  <th>Puntuación media</th>
+                  <th>Coste total</th>
+                  <th>Latencia media de ejecución</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedModels
+                  .map((model) => {
+                    const label = describeModelLabel(model.modelId);
+                    const stats = model.modeStats.get(mode.kind);
+                    const coverageValue = stats && stats.coverageTotal > 0 ? stats.coveragePopulated / stats.coverageTotal : null;
+                    return `
+                      <tr>
+                        <th class="sticky-model-col">
+                          <span class="model-label">${escapeHtml(label.primary)}</span>
+                          ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
+                        </th>
+                        <td>${stats ? renderFinalMetricCell({ kind: "coverage", value: coverageValue, bestValue: best.coverage, formatted: formatCoverage(stats.coveragePopulated, stats.coverageTotal) }) : "&mdash;"}</td>
+                        <td>${stats ? renderFinalMetricCell({ kind: "score", value: stats.meanScore, bestValue: best.score }) : "&mdash;"}</td>
+                        <td>${stats ? renderFinalMetricCell({ kind: "usd", value: stats.totalCost, bestValue: best.usd }) : "&mdash;"}</td>
+                        <td>${stats ? renderFinalMetricCell({ kind: "ms", value: stats.meanLatency, bestValue: best.ms }) : "&mdash;"}</td>
+                      </tr>
+                    `;
+                  })
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
 
   return `
     <section>
       <h2>Modelos a través de los modos</h2>
-      <p class="section-summary">Cada modelo aparece una sola vez. La cobertura indica cuántas combinaciones tienen datos; en el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Las ausencias no se agregan.</p>
-      <div class="table-wrap">
-        <table class="unified-table">
-          <thead>
-            <tr>
-              <th rowspan="2" class="sticky-model-col">Modelo</th>
-              ${viewModel.modes
-                .map((mode) => `<th colspan="5" class="group-head">${escapeHtml(mode.title)}</th>`)
-                .join("")}
-            </tr>
-            <tr>
-              ${viewModel.modes
-                .map(
-                  () => `
-                    <th>Cobertura</th>
-                    <th>Rango medio</th>
-                    <th>Puntuación media</th>
-                    <th>Coste total</th>
-                    <th>Latencia media de ejecución</th>
-                  `
-                )
-                .join("")}
-            </tr>
-          </thead>
-          <tbody>
-            ${viewModel.models
-              .map((model) => {
-                const label = describeModelLabel(model.modelId);
-                return `
-                  <tr>
-                    <th class="sticky-model-col">
-                      <span class="model-label">${escapeHtml(label.primary)}</span>
-                      ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
-                    </th>
-                    ${viewModel.modes
-                      .map((mode) => {
-                        const stats = model.modeStats.get(mode.kind);
-                        const best = bestByMode.get(mode.kind);
-                        const coverageValue = stats && stats.coverageTotal > 0 ? stats.coveragePopulated / stats.coverageTotal : null;
-                        return `
-                          <td>${stats ? renderFinalMetricCell({ kind: "coverage", value: coverageValue, bestValue: best?.coverage ?? null, formatted: formatCoverage(stats.coveragePopulated, stats.coverageTotal) }) : "&mdash;"}</td>
-                          <td>${stats ? renderFinalMetricCell({ kind: "rank", value: stats.meanRank, bestValue: best?.rank ?? null }) : "&mdash;"}</td>
-                          <td>${stats ? renderFinalMetricCell({ kind: "score", value: stats.meanScore, bestValue: best?.score ?? null }) : "&mdash;"}</td>
-                          <td>${stats ? renderFinalMetricCell({ kind: "usd", value: stats.totalCost, bestValue: best?.usd ?? null }) : "&mdash;"}</td>
-                          <td>${stats ? renderFinalMetricCell({ kind: "ms", value: stats.meanLatency, bestValue: best?.ms ?? null }) : "&mdash;"}</td>
-                        `;
-                      })
-                      .join("")}
-                  </tr>
-                `;
-              })
-              .join("")}
-          </tbody>
-        </table>
-      </div>
+      <p class="section-summary">Cada modo tiene su propia tabla para que las columnas mantengan ancho útil. La cobertura indica cuántas combinaciones tienen datos; en la puntuación, un valor mayor es mejor.</p>
+      <div class="mode-block-list">${blocks}</div>
     </section>
   `;
 }
@@ -2496,10 +2481,6 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
         viewModel.modes.map((mode) => [
           mode.kind,
           {
-            rank: bestMetricValue(
-              viewModel.models.map((model) => model.appCells.get(app.appId)?.get(mode.kind)?.rank),
-              metricDirectionForFinalKind("rank")
-            ),
             score: bestMetricValue(
               viewModel.models.map((model) => model.appCells.get(app.appId)?.get(mode.kind)?.score),
               metricDirectionForFinalKind("score")
@@ -2520,7 +2501,7 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
           <header class="app-block-header">
             <div>
               <h3>${escapeHtml(app.appId)}</h3>
-              <p>Rangos y métricas de esta aplicación en los modos disponibles.</p>
+              <p>Métricas de esta aplicación en los modos disponibles.</p>
             </div>
             <div class="winner-chip-list">${renderAppWinnerChips(app, viewModel.modes)}</div>
           </header>
@@ -2530,14 +2511,13 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
                 <tr>
                   <th rowspan="2" class="sticky-model-col">Modelo</th>
                   ${viewModel.modes
-                    .map((mode) => `<th colspan="4" class="group-head">${escapeHtml(mode.title)}</th>`)
+                    .map((mode) => `<th colspan="3" class="group-head">${escapeHtml(mode.title)}</th>`)
                     .join("")}
                 </tr>
                 <tr>
                   ${viewModel.modes
                     .map(
                       () => `
-                        <th>Rango</th>
                         <th>Puntuación</th>
                         <th>Latencia</th>
                         <th>Coste total</th>
@@ -2562,11 +2542,10 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
                             const cell = appCells?.get(mode.kind);
                             const best = bestByMode.get(mode.kind);
                             if (!cell || cell.missing) {
-                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                              return `<td class="mode-cell-missing"></td><td class="mode-cell-missing"></td><td class="mode-cell-missing"></td>`;
                             }
 
                             return `
-                              <td>${renderFinalMetricCell({ kind: "rank", value: cell.rank, bestValue: best?.rank ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "score", value: cell.score, bestValue: best?.score ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "ms", value: cell.avgLatency, bestValue: best?.ms ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "usd", value: cell.totalCost, bestValue: best?.usd ?? null })}</td>
@@ -2588,7 +2567,7 @@ function renderAppsAcrossModes(viewModel: FinalReportViewModel): string {
   return `
     <section>
       <h2>Aplicaciones a través de los modos</h2>
-      <p class="section-summary">Cada aplicación mantiene la misma ordenación de modelos para comparar los modos. En el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
+      <p class="section-summary">Cada aplicación mantiene la misma ordenación de modelos para comparar los modos. En la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
       <div class="app-block-list">${blocks}</div>
     </section>
   `;
@@ -2621,7 +2600,7 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
   const header = reportHeader(report, "benchmark-final");
   const overallLeader = viewModel.models[0];
   const overallConclusion = overallLeader
-    ? `En el agregado disponible, ${overallLeader.modelId} ocupa la mejor posición media dentro de la matriz comparativa.`
+    ? `En el agregado disponible, ${overallLeader.modelId} obtiene la mejor puntuación media dentro de la matriz comparativa.`
     : "El agregado disponible no permite establecer un liderazgo global robusto.";
 
   return `<!doctype html>
@@ -2868,14 +2847,12 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         font-weight: 800;
       }
       .model-label,
-      .rank-model-label,
       .frontier-legend-label {
         display: block;
         font-weight: 700;
         line-height: 1.25;
       }
       .model-detail,
-      .rank-model-detail,
       .frontier-legend-detail {
         display: block;
         margin-top: 4px;
@@ -2934,7 +2911,7 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         color: var(--muted);
         max-width: 1100px;
       }
-      .rank-matrix-table thead th,
+      .score-matrix-table thead th,
       .leaderboard-table thead th {
         padding: 10px 12px;
         border-bottom: 1px solid var(--rule-strong);
@@ -2942,16 +2919,16 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         font-size: 0.9rem;
         white-space: nowrap;
       }
-      .rank-matrix-table tbody th,
-      .rank-matrix-table tbody td,
+      .score-matrix-table tbody th,
+      .score-matrix-table tbody td,
       .leaderboard-table tbody th,
       .leaderboard-table tbody td {
         padding: 0;
         border-bottom: 1px solid var(--rule);
         text-align: center;
       }
-      .rank-model-head,
-      .rank-model-cell,
+      .score-model-head,
+      .score-model-cell,
       .leaderboard-model-head,
       .leaderboard-model-cell {
         position: sticky;
@@ -2971,12 +2948,12 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         font-size: 0.88rem;
         font-weight: 700;
       }
-      .leaderboard-table .rank-model-label {
+      .leaderboard-table .model-label {
         white-space: normal;
       }
       .frontier-panel-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        grid-template-columns: 1fr;
         gap: 14px;
         margin-top: 14px;
       }
@@ -3076,8 +3053,8 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
           flex-direction: column;
         }
         .unified-table .sticky-model-col,
-        .rank-model-head,
-        .rank-model-cell,
+        .score-model-head,
+        .score-model-cell,
         .leaderboard-model-head,
         .leaderboard-model-cell {
           min-width: 180px;
@@ -3088,9 +3065,9 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
         .unified-table thead th,
         .unified-table tbody td,
         .unified-table tbody th,
-        .rank-matrix-table thead th,
-        .rank-matrix-table tbody td,
-        .rank-matrix-table tbody th,
+        .score-matrix-table thead th,
+        .score-matrix-table tbody td,
+        .score-matrix-table tbody th,
         .leaderboard-table thead th,
         .leaderboard-table tbody td,
         .leaderboard-table tbody th {
@@ -3110,10 +3087,10 @@ export function renderBenchmarkFinalComparisonHtml(report: BenchmarkComparisonRe
       </header>
       ${renderAcademicFrame({
         title: "Marco interpretativo",
-        summary: "Este informe combina el resumen global del benchmark con tablas que separan puntuaciones por modo y rangos entre modos.",
+        summary: "Este informe combina el resumen global del benchmark con tablas que separan puntuaciones por modo.",
         objective: `Sintetizar ${countLabel(report.runIds.length, "ejecución", "ejecuciones")} del benchmark sobre ${countLabel(report.appIds.length, "aplicación", "aplicaciones")} y ${countLabel(viewModel.modes.length, "modo", "modos")}.`,
         method:
-          "Compara puntuaciones solo dentro del mismo modo. Para comparar entre modos, usa rango medio, cobertura, coste y latencia.",
+          "Compara puntuaciones solo dentro del mismo modo. Para comparar entre modos, usa puntuación media, cobertura, coste y latencia.",
         conclusion: overallConclusion
       })}
       ${renderComparisonGuide()}
@@ -3159,7 +3136,6 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
         const leftStats = left.modeStats.get(mode.kind);
         const rightStats = right.modeStats.get(mode.kind);
         return (
-          compareNullableFinalAsc(leftStats?.meanRank ?? null, rightStats?.meanRank ?? null) ||
           compareNullableFinalDesc(leftStats?.meanScore ?? null, rightStats?.meanScore ?? null) ||
           compareNullableFinalAsc(leftStats?.totalCost ?? null, rightStats?.totalCost ?? null) ||
           compareNullableFinalAsc(leftStats?.meanLatency ?? null, rightStats?.meanLatency ?? null) ||
@@ -3173,10 +3149,6 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
         }),
         metricDirectionForFinalKind("coverage")
       );
-      const bestMeanRank = bestMetricValue(
-        sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanRank),
-        metricDirectionForFinalKind("rank")
-      );
       const bestMeanScore = bestScoreValue(sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanScore));
       const bestMeanLatency = bestMetricValue(
         sortedModels.map((model) => model.modeStats.get(mode.kind)?.meanLatency),
@@ -3185,15 +3157,6 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
       const bestTotalCost = bestMetricValue(
         sortedModels.map((model) => model.modeStats.get(mode.kind)?.totalCost),
         metricDirectionForFinalKind("usd")
-      );
-      const bestRankByApp = new Map(
-        report.appIds.map((appId) => [
-          appId,
-          bestMetricValue(
-            sortedModels.map((model) => model.appCells.get(appId)?.get(mode.kind)?.rank),
-            metricDirectionForFinalKind("rank")
-          )
-        ])
       );
       const bestScoreByApp = new Map(
         report.appIds.map((appId) => [
@@ -3214,14 +3177,13 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
                 <tr>
                   <th rowspan="2" class="sticky-model-col">Modelo</th>
                   <th rowspan="2">Cobertura</th>
-                  <th rowspan="2">Rango medio</th>
                   <th rowspan="2">Puntuación media</th>
                   <th rowspan="2">Latencia media de ejecución</th>
                   <th rowspan="2">Coste total</th>
-                  ${report.appIds.map((appId) => `<th colspan="2" class="group-head">${escapeHtml(appId)}</th>`).join("")}
+                  ${report.appIds.map((appId) => `<th class="group-head">${escapeHtml(appId)}</th>`).join("")}
                 </tr>
                 <tr>
-                  ${report.appIds.map(() => "<th>Rango</th><th>Puntuación</th>").join("")}
+                  ${report.appIds.map(() => "<th>Puntuación</th>").join("")}
                 </tr>
               </thead>
               <tbody>
@@ -3237,7 +3199,6 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
                           ${label.secondary ? `<span class="model-detail">${escapeHtml(label.secondary)}</span>` : ""}
                         </th>
                         <td>${stats ? renderFinalMetricCell({ kind: "coverage", value: coverageValue, bestValue: bestMeanCoverage, formatted: formatCoverage(stats.coveragePopulated, stats.coverageTotal) }) : "&mdash;"}</td>
-                        <td>${stats ? renderFinalMetricCell({ kind: "rank", value: stats.meanRank, bestValue: bestMeanRank }) : "&mdash;"}</td>
                         <td>${stats ? renderFinalMetricCell({ kind: "score", value: stats.meanScore, bestValue: bestMeanScore }) : "&mdash;"}</td>
                         <td>${stats ? renderFinalMetricCell({ kind: "ms", value: stats.meanLatency, bestValue: bestMeanLatency }) : "&mdash;"}</td>
                         <td>${stats ? renderFinalMetricCell({ kind: "usd", value: stats.totalCost, bestValue: bestTotalCost }) : "&mdash;"}</td>
@@ -3245,10 +3206,9 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
                           .map((appId) => {
                             const cell = model.appCells.get(appId)?.get(mode.kind);
                             if (!cell || cell.missing) {
-                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                              return `<td class="mode-cell-missing"></td>`;
                             }
                             return `
-                              <td>${renderFinalMetricCell({ kind: "rank", value: cell.rank, bestValue: bestRankByApp.get(appId) ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "score", value: cell.score, bestValue: bestScoreByApp.get(appId) ?? null })}</td>
                             `;
                           })
@@ -3268,7 +3228,7 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
   return `
     <section>
       <h2>Resultados normalizados por modo</h2>
-      <p class="section-summary">Cada modo usa la misma tabla para comparar rangos, cobertura y puntuaciones por aplicación. La negrita marca el mejor valor comparable de cada columna.</p>
+      <p class="section-summary">Cada modo usa la misma tabla para comparar cobertura y puntuaciones por aplicación. La negrita marca el mejor valor comparable de cada columna.</p>
       <div class="mode-block-list">${blocks}</div>
     </section>
   `;
@@ -3277,15 +3237,6 @@ function renderStandardizedModeTables(report: BenchmarkComparisonReport, viewMod
 function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): string {
   const blocks = viewModel.apps
     .map((app) => {
-      const bestRankByMode = new Map(
-        viewModel.modes.map((mode) => [
-          mode.kind,
-          bestMetricValue(
-            viewModel.models.map((model) => model.appCells.get(app.appId)?.get(mode.kind)?.rank),
-            metricDirectionForFinalKind("rank")
-          )
-        ])
-      );
       const bestScoreByMode = new Map(
         viewModel.modes.map((mode) => [
           mode.kind,
@@ -3325,11 +3276,11 @@ function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): stri
                 <tr>
                   <th rowspan="2" class="sticky-model-col">Modelo</th>
                   ${viewModel.modes
-                    .map((mode) => `<th colspan="4" class="group-head">${escapeHtml(mode.title)}</th>`)
+                    .map((mode) => `<th colspan="3" class="group-head">${escapeHtml(mode.title)}</th>`)
                     .join("")}
                 </tr>
                 <tr>
-                  ${viewModel.modes.map(() => "<th>Rango</th><th>Puntuación</th><th>Latencia</th><th>Coste total</th>").join("")}
+                  ${viewModel.modes.map(() => "<th>Puntuación</th><th>Latencia</th><th>Coste total</th>").join("")}
                 </tr>
               </thead>
               <tbody>
@@ -3347,11 +3298,10 @@ function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): stri
                           .map((mode) => {
                             const cell = appCells?.get(mode.kind);
                             if (!cell || cell.missing) {
-                              return `<td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td><td class="mode-cell-missing">&mdash;</td>`;
+                              return `<td class="mode-cell-missing"></td><td class="mode-cell-missing"></td><td class="mode-cell-missing"></td>`;
                             }
 
                             return `
-                              <td>${renderFinalMetricCell({ kind: "rank", value: cell.rank, bestValue: bestRankByMode.get(mode.kind) ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "score", value: cell.score, bestValue: bestScoreByMode.get(mode.kind) ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "ms", value: cell.avgLatency, bestValue: bestLatencyByMode.get(mode.kind) ?? null })}</td>
                               <td>${renderFinalMetricCell({ kind: "usd", value: cell.totalCost, bestValue: bestCostByMode.get(mode.kind) ?? null })}</td>
@@ -3373,7 +3323,7 @@ function renderStandardizedAppComparisons(viewModel: FinalReportViewModel): stri
   return `
     <section>
       <h2>Comparación del rendimiento por aplicación</h2>
-      <p class="section-summary">Cada aplicación tiene una tabla propia para comparar todos los modelos. En el rango, un valor menor es mejor; en la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
+      <p class="section-summary">Cada aplicación tiene una tabla propia para comparar todos los modelos. En la puntuación, un valor mayor es mejor. Los guiones indican que no hay ejecución.</p>
       <div class="app-block-list">${blocks}</div>
     </section>
   `;
@@ -3639,7 +3589,7 @@ export function renderBenchmarkStandardizedComparisonHtml(report: BenchmarkCompa
       </header>
       ${renderAcademicFrame({
         title: "Criterio de estandarización",
-        summary: "Las tablas normalizadas mantienen el mismo formato por modo y usan rangos para comparar entre modos.",
+        summary: "Las tablas normalizadas mantienen el mismo formato por modo y comparan puntuaciones con métricas operativas.",
         objective: `Unificar la lectura de ${countLabel(report.runIds.length, "ejecución", "ejecuciones")} y facilitar la comparación por modo y por aplicación.`,
         method:
           "Cada modo mantiene la misma estructura; después, cada aplicación usa la misma ordenación de modelos para comparar diferencias entre modos.",

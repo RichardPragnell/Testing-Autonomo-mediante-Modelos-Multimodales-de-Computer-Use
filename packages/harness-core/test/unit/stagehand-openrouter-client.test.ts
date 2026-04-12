@@ -106,6 +106,47 @@ describe("stagehand openrouter client", () => {
     expect(usageSink).toHaveLength(1);
   });
 
+  it("adds a JSON instruction for structured generations when the messages omit it", async () => {
+    generateObjectMock.mockResolvedValue({
+      object: { elementId: "1-1" },
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 120
+      }
+    });
+
+    const client = new StagehandOpenRouterTrackingClient({
+      modelId: "example/structured-json-model",
+      provider: "example",
+      phase: "guided_scenario",
+      usageSink: [] as never[]
+    });
+
+    await client.createChatCompletion({
+      options: {
+        messages: [{ role: "user", content: "click edit" }],
+        response_model: {
+          name: "act",
+          schema: { type: "object" }
+        }
+      }
+    });
+
+    expect(generateObjectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: "system",
+            content: expect.stringMatching(/\bJSON\b/)
+          })
+        ])
+      })
+    );
+  });
+
   it("applies the default maxOutputTokens cap for text generations and forwards tools", async () => {
     generateTextMock.mockResolvedValue({
       text: "done",
@@ -200,6 +241,51 @@ describe("stagehand openrouter client", () => {
         }
       })
     );
+  });
+
+  it("attaches abort signals when a request timeout is configured", async () => {
+    generateObjectMock.mockResolvedValue({
+      object: { elementId: "1-1" },
+      usage: {
+        inputTokens: 100,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 120
+      }
+    });
+    generateTextMock.mockResolvedValue({
+      text: "done",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        cachedInputTokens: 0,
+        totalTokens: 15
+      }
+    });
+
+    const client = new StagehandOpenRouterTrackingClient({
+      modelId: "z-ai/glm-4-32b",
+      provider: "z-ai",
+      phase: "guided_scenario",
+      usageSink: [] as never[],
+      requestTimeoutMs: 1000
+    });
+
+    await client.createChatCompletion({
+      options: {
+        messages: [{ role: "user", content: "click edit" }],
+        response_model: {
+          name: "act",
+          schema: { type: "object" }
+        }
+      }
+    });
+    await client.generateText({ prompt: "perform one action" });
+
+    expect(generateObjectMock.mock.calls[0]?.[0].abortSignal).toBeInstanceOf(AbortSignal);
+    expect(generateTextMock.mock.calls[0]?.[0].abortSignal).toBeInstanceOf(AbortSignal);
   });
 
   it.each([

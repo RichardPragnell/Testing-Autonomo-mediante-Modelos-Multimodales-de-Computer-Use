@@ -9,7 +9,7 @@
   "runtime": {
     "timeoutMs": 90000,
     "retryCount": 1,
-    "maxSteps": 20,
+    "maxSteps": 10,
     "viewport": {
       "width": 1280,
       "height": 720
@@ -81,9 +81,14 @@
       "edit-task",
       "create-delete-task"
     ],
+    "runtime": {
+      "timeoutMs": 45000,
+      "retryCount": 0,
+      "maxSteps": 8
+    },
     "heuristicTargets": {
-      "minStates": 4,
-      "minTransitions": 3,
+      "minStates": 3,
+      "minTransitions": 2,
       "actionKinds": [
         "navigate",
         "add",
@@ -96,10 +101,7 @@
     "probeScenarioIds": [
       "smoke-load",
       "add-task",
-      "complete-task",
-      "filter-active",
-      "edit-task",
-      "create-delete-task"
+      "edit-task"
     ]
   },
   "heal": {
@@ -108,6 +110,11 @@
       "heal-toggle-completion-noop",
       "heal-edit-task-save-noop"
     ],
+    "runtime": {
+      "timeoutMs": 60000,
+      "retryCount": 0,
+      "maxSteps": 8
+    },
     "cases": [
       {
         "caseId": "heal-new-task-label-lost",

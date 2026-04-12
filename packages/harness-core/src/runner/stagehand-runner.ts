@@ -54,6 +54,30 @@ const GENERIC_PROVIDER_ERROR_PATTERNS = [
   /^failed after \d+ attempts(?: with non-retryable error)?: ['"]?provider returned error['"]?$/i,
   /^failed after \d+ attempts\. last error: provider returned error$/i
 ];
+const STAGEHAND_AUXILIARY_TIMEOUT_MS = 5_000;
+
+async function withTimeout<T>(work: Promise<T> | T, timeoutMs: number, label: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await work;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(work),
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeout.unref?.();
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 function isGenericProviderError(message: string): boolean {
   return GENERIC_PROVIDER_ERROR_PATTERNS.some((pattern) => pattern.test(message.trim()));
@@ -192,7 +216,9 @@ function normalizeHistoryEntry(entry: any): StagehandHistoryEntry {
 async function readStagehandMetrics(stagehand: any): Promise<any> {
   try {
     const metrics = stagehand?.metrics;
-    return metrics && typeof metrics.then === "function" ? await metrics : metrics;
+    return metrics && typeof metrics.then === "function"
+      ? await withTimeout(metrics, STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand metrics read")
+      : metrics;
   } catch {
     return undefined;
   }
@@ -201,7 +227,9 @@ async function readStagehandMetrics(stagehand: any): Promise<any> {
 async function readStagehandHistory(stagehand: any): Promise<StagehandHistoryEntry[]> {
   try {
     const history = stagehand?.history;
-    const resolved = history && typeof history.then === "function" ? await history : history;
+    const resolved = history && typeof history.then === "function"
+      ? await withTimeout(history, STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand history read")
+      : history;
     return Array.isArray(resolved) ? resolved.map(normalizeHistoryEntry) : [];
   } catch {
     return [];
@@ -338,7 +366,8 @@ function buildStagehandConfig(
       provider: input.model.provider,
       phase: input.usagePhase,
       usageSink: input.usageSink,
-      defaultMaxOutputTokens: input.runConfig.maxOutputTokens
+      defaultMaxOutputTokens: input.runConfig.maxOutputTokens,
+      requestTimeoutMs: input.runConfig.timeoutMs
     })
   };
 
@@ -419,6 +448,24 @@ async function snapshotPage(page: any): Promise<{
     screenshotBase64: screenshot ? Buffer.from(screenshot).toString("base64") : undefined,
     summary: await readPageSummary(page)
   };
+}
+
+async function closeStagehand(stagehand: any, trace?: OperationTrace[]): Promise<void> {
+  if (typeof stagehand?.close !== "function") {
+    return;
+  }
+
+  try {
+    await withTimeout(stagehand.close(), STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand close");
+  } catch (error) {
+    trace?.push({
+      timestamp: nowIso(),
+      action: "stagehand.close_timeout",
+      details: {
+        message: normalizeExecutionError(error)
+      }
+    });
+  }
 }
 
 function normalizeObservedActions(actions: any[]): ObservedAction[] {
@@ -982,7 +1029,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
             logger: createStagehandLogCollector(stagehandLogs)
           })
         );
-        await stagehand.init();
+        await withTimeout(stagehand.init(), input.runConfig.timeoutMs, "stagehand init");
         const page =
           stagehand.page ??
           stagehand.context?.pages?.()[0] ??
@@ -991,7 +1038,11 @@ export class StagehandAutomationRunner implements AutomationRunner {
           throw new Error("stagehand page not available after initialization");
         }
 
-        await page.setViewportSize?.(input.runConfig.viewport);
+        await withTimeout(
+          Promise.resolve(page.setViewportSize?.(input.runConfig.viewport)),
+          STAGEHAND_AUXILIARY_TIMEOUT_MS,
+          "set viewport"
+        );
         trace.push({
           timestamp: nowIso(),
           action: "set_viewport",
@@ -1001,23 +1052,35 @@ export class StagehandAutomationRunner implements AutomationRunner {
           }
         });
 
-        await page.goto(input.aut.url, {
-          timeout: input.runConfig.timeoutMs,
-          waitUntil: "domcontentloaded"
-        });
+        await withTimeout(
+          page.goto(input.aut.url, {
+            timeout: input.runConfig.timeoutMs,
+            waitUntil: "domcontentloaded"
+          }),
+          input.runConfig.timeoutMs,
+          "page navigation"
+        );
         trace.push({
           timestamp: nowIso(),
           action: "goto",
           details: { url: input.aut.url, attempt }
         });
 
-        const execution = await executeScenarioSteps({
-          stagehand,
-          page,
-          scenario: input.scenario,
-          trace,
-        });
-        const pageSnapshot = await snapshotPage(page);
+        const execution = await withTimeout(
+          executeScenarioSteps({
+            stagehand,
+            page,
+            scenario: input.scenario,
+            trace,
+          }),
+          input.runConfig.timeoutMs,
+          `scenario ${input.scenario.scenarioId}`
+        );
+        const pageSnapshot = await withTimeout(
+          snapshotPage(page),
+          STAGEHAND_AUXILIARY_TIMEOUT_MS,
+          "page snapshot"
+        );
         const metrics = await readStagehandMetrics(stagehand);
         history = await readStagehandHistory(stagehand);
         const cache = buildScenarioCacheTelemetry({
@@ -1036,7 +1099,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
         usageSummaries.push(attemptUsageSummary);
         const usageSummary = sumAiUsageSummaries(usageSummaries);
 
-        await stagehand.close?.();
+        await closeStagehand(stagehand, trace);
         return {
           scenarioId: input.scenario.scenarioId,
           scenarioTitle: input.scenario.title,
@@ -1090,7 +1153,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
             message: errorMessage
           }
         });
-        await stagehand?.close?.();
+        await closeStagehand(stagehand, trace);
         if (attempt >= input.runConfig.retryCount) {
           const usageSummary = sumAiUsageSummaries(usageSummaries);
           return {

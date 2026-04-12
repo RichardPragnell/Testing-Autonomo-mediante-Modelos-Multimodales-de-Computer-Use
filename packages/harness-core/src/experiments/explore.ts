@@ -35,6 +35,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
+import { isReportableExploreModelSummary } from "./reportability.js";
 import { computeExploreScore, EXPLORE_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -88,6 +89,10 @@ export interface RunExploreExperimentInput {
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
+  reusableModelSummaries?: Array<{
+    sourceRunId: string;
+    summary: ExploreModelSummary;
+  }>;
   onLog?: ExperimentLogFn;
 }
 
@@ -159,10 +164,9 @@ function zeroMetrics(model: ModelAvailability): ExploreModelMetrics {
 function buildLeaderboard(modelSummaries: ExploreModelSummary[]): ExploreLeaderboardEntry[] {
   return [...modelSummaries]
     .sort((left, right) => right.metrics.score - left.metrics.score)
-    .map((summary, index) => {
+    .map((summary) => {
       const costSummary = summarizeUsageCosts(summary.trials.map((trial) => trial.totalUsage), summary.trials.length);
       return {
-        rank: index + 1,
         modelId: summary.model.id,
         provider: summary.model.provider,
         score: summary.metrics.score,
@@ -267,7 +271,8 @@ function buildExploreSection(input: {
 }
 
 function buildReport(artifact: ExploreRunArtifact): ExploreReport {
-  const leaderboard = buildLeaderboard(artifact.modelSummaries);
+  const reportableModelSummaries = artifact.modelSummaries.filter(isReportableExploreModelSummary);
+  const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
     kind: "explore",
     runId: artifact.runId,
@@ -275,8 +280,8 @@ function buildReport(artifact: ExploreRunArtifact): ExploreReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard,
-    modelSummaries: artifact.modelSummaries,
-    costGraph: buildExploreCostGraph(artifact.modelSummaries),
+    modelSummaries: reportableModelSummaries,
+    costGraph: buildExploreCostGraph(reportableModelSummaries),
     section: buildExploreSection({
       appId: artifact.appId,
       runId: artifact.runId,
@@ -446,20 +451,20 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
   const resultsRoot = await resolveExperimentRoot(resultsDir, "explore");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels =
-    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
+  const requestedModels = input.models ?? preset.models;
   const models = resolveModelAvailability(registry, requestedModels);
+  const exploreRuntime = benchmark.benchmark.explore.runtime;
   const spec: ExploreExperimentSpec = {
     appId: input.appId,
     capabilityIds,
     probeScenarioIds,
-    models: requestedModels,
+    models: models.map((model) => model.id),
     promptId: preset.promptId ?? benchmark.benchmark.prompts.explore,
     trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.exploreTrials,
     runtime: {
-      timeoutMs: benchmark.benchmark.runtime.timeoutMs,
-      retryCount: benchmark.benchmark.runtime.retryCount,
-      maxSteps: benchmark.benchmark.runtime.maxSteps,
+      timeoutMs: exploreRuntime?.timeoutMs ?? benchmark.benchmark.runtime.timeoutMs,
+      retryCount: exploreRuntime?.retryCount ?? benchmark.benchmark.runtime.retryCount,
+      maxSteps: exploreRuntime?.maxSteps ?? benchmark.benchmark.runtime.maxSteps,
       viewport: benchmark.benchmark.runtime.viewport
     },
     resultsDir,
@@ -492,8 +497,20 @@ export async function runExploreExperiment(input: RunExploreExperimentInput): Pr
     throw new Error("selected automation runner does not support autonomous exploration");
   }
   const exploreTarget = runner.exploreTarget.bind(runner);
+  const reusableModelSummaries = new Map(
+    (input.reusableModelSummaries ?? []).map((entry) => [entry.summary.metrics.modelId, entry])
+  );
 
   const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
+    const reusableModelSummary = reusableModelSummaries.get(model.id);
+    if (reusableModelSummary) {
+      emitExperimentLog(
+        input.onLog,
+        `[explore] Model ${modelIndex + 1}/${models.length}: ${model.id} skipped; reusing existing run data from ${reusableModelSummary.sourceRunId}`
+      );
+      return reusableModelSummary.summary;
+    }
+
     if (!model.available) {
       emitExperimentLog(
         input.onLog,

@@ -45,7 +45,6 @@ export interface ModelAvailability extends ModelConfig {
 }
 
 export interface ModelRegistry {
-  defaultModel: string;
   models: ModelConfig[];
 }
 

@@ -65,10 +65,20 @@ export interface AppBenchmarkManifest {
   explore: {
     capabilityIds: string[];
     probeScenarioIds: string[];
+    runtime?: {
+      timeoutMs?: number;
+      retryCount?: number;
+      maxSteps?: number;
+    };
     heuristicTargets: ExploreHeuristicTargets;
   };
   heal: {
     caseIds: string[];
+    runtime?: {
+      timeoutMs?: number;
+      retryCount?: number;
+      maxSteps?: number;
+    };
     cases: HealCaseDefinition[];
   };
 }
@@ -208,7 +218,6 @@ export interface QaRunArtifact {
 }
 
 export interface QaLeaderboardEntry {
-  rank: number;
   modelId: string;
   provider: string;
   score: number;
@@ -304,7 +313,6 @@ export interface ExploreRunArtifact {
 }
 
 export interface ExploreLeaderboardEntry {
-  rank: number;
   modelId: string;
   provider: string;
   score: number;
@@ -396,7 +404,6 @@ export interface HealRunArtifact {
 }
 
 export interface HealLeaderboardEntry {
-  rank: number;
   modelId: string;
   provider: string;
   score: number;
@@ -520,19 +527,19 @@ export interface BenchmarkComparisonSection {
 }
 
 export interface BenchmarkSummaryFigures {
-  rankMatrix: BenchmarkRankMatrixFigure;
+  scoreMatrix: BenchmarkScoreMatrixFigure;
   efficiencyFrontier: BenchmarkEfficiencyFrontierFigure;
 }
 
-export interface BenchmarkRankMatrixFigure {
+export interface BenchmarkScoreMatrixFigure {
   title: string;
   caption: string;
   modeOrder: ExperimentKind[];
-  columns: BenchmarkRankMatrixColumn[];
-  rows: BenchmarkRankMatrixRow[];
+  columns: BenchmarkScoreMatrixColumn[];
+  rows: BenchmarkScoreMatrixRow[];
 }
 
-export interface BenchmarkRankMatrixColumn {
+export interface BenchmarkScoreMatrixColumn {
   key: string;
   kind: ExperimentKind;
   modeTitle: string;
@@ -540,25 +547,22 @@ export interface BenchmarkRankMatrixColumn {
   label: string;
 }
 
-export interface BenchmarkRankMatrixRow {
+export interface BenchmarkScoreMatrixRow {
   modelId: string;
   provider: string;
-  meanRank: number | null;
   meanScore: number | null;
   meanTotalCost: number | null;
   meanAvgCost: number | null;
   meanAvgLatency: number | null;
-  cells: BenchmarkRankMatrixCell[];
+  cells: BenchmarkScoreMatrixCell[];
 }
 
-export interface BenchmarkRankMatrixCell {
+export interface BenchmarkScoreMatrixCell {
   columnKey: string;
   kind: ExperimentKind;
   appId: string;
   runIds: string[];
   missing: boolean;
-  rank: number | null;
-  rankPercentile: number | null;
   score: number | null;
   avgLatency: number | null;
   avgCost: number | null;

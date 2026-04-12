@@ -1,10 +1,17 @@
-import { readdir } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { readdir, rm, stat } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { loadModelRegistry, resolveModelAvailability } from "./config/model-registry.js";
 import { describeBenchmarkTarget, listBenchmarkTargets } from "./config/target.js";
 import { loadProjectEnv } from "./env/load.js";
 import { loadAppBenchmark } from "./experiments/benchmark.js";
 import { persistComparisonReport } from "./experiments/comparison.js";
+import {
+  isReportableComparisonRow,
+  isReportableExploreModelSummary,
+  isReportableHealModelSummary,
+  isReportableQaModelSummary,
+  isReusableHealModelSummary
+} from "./experiments/reportability.js";
 import {
   renderBenchmarkComparisonHtml,
   renderBenchmarkFinalComparisonHtml,
@@ -56,10 +63,19 @@ import type {
   ExperimentKind,
   ExperimentLogFn,
   ExploreReport,
+  ExploreRunArtifact,
   ExploreSavedReport,
+  ExploreModelSummary,
+  ExploreRunResult,
   HealReport,
+  HealRunArtifact,
   HealSavedReport,
+  HealModelSummary,
+  HealRunResult,
+  QaModelSummary,
   QaReport,
+  QaRunArtifact,
+  QaRunResult,
   QaSavedReport
 } from "./experiments/types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "./cache/config.js";
@@ -174,16 +190,22 @@ export interface RunBenchmarkSuiteInput {
 export interface RunQaAcrossAppsInput extends Omit<RunQaExperimentInput, "appId"> {
   appsRoot?: string;
   appParallelism?: number;
+  skipExisting?: boolean;
+  cleanupFailedArtifacts?: boolean;
 }
 
 export interface RunExploreAcrossAppsInput extends Omit<RunExploreExperimentInput, "appId"> {
   appsRoot?: string;
   appParallelism?: number;
+  skipExisting?: boolean;
+  cleanupFailedArtifacts?: boolean;
 }
 
 export interface RunHealAcrossAppsInput extends Omit<RunHealExperimentInput, "appId"> {
   appsRoot?: string;
   appParallelism?: number;
+  skipExisting?: boolean;
+  cleanupFailedArtifacts?: boolean;
 }
 
 export interface MultiAppExperimentRunEntry {
@@ -358,13 +380,13 @@ async function resolveSingleModel(modelId?: string, modelsPath?: string): Promis
   const candidates = resolveModelAvailability(registry, modelId ? [modelId] : undefined);
   const preferred =
     (modelId ? candidates.find((candidate) => candidate.id === modelId) : undefined) ??
-    candidates.find((candidate) => candidate.id === registry.defaultModel && candidate.available) ??
     candidates.find((candidate) => candidate.available) ??
-    candidates.find((candidate) => candidate.id === registry.defaultModel) ??
     candidates[0];
 
   if (!preferred) {
-    throw new Error(`no models configured in ${registryPath}`);
+    throw new Error(
+      modelId ? `model ${modelId} is not declared in ${registryPath}` : `no enabled models configured in ${registryPath}`
+    );
   }
   if (!preferred.available) {
     throw new Error(preferred.reason ?? `model ${preferred.id} is not available`);
@@ -579,6 +601,495 @@ function sortSelections<T extends {
   });
 }
 
+type ExistingQaModelSummary = {
+  kind: "qa";
+  appId: string;
+  modelId: string;
+  sourceRunId: string;
+  timestamp: number;
+  summary: QaModelSummary;
+};
+
+type ExistingExploreModelSummary = {
+  kind: "explore";
+  appId: string;
+  modelId: string;
+  sourceRunId: string;
+  timestamp: number;
+  summary: ExploreModelSummary;
+};
+
+type ExistingHealModelSummary = {
+  kind: "heal";
+  appId: string;
+  modelId: string;
+  sourceRunId: string;
+  timestamp: number;
+  summary: HealModelSummary;
+};
+
+type ExistingModelSummary = ExistingQaModelSummary | ExistingExploreModelSummary | ExistingHealModelSummary;
+
+function modelSummaryKey(appId: string, modelId: string): string {
+  return `${appId}::${modelId}`;
+}
+
+function hasReusableQaData(summary: QaModelSummary): boolean {
+  return isReportableQaModelSummary(summary);
+}
+
+function hasReusableExploreData(summary: ExploreModelSummary): boolean {
+  return isReportableExploreModelSummary(summary);
+}
+
+function hasReusableHealData(summary: HealModelSummary): boolean {
+  return isReusableHealModelSummary(summary);
+}
+
+function keepLatestExistingSummary<T extends ExistingModelSummary>(latest: Map<string, T>, candidate: T): void {
+  const key = modelSummaryKey(candidate.appId, candidate.modelId);
+  const current = latest.get(key);
+  if (
+    !current ||
+    candidate.timestamp > current.timestamp ||
+    (candidate.timestamp === current.timestamp && candidate.sourceRunId.localeCompare(current.sourceRunId) > 0)
+  ) {
+    latest.set(key, candidate);
+  }
+}
+
+export interface PruneNonReportableBenchmarkArtifactsResult {
+  kind: ExperimentKind;
+  runCount: number;
+  prunedRunCount: number;
+  removedModelSummaries: number;
+  removedArtifactPaths: number;
+}
+
+function safePathSegment(value: string): string {
+  return value.replace(/[<>:"/\\|?*\x00-\x1F]+/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "") || "artifact";
+}
+
+function assertPathInside(parent: string, target: string): void {
+  const resolvedParent = resolve(parent);
+  const resolvedTarget = resolve(target);
+  const pathToTarget = relative(resolvedParent, resolvedTarget);
+  if (pathToTarget === "" || pathToTarget.startsWith("..") || isAbsolute(pathToTarget)) {
+    throw new Error(`refusing to remove path outside ${resolvedParent}: ${resolvedTarget}`);
+  }
+}
+
+async function removeDirectoryInside(parent: string, target: string): Promise<boolean> {
+  assertPathInside(parent, target);
+  try {
+    const targetStat = await stat(target);
+    if (!targetStat.isDirectory()) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  await rm(target, { recursive: true, force: true });
+  return true;
+}
+
+function qaModelId(summary: QaModelSummary): string {
+  return summary.metrics.modelId || summary.model.id;
+}
+
+function exploreModelId(summary: ExploreModelSummary): string {
+  return summary.metrics.modelId || summary.model.id;
+}
+
+function healModelId(summary: HealModelSummary): string {
+  return summary.metrics.modelId || summary.model.id;
+}
+
+async function removeTopLevelModelArtifacts(runDir: string, modelId: string): Promise<number> {
+  const safeModelId = safePathSegment(modelId);
+  let removed = 0;
+  for (const artifactKind of ["artifacts", "exploration"]) {
+    if (await removeDirectoryInside(runDir, join(runDir, artifactKind, safeModelId))) {
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+async function removeHealAttemptArtifacts(runsRoot: string, runId: string, removedModelIndexes: number[]): Promise<number> {
+  if (!removedModelIndexes.length) {
+    return 0;
+  }
+
+  let entries;
+  try {
+    entries = await readdir(runsRoot, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  const removedIndexes = new Set(removedModelIndexes.map((index) => String(index + 1)));
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(`${runId}-`)) {
+      continue;
+    }
+
+    const match = entry.name.match(/-model-(\d+)(?:$|-)/);
+    if (!match || !removedIndexes.has(match[1])) {
+      continue;
+    }
+
+    if (await removeDirectoryInside(runsRoot, join(runsRoot, entry.name))) {
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+async function rewriteSavedReportWithoutModels(input: {
+  reportsDir: string;
+  runId: string;
+  removedModelIds: string[];
+}): Promise<void> {
+  const reportPath = join(input.reportsDir, `${input.runId}.json`);
+  let savedReport: SavedBenchmarkReport;
+  try {
+    savedReport = await readJsonFile<SavedBenchmarkReport>(reportPath);
+  } catch {
+    return;
+  }
+
+  const removed = new Set(input.removedModelIds);
+  savedReport = {
+    ...savedReport,
+    section: {
+      ...savedReport.section,
+      rows: savedReport.section.rows.filter((row) => !removed.has(row.modelId)),
+      audit: {
+        ...savedReport.section.audit,
+        rows: savedReport.section.audit.rows.filter((row) => !row.some((cell) => removed.has(cell)))
+      }
+    }
+  };
+
+  await writeJson(reportPath, savedReport);
+  await writeText(
+    join(input.reportsDir, `${input.runId}.html`),
+    renderBenchmarkComparisonHtml(toSingleRunComparisonReport(savedReport, reportPath))
+  );
+}
+
+async function pruneQaRun(input: {
+  artifact: QaRunArtifact;
+  artifactPath: string;
+  reportsDir: string;
+}): Promise<{ removedModelIds: string[]; removedArtifactPaths: number }> {
+  const removed = input.artifact.modelSummaries
+    .map((summary, index) => ({ summary, index, modelId: qaModelId(summary) }))
+    .filter((entry) => !isReportableQaModelSummary(entry.summary));
+  if (!removed.length) {
+    return { removedModelIds: [], removedArtifactPaths: 0 };
+  }
+
+  input.artifact.modelSummaries = input.artifact.modelSummaries.filter(isReportableQaModelSummary);
+  await writeJson(input.artifactPath, input.artifact);
+
+  const runDir = dirname(input.artifactPath);
+  let removedArtifactPaths = 0;
+  for (const entry of removed) {
+    removedArtifactPaths += await removeTopLevelModelArtifacts(runDir, entry.modelId);
+  }
+  await rewriteSavedReportWithoutModels({
+    reportsDir: input.reportsDir,
+    runId: input.artifact.runId,
+    removedModelIds: removed.map((entry) => entry.modelId)
+  });
+
+  return {
+    removedModelIds: removed.map((entry) => entry.modelId),
+    removedArtifactPaths
+  };
+}
+
+async function pruneExploreRun(input: {
+  artifact: ExploreRunArtifact;
+  artifactPath: string;
+  reportsDir: string;
+}): Promise<{ removedModelIds: string[]; removedArtifactPaths: number }> {
+  const removed = input.artifact.modelSummaries
+    .map((summary, index) => ({ summary, index, modelId: exploreModelId(summary) }))
+    .filter((entry) => !isReportableExploreModelSummary(entry.summary));
+  if (!removed.length) {
+    return { removedModelIds: [], removedArtifactPaths: 0 };
+  }
+
+  input.artifact.modelSummaries = input.artifact.modelSummaries.filter(isReportableExploreModelSummary);
+  await writeJson(input.artifactPath, input.artifact);
+
+  const runDir = dirname(input.artifactPath);
+  let removedArtifactPaths = 0;
+  for (const entry of removed) {
+    removedArtifactPaths += await removeTopLevelModelArtifacts(runDir, entry.modelId);
+  }
+  await rewriteSavedReportWithoutModels({
+    reportsDir: input.reportsDir,
+    runId: input.artifact.runId,
+    removedModelIds: removed.map((entry) => entry.modelId)
+  });
+
+  return {
+    removedModelIds: removed.map((entry) => entry.modelId),
+    removedArtifactPaths
+  };
+}
+
+async function pruneHealRun(input: {
+  artifact: HealRunArtifact;
+  artifactPath: string;
+  reportsDir: string;
+  runsRoot: string;
+}): Promise<{ removedModelIds: string[]; removedArtifactPaths: number }> {
+  const summaries = input.artifact.modelSummaries.map((summary, index) => ({
+    summary,
+    index,
+    modelId: healModelId(summary)
+  }));
+  const removed = summaries
+    .filter((entry) => !isReusableHealModelSummary(entry.summary));
+  const hiddenFromReport = summaries
+    .filter((entry) => !isReportableHealModelSummary(entry.summary))
+    .map((entry) => entry.modelId);
+
+  if (hiddenFromReport.length) {
+    await rewriteSavedReportWithoutModels({
+      reportsDir: input.reportsDir,
+      runId: input.artifact.runId,
+      removedModelIds: hiddenFromReport
+    });
+  }
+
+  if (!removed.length) {
+    return { removedModelIds: [], removedArtifactPaths: 0 };
+  }
+
+  input.artifact.modelSummaries = input.artifact.modelSummaries.filter(isReusableHealModelSummary);
+  await writeJson(input.artifactPath, input.artifact);
+
+  const runDir = dirname(input.artifactPath);
+  let removedArtifactPaths = 0;
+  for (const entry of removed) {
+    removedArtifactPaths += await removeTopLevelModelArtifacts(runDir, entry.modelId);
+  }
+  removedArtifactPaths += await removeHealAttemptArtifacts(
+    input.runsRoot,
+    input.artifact.runId,
+    removed.map((entry) => entry.index)
+  );
+
+  return {
+    removedModelIds: removed.map((entry) => entry.modelId),
+    removedArtifactPaths
+  };
+}
+
+export async function pruneNonReportableBenchmarkArtifacts(
+  kind: BenchmarkRunKind,
+  resultsDir = "results",
+  onLog?: ExperimentLogFn
+): Promise<PruneNonReportableBenchmarkArtifactsResult> {
+  const root = await resolveExperimentRoot(resultsDir, kind);
+  const runsRoot = join(root, "runs");
+  const reportsDir = join(root, "reports");
+  let entries;
+  try {
+    entries = await readdir(runsRoot, { withFileTypes: true });
+  } catch {
+    return { kind, runCount: 0, prunedRunCount: 0, removedModelSummaries: 0, removedArtifactPaths: 0 };
+  }
+
+  const result: PruneNonReportableBenchmarkArtifactsResult = {
+    kind,
+    runCount: 0,
+    prunedRunCount: 0,
+    removedModelSummaries: 0,
+    removedArtifactPaths: 0
+  };
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const artifactPath = join(runsRoot, entry.name, "run.json");
+    try {
+      if (kind === "qa") {
+        const artifact = await readJsonFile<QaRunArtifact>(artifactPath);
+        if (artifact.kind !== "qa") {
+          continue;
+        }
+        result.runCount += 1;
+        const pruned = await pruneQaRun({ artifact, artifactPath, reportsDir });
+        if (pruned.removedModelIds.length) {
+          result.prunedRunCount += 1;
+          result.removedModelSummaries += pruned.removedModelIds.length;
+          result.removedArtifactPaths += pruned.removedArtifactPaths;
+          emitExperimentLog(
+            onLog,
+            `[${kind}] Removed non-reportable model data from ${artifact.runId}: ${pruned.removedModelIds.join(", ")}`
+          );
+        }
+        continue;
+      }
+
+      if (kind === "explore") {
+        const artifact = await readJsonFile<ExploreRunArtifact>(artifactPath);
+        if (artifact.kind !== "explore") {
+          continue;
+        }
+        result.runCount += 1;
+        const pruned = await pruneExploreRun({ artifact, artifactPath, reportsDir });
+        if (pruned.removedModelIds.length) {
+          result.prunedRunCount += 1;
+          result.removedModelSummaries += pruned.removedModelIds.length;
+          result.removedArtifactPaths += pruned.removedArtifactPaths;
+          emitExperimentLog(
+            onLog,
+            `[${kind}] Removed non-reportable model data from ${artifact.runId}: ${pruned.removedModelIds.join(", ")}`
+          );
+        }
+        continue;
+      }
+
+      const artifact = await readJsonFile<HealRunArtifact>(artifactPath);
+      if (artifact.kind !== "heal") {
+        continue;
+      }
+      result.runCount += 1;
+      const pruned = await pruneHealRun({ artifact, artifactPath, reportsDir, runsRoot });
+      if (pruned.removedModelIds.length) {
+        result.prunedRunCount += 1;
+        result.removedModelSummaries += pruned.removedModelIds.length;
+        result.removedArtifactPaths += pruned.removedArtifactPaths;
+        emitExperimentLog(
+          onLog,
+          `[${kind}] Removed non-reportable model data from ${artifact.runId}: ${pruned.removedModelIds.join(", ")}`
+        );
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        emitExperimentLog(
+          onLog,
+          `[${kind}] Skipped pruning ${entry.name}: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      continue;
+    }
+  }
+
+  return result;
+}
+
+function describePruneResult(result: PruneNonReportableBenchmarkArtifactsResult): string {
+  return `${result.removedModelSummaries} model summary/summaries across ${result.prunedRunCount} run(s)`;
+}
+
+async function listExistingModelSummaries(kind: "qa", resultsDir: string): Promise<ExistingQaModelSummary[]>;
+async function listExistingModelSummaries(kind: "explore", resultsDir: string): Promise<ExistingExploreModelSummary[]>;
+async function listExistingModelSummaries(kind: "heal", resultsDir: string): Promise<ExistingHealModelSummary[]>;
+async function listExistingModelSummaries(
+  kind: BenchmarkRunKind,
+  resultsDir: string
+): Promise<ExistingModelSummary[]> {
+  const runsDir = join(await resolveExperimentRoot(resultsDir, kind), "runs");
+  let entries;
+  try {
+    entries = await readdir(runsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const latest = new Map<string, ExistingModelSummary>();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    const runPath = join(runsDir, entry.name, "run.json");
+    try {
+      if (kind === "qa") {
+        const artifact = await readJsonFile<QaRunArtifact>(runPath);
+        if (artifact.kind !== "qa" || !artifact.appId || !Array.isArray(artifact.modelSummaries)) {
+          continue;
+        }
+        const timestamp = reportTimestamp(artifact.finishedAt) || reportTimestamp(artifact.startedAt);
+        for (const summary of artifact.modelSummaries) {
+          const modelId = summary.metrics.modelId || summary.model.id;
+          if (!modelId || !hasReusableQaData(summary)) {
+            continue;
+          }
+          keepLatestExistingSummary(latest, {
+            kind,
+            appId: artifact.appId,
+            modelId,
+            sourceRunId: artifact.runId,
+            timestamp,
+            summary
+          });
+        }
+        continue;
+      }
+
+      if (kind === "explore") {
+        const artifact = await readJsonFile<ExploreRunArtifact>(runPath);
+        if (artifact.kind !== "explore" || !artifact.appId || !Array.isArray(artifact.modelSummaries)) {
+          continue;
+        }
+        const timestamp = reportTimestamp(artifact.finishedAt) || reportTimestamp(artifact.startedAt);
+        for (const summary of artifact.modelSummaries) {
+          const modelId = summary.metrics.modelId || summary.model.id;
+          if (!modelId || !hasReusableExploreData(summary)) {
+            continue;
+          }
+          keepLatestExistingSummary(latest, {
+            kind,
+            appId: artifact.appId,
+            modelId,
+            sourceRunId: artifact.runId,
+            timestamp,
+            summary
+          });
+        }
+        continue;
+      }
+
+      const artifact = await readJsonFile<HealRunArtifact>(runPath);
+      if (artifact.kind !== "heal" || !artifact.appId || !Array.isArray(artifact.modelSummaries)) {
+        continue;
+      }
+      const timestamp = reportTimestamp(artifact.finishedAt) || reportTimestamp(artifact.startedAt);
+      for (const summary of artifact.modelSummaries) {
+        const modelId = summary.metrics.modelId || summary.model.id;
+        if (!modelId || !hasReusableHealData(summary)) {
+          continue;
+        }
+        keepLatestExistingSummary(latest, {
+          kind,
+          appId: artifact.appId,
+          modelId,
+          sourceRunId: artifact.runId,
+          timestamp,
+          summary
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [...latest.values()];
+}
+
 type LatestBenchmarkReportRecord = {
   kind: BenchmarkRunKind;
   report: SavedBenchmarkReport;
@@ -638,6 +1149,9 @@ function selectLatestBenchmarkReportRows(records: LatestBenchmarkReportRecord[])
   const latestByModel = new Map<string, SelectedBenchmarkRowRecord>();
   for (const record of records) {
     for (const row of record.report.section.rows) {
+      if (!isReportableComparisonRow(row)) {
+        continue;
+      }
       const candidate: SelectedBenchmarkRowRecord = {
         ...record,
         appId: record.report.appId,
@@ -1039,19 +1553,38 @@ export async function runBenchmarkSuite(input: RunBenchmarkSuiteInput) {
 export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQaAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  if (input.skipExisting) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("qa", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[qa] Skip-existing cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
+  const reusableModelSummaries = input.skipExisting ? await listExistingModelSummaries("qa", resultsDir) : [];
+  if (input.skipExisting) {
+    emitExperimentLog(
+      input.onLog,
+      `[qa] Skip-existing enabled; found ${reusableModelSummaries.length} existing app/model combination(s)`
+    );
+  }
   const multiRun = await runExperimentAcrossApps({
     mode: "qa",
     appsRoot: input.appsRoot,
     appParallelism: input.appParallelism,
     onLog: input.onLog,
     beforeAll:
-      input.resetModeResults === false
+      input.resetModeResults === false || input.skipExisting
         ? undefined
         : async () => {
             await clearQaOutputs(resultsDir);
           },
     runForApp: async (appId) => {
-      return runQaExperiment({
+      const appReusableModelSummaries = reusableModelSummaries
+        .filter((entry) => entry.appId === appId)
+        .map((entry) => ({
+          sourceRunId: entry.sourceRunId,
+          summary: entry.summary
+        }));
+      const result = await runQaExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
@@ -1066,11 +1599,20 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
         resultsDir,
         resetModeResults: false,
         runner: input.runner,
+        reusableModelSummaries: appReusableModelSummaries,
         onLog: input.onLog
       });
+      return result;
     },
     compare: (runIds) => compareQaRuns(runIds, resultsDir)
   });
+
+  if (input.cleanupFailedArtifacts) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("qa", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[qa] Fullbench cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
 
   return {
     mode: "qa",
@@ -1085,19 +1627,38 @@ export async function runQaAcrossApps(input: RunQaAcrossAppsInput): Promise<RunQ
 export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Promise<RunExploreAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  if (input.skipExisting) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("explore", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[explore] Skip-existing cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
+  const reusableModelSummaries = input.skipExisting ? await listExistingModelSummaries("explore", resultsDir) : [];
+  if (input.skipExisting) {
+    emitExperimentLog(
+      input.onLog,
+      `[explore] Skip-existing enabled; found ${reusableModelSummaries.length} existing app/model combination(s)`
+    );
+  }
   const multiRun = await runExperimentAcrossApps({
     mode: "explore",
     appsRoot: input.appsRoot,
     appParallelism: input.appParallelism,
     onLog: input.onLog,
     beforeAll:
-      input.resetModeResults === false
+      input.resetModeResults === false || input.skipExisting
         ? undefined
         : async () => {
             await clearExploreOutputs(resultsDir);
           },
     runForApp: async (appId) => {
-      return runExploreExperiment({
+      const appReusableModelSummaries = reusableModelSummaries
+        .filter((entry) => entry.appId === appId)
+        .map((entry) => ({
+          sourceRunId: entry.sourceRunId,
+          summary: entry.summary
+        }));
+      const result = await runExploreExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
@@ -1107,11 +1668,20 @@ export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Pr
         resultsDir,
         resetModeResults: false,
         runner: input.runner,
+        reusableModelSummaries: appReusableModelSummaries,
         onLog: input.onLog
       });
+      return result;
     },
     compare: (runIds) => compareExploreRuns(runIds, resultsDir)
   });
+
+  if (input.cleanupFailedArtifacts) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("explore", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[explore] Fullbench cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
 
   return {
     mode: "explore",
@@ -1126,19 +1696,38 @@ export async function runExploreAcrossApps(input: RunExploreAcrossAppsInput): Pr
 export async function runHealAcrossApps(input: RunHealAcrossAppsInput): Promise<RunHealAcrossAppsResult> {
   await loadProjectEnv();
   const resultsDir = input.resultsDir ?? "results";
+  if (input.skipExisting) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("heal", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[heal] Skip-existing cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
+  const reusableModelSummaries = input.skipExisting ? await listExistingModelSummaries("heal", resultsDir) : [];
+  if (input.skipExisting) {
+    emitExperimentLog(
+      input.onLog,
+      `[heal] Skip-existing enabled; found ${reusableModelSummaries.length} existing app/model combination(s)`
+    );
+  }
   const multiRun = await runExperimentAcrossApps({
     mode: "heal",
     appsRoot: input.appsRoot,
     appParallelism: input.appParallelism,
     onLog: input.onLog,
     beforeAll:
-      input.resetModeResults === false
+      input.resetModeResults === false || input.skipExisting
         ? undefined
         : async () => {
             await clearHealOutputs(resultsDir);
           },
     runForApp: async (appId) => {
-      return runHealExperiment({
+      const appReusableModelSummaries = reusableModelSummaries
+        .filter((entry) => entry.appId === appId)
+        .map((entry) => ({
+          sourceRunId: entry.sourceRunId,
+          summary: entry.summary
+        }));
+      const result = await runHealExperiment({
         appId,
         models: input.models,
         modelsPath: input.modelsPath,
@@ -1149,11 +1738,20 @@ export async function runHealAcrossApps(input: RunHealAcrossAppsInput): Promise<
         resetModeResults: false,
         runner: input.runner,
         repairClient: input.repairClient,
+        reusableModelSummaries: appReusableModelSummaries,
         onLog: input.onLog
       });
+      return result;
     },
     compare: (runIds) => compareHealRuns(runIds, resultsDir)
   });
+
+  if (input.cleanupFailedArtifacts) {
+    const pruned = await pruneNonReportableBenchmarkArtifacts("heal", resultsDir, input.onLog);
+    if (pruned.removedModelSummaries > 0) {
+      emitExperimentLog(input.onLog, `[heal] Fullbench cleanup removed ${describePruneResult(pruned)}`);
+    }
+  }
 
   return {
     mode: "heal",

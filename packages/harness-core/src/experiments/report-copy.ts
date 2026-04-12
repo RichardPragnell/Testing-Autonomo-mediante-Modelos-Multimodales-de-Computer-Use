@@ -337,10 +337,6 @@ export function localizedComparisonGuide(): Array<{ title: string; body: string 
       body: "Cuanto más alta, mejor. Úsala solo para comparar resultados del mismo modo."
     },
     {
-      title: "Rango",
-      body: "Cuanto más bajo, mejor. Sirve para comparar posiciones entre modos y aplicaciones."
-    },
-    {
       title: "Cobertura",
       body: "Indica cuántas combinaciones tienen datos. Las ausencias no entran en medias ni totales."
     },

@@ -363,6 +363,7 @@ async function main(): Promise<void> {
     .option("--timeout-ms <n>", "Override guided per-scenario timeout in milliseconds", parsePositiveInt)
     .option("--max-output-tokens <n>", "Cap guided output tokens per model call", parsePositiveInt)
     .option("--html-scope <scope>", "Final report rebuild HTML scope: compare or all")
+    .option("--skip-existing", "Skip mode/app/model combinations that already have saved run data")
     .action(async (options: {
       models?: string[];
       trials?: number;
@@ -373,6 +374,7 @@ async function main(): Promise<void> {
       timeoutMs?: number;
       maxOutputTokens?: number;
       htmlScope?: string;
+      skipExisting?: boolean;
     }) => {
       const htmlScope = normalizeHtmlScope(options.htmlScope ?? "all");
       const parallelism = options.parallel ?? options.parallelism;
@@ -385,18 +387,24 @@ async function main(): Promise<void> {
         maxSteps: options.maxSteps,
         timeoutMs: options.timeoutMs,
         maxOutputTokens: options.maxOutputTokens,
+        skipExisting: options.skipExisting,
+        cleanupFailedArtifacts: true,
         onLog
       });
 
       const explore = await runExploreAcrossApps({
         parallelism,
         appParallelism: options.appParallelism,
+        skipExisting: options.skipExisting,
+        cleanupFailedArtifacts: true,
         onLog
       });
 
       const heal = await runHealAcrossApps({
         parallelism,
         appParallelism: options.appParallelism,
+        skipExisting: options.skipExisting,
+        cleanupFailedArtifacts: true,
         onLog
       });
 

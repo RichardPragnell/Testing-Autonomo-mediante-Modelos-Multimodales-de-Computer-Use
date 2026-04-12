@@ -16,7 +16,31 @@ export interface RepairModelClient {
     model: ModelAvailability;
     systemPrompt: string;
     context: RepairPromptContext;
+    timeoutMs?: number;
   }): Promise<RepairModelResult>;
+}
+
+async function withTimeout<T>(work: Promise<T>, timeoutMs: number | undefined, label: string): Promise<T> {
+  if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await work;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeout.unref?.();
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function extractJsonBlock(raw: string): string | undefined {
@@ -170,26 +194,58 @@ function buildEstimatedRepairUsage(latencyMs: number, usage: {
   };
 }
 
+function createRequestAbortSignal(timeoutMs: number | undefined): {
+  signal: AbortSignal | undefined;
+  cleanup: () => void;
+} {
+  if (!timeoutMs) {
+    return {
+      signal: undefined,
+      cleanup: () => undefined
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`OpenRouter repair request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+  timeout.unref?.();
+
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeout)
+  };
+}
+
 async function runOpenRouterRepairModel(input: {
   model: ModelAvailability;
   systemPrompt: string;
   prompt: string;
+  timeoutMs?: number;
 }): Promise<{ text: string; usage: RepairUsage }> {
   if (!isOpenRouterCostTrackingEnabled()) {
     throw new Error("OPENROUTER_API_KEY is required for repair model execution");
   }
 
   const startedAt = Date.now();
-  const result = await runWithOpenRouterModelLimit({
-    modelId: input.model.id,
-    run: () =>
-      generateText({
-        model: createOpenRouterLanguageModel(input.model.id),
-        providerOptions: buildPinnedOpenRouterProviderOptions(input.model.provider),
-        temperature: 0.1,
-        system: input.systemPrompt,
-        prompt: input.prompt
-      })
+  const requestAbort = createRequestAbortSignal(input.timeoutMs);
+  const result = await withTimeout(
+    runWithOpenRouterModelLimit({
+      modelId: input.model.id,
+      run: () =>
+        generateText({
+          model: createOpenRouterLanguageModel(input.model.id),
+          providerOptions: buildPinnedOpenRouterProviderOptions(input.model.provider),
+          temperature: 0.1,
+          system: input.systemPrompt,
+          prompt: input.prompt,
+          abortSignal: requestAbort.signal
+        })
+    }),
+    input.timeoutMs,
+    "OpenRouter repair request"
+  ).finally(() => {
+    requestAbort.cleanup();
   });
 
   const record = await buildOpenRouterUsageRecord({
@@ -225,12 +281,14 @@ export class OpenRouterRepairModelClient implements RepairModelClient {
     model: ModelAvailability;
     systemPrompt: string;
     context: RepairPromptContext;
+    timeoutMs?: number;
   }): Promise<RepairModelResult> {
     const prompt = formatRepairPrompt(input.context);
     const providerResponse = await runOpenRouterRepairModel({
       model: input.model,
       systemPrompt: input.systemPrompt,
-      prompt
+      prompt,
+      timeoutMs: input.timeoutMs
     });
     return parseRepairResult(providerResponse.text, providerResponse.usage);
   }
@@ -241,6 +299,7 @@ export class MockRepairModelClient implements RepairModelClient {
     model: ModelAvailability;
     systemPrompt: string;
     context: RepairPromptContext;
+    timeoutMs?: number;
   }): Promise<RepairModelResult> {
     const startedAt = Date.now();
     const files = input.context.candidateFiles;

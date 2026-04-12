@@ -7,6 +7,7 @@ import { summarizeScenarioRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { StagehandAutomationRunner } from "../runner/stagehand-runner.js";
+import { normalizeExecutionError } from "../runner/stagehand-runner.js";
 import { prepareRunWorkspace } from "../runtime/workspace.js";
 import { startAut } from "../runtime/aut.js";
 import { OpenRouterRepairModelClient, type RepairModelClient } from "../self-heal/model-client.js";
@@ -34,6 +35,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
+import { isReportableHealModelSummary } from "./reportability.js";
 import { computeHealScore, HEAL_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -86,6 +88,10 @@ export interface RunHealExperimentInput {
   resetModeResults?: boolean;
   runner?: AutomationRunner;
   repairClient?: RepairModelClient;
+  reusableModelSummaries?: Array<{
+    sourceRunId: string;
+    summary: HealModelSummary;
+  }>;
   onLog?: ExperimentLogFn;
 }
 
@@ -129,10 +135,9 @@ function zeroMetrics(model: ModelAvailability): HealModelMetrics {
 function buildLeaderboard(modelSummaries: HealModelSummary[]): HealLeaderboardEntry[] {
   return [...modelSummaries]
     .sort((left, right) => right.metrics.score - left.metrics.score)
-    .map((summary, index) => {
+    .map((summary) => {
       const costSummary = summarizeUsageCosts(summary.caseResults.map((caseResult) => caseResult.totalUsage), summary.caseResults.length);
       return {
-        rank: index + 1,
         modelId: summary.model.id,
         provider: summary.model.provider,
         score: summary.metrics.score,
@@ -243,7 +248,8 @@ function buildHealSection(input: {
 }
 
 function buildReport(artifact: HealRunArtifact): HealReport {
-  const leaderboard = buildLeaderboard(artifact.modelSummaries);
+  const reportableModelSummaries = artifact.modelSummaries.filter(isReportableHealModelSummary);
+  const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
     kind: "heal",
     runId: artifact.runId,
@@ -251,8 +257,8 @@ function buildReport(artifact: HealRunArtifact): HealReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard,
-    modelSummaries: artifact.modelSummaries,
-    costGraph: buildHealCostGraph(artifact.modelSummaries),
+    modelSummaries: reportableModelSummaries,
+    costGraph: buildHealCostGraph(reportableModelSummaries),
     section: buildHealSection({
       appId: artifact.appId,
       runId: artifact.runId,
@@ -400,19 +406,19 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   const resultsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels =
-    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
+  const requestedModels = input.models ?? preset.models;
   const models = resolveModelAvailability(registry, requestedModels);
+  const healRuntime = benchmark.benchmark.heal.runtime;
   const spec: HealExperimentSpec = {
     appId: input.appId,
     caseIds,
-    models: requestedModels,
+    models: models.map((model) => model.id),
     promptId: preset.promptId ?? benchmark.benchmark.prompts.heal,
     trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.healTrials,
     runtime: {
-      timeoutMs: benchmark.benchmark.runtime.timeoutMs,
-      retryCount: benchmark.benchmark.runtime.retryCount,
-      maxSteps: benchmark.benchmark.runtime.maxSteps,
+      timeoutMs: healRuntime?.timeoutMs ?? benchmark.benchmark.runtime.timeoutMs,
+      retryCount: healRuntime?.retryCount ?? benchmark.benchmark.runtime.retryCount,
+      maxSteps: healRuntime?.maxSteps ?? benchmark.benchmark.runtime.maxSteps,
       viewport: benchmark.benchmark.runtime.viewport
     },
     resultsDir
@@ -427,7 +433,19 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   );
   const runner = input.runner ?? new StagehandAutomationRunner();
   const repairClient = input.repairClient ?? new OpenRouterRepairModelClient();
+  const reusableModelSummaries = new Map(
+    (input.reusableModelSummaries ?? []).map((entry) => [entry.summary.metrics.modelId, entry])
+  );
   const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
+    const reusableModelSummary = reusableModelSummaries.get(model.id);
+    if (reusableModelSummary) {
+      emitExperimentLog(
+        input.onLog,
+        `[heal] Model ${modelIndex + 1}/${models.length}: ${model.id} skipped; reusing existing run data from ${reusableModelSummary.sourceRunId}`
+      );
+      return reusableModelSummary.summary;
+    }
+
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
@@ -537,107 +555,115 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
               limit: 3
             });
             const traces = flattenScenarioTraces(reproductionRuns);
-            const repairResult = await repairClient.repair({
-              model,
-              systemPrompt: resolvedSuite.prompts.repair ?? "Produce the smallest correct patch.",
-              context: {
-                appId: input.appId,
-                findings,
-                candidateFiles,
-                validationCommand: healCase.validationCommand ?? workspace.validationCommand,
-                traces
-              }
-            });
-            diagnosis = repairResult.diagnosis;
-            suspectedFiles = repairResult.diagnosis.suspectedFiles;
-            patchGenerated = Boolean(repairResult.patch);
-            repairUsage = repairResult.usage;
-            emitExperimentLog(
-              input.onLog,
-              `[heal] Case ${caseId} trial ${trial}/${spec.trials}: repair diagnosis targeted ${suspectedFiles.length} file(s) and ${patchGenerated ? "returned a patch" : "did not return a patch"}`
-            );
-
-            if (!repairResult.patch) {
-              note = "repair model did not return a patch";
-              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
-            } else {
-              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: validating patched worktree`);
-              const worktreeResult = await withPatchedIsolatedWorktree({
-                cwd: workspace.workspacePath,
-                patch: repairResult.patch,
-                attemptId,
-                run: async ({ worktreePath, patchPath: createdPatchPath }) => {
-                  const validationCommand = healCase.validationCommand ?? workspace.validationCommand;
-                  const validation = await execCommand(validationCommand, { cwd: worktreePath });
-                  const rebasedAut = rebaseAutConfig(workspace.aut, workspace.workspacePath, worktreePath);
-                  const worktreeWorkspace = {
-                    ...workspace,
-                    workspacePath: worktreePath,
-                    aut: rebasedAut,
-                    validationCommand
-                  };
-                  const aut = await startAut(rebasedAut);
-                  try {
-                    const reproductionAfterPatch = await executeGuidedScenarios({
-                      runId: `${attemptId}-post-patch`,
-                      resultsRoot,
-                      resolvedSuite,
-                      workspace: worktreeWorkspace,
-                      model,
-                      runner,
-                      trial,
-                      usagePhase: "post_patch_replay",
-                      systemPrompt: resolvedSuite.prompts.guided,
-                      scenarioIds: healCase.reproductionScenarioIds,
-                      onLog: input.onLog,
-                      scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch reproduction scenario`
-                    });
-                    const regressionAfterPatch = await executeGuidedScenarios({
-                      runId: `${attemptId}-post-patch`,
-                      resultsRoot,
-                      resolvedSuite,
-                      workspace: worktreeWorkspace,
-                      model,
-                      runner,
-                      trial,
-                      usagePhase: "post_patch_replay",
-                      systemPrompt: resolvedSuite.prompts.guided,
-                      scenarioIds: healCase.regressionScenarioIds,
-                      onLog: input.onLog,
-                      scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch regression scenario`
-                    });
-
-                    return {
-                      validationPassed: validation.exitCode === 0,
-                      validationExitCode: validation.exitCode,
-                      patchPath: createdPatchPath,
-                      note: validation.exitCode === 0 ? "patch applied and validated" : `validation failed: ${validation.stderr || validation.stdout}`,
-                      postPatchReproductionRuns: reproductionAfterPatch.scenarioRuns,
-                      postPatchRegressionRuns: regressionAfterPatch.scenarioRuns
-                    };
-                  } finally {
-                    await aut?.stop();
-                  }
-                }
+            try {
+              const repairResult = await repairClient.repair({
+                model,
+                systemPrompt: resolvedSuite.prompts.repair ?? "Produce the smallest correct patch.",
+                context: {
+                  appId: input.appId,
+                  findings,
+                  candidateFiles,
+                  validationCommand: healCase.validationCommand ?? workspace.validationCommand,
+                  traces
+                },
+                timeoutMs: spec.runtime.timeoutMs
               });
+              diagnosis = repairResult.diagnosis;
+              suspectedFiles = repairResult.diagnosis.suspectedFiles;
+              patchGenerated = Boolean(repairResult.patch);
+              repairUsage = repairResult.usage;
+              emitExperimentLog(
+                input.onLog,
+                `[heal] Case ${caseId} trial ${trial}/${spec.trials}: repair diagnosis targeted ${suspectedFiles.length} file(s) and ${patchGenerated ? "returned a patch" : "did not return a patch"}`
+              );
 
-              if (!worktreeResult.ok) {
-                note = worktreeResult.repair.note;
-                patchPath = worktreeResult.repair.patchPath;
+              if (!repairResult.patch) {
+                note = "repair model did not return a patch";
                 emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
               } else {
-                patchApplied = true;
-                validationPassed = worktreeResult.result.validationPassed;
-                validationExitCode = worktreeResult.result.validationExitCode;
-                patchPath = worktreeResult.result.patchPath;
-                note = worktreeResult.result.note;
-                postPatchReproductionRuns = worktreeResult.result.postPatchReproductionRuns;
-                postPatchRegressionRuns = worktreeResult.result.postPatchRegressionRuns;
-                emitExperimentLog(
-                  input.onLog,
-                  `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}; post-patch reproduction ${postPatchReproductionRuns.filter((run) => run.success).length}/${postPatchReproductionRuns.length}, regression ${postPatchRegressionRuns.filter((run) => run.success).length}/${postPatchRegressionRuns.length}`
-                );
+                const preservedPatchPath = join(resultsRoot, "runs", attemptId, "repair.patch");
+                await writeText(preservedPatchPath, repairResult.patch);
+                patchPath = preservedPatchPath;
+                emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: validating patched worktree`);
+                const worktreeResult = await withPatchedIsolatedWorktree({
+                  cwd: workspace.workspacePath,
+                  patch: repairResult.patch,
+                  attemptId,
+                  run: async ({ worktreePath }) => {
+                    const validationCommand = healCase.validationCommand ?? workspace.validationCommand;
+                    const validation = await execCommand(validationCommand, { cwd: worktreePath });
+                    const rebasedAut = rebaseAutConfig(workspace.aut, workspace.workspacePath, worktreePath);
+                    const worktreeWorkspace = {
+                      ...workspace,
+                      workspacePath: worktreePath,
+                      aut: rebasedAut,
+                      validationCommand
+                    };
+                    const aut = await startAut(rebasedAut);
+                    try {
+                      const reproductionAfterPatch = await executeGuidedScenarios({
+                        runId: `${attemptId}-post-patch`,
+                        resultsRoot,
+                        resolvedSuite,
+                        workspace: worktreeWorkspace,
+                        model,
+                        runner,
+                        trial,
+                        usagePhase: "post_patch_replay",
+                        systemPrompt: resolvedSuite.prompts.guided,
+                        scenarioIds: healCase.reproductionScenarioIds,
+                        onLog: input.onLog,
+                        scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch reproduction scenario`
+                      });
+                      const regressionAfterPatch = await executeGuidedScenarios({
+                        runId: `${attemptId}-post-patch`,
+                        resultsRoot,
+                        resolvedSuite,
+                        workspace: worktreeWorkspace,
+                        model,
+                        runner,
+                        trial,
+                        usagePhase: "post_patch_replay",
+                        systemPrompt: resolvedSuite.prompts.guided,
+                        scenarioIds: healCase.regressionScenarioIds,
+                        onLog: input.onLog,
+                        scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch regression scenario`
+                      });
+
+                      return {
+                        validationPassed: validation.exitCode === 0,
+                        validationExitCode: validation.exitCode,
+                        patchPath: preservedPatchPath,
+                        note: validation.exitCode === 0 ? "patch applied and validated" : `validation failed: ${validation.stderr || validation.stdout}`,
+                        postPatchReproductionRuns: reproductionAfterPatch.scenarioRuns,
+                        postPatchRegressionRuns: regressionAfterPatch.scenarioRuns
+                      };
+                    } finally {
+                      await aut?.stop();
+                    }
+                  }
+                });
+
+                if (!worktreeResult.ok) {
+                  note = worktreeResult.repair.note;
+                  emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
+                } else {
+                  patchApplied = true;
+                  validationPassed = worktreeResult.result.validationPassed;
+                  validationExitCode = worktreeResult.result.validationExitCode;
+                  patchPath = worktreeResult.result.patchPath;
+                  note = worktreeResult.result.note;
+                  postPatchReproductionRuns = worktreeResult.result.postPatchReproductionRuns;
+                  postPatchRegressionRuns = worktreeResult.result.postPatchRegressionRuns;
+                  emitExperimentLog(
+                    input.onLog,
+                    `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}; post-patch reproduction ${postPatchReproductionRuns.filter((run) => run.success).length}/${postPatchReproductionRuns.length}, regression ${postPatchRegressionRuns.filter((run) => run.success).length}/${postPatchRegressionRuns.length}`
+                  );
+                }
               }
+            } catch (error) {
+              note = `repair model request failed: ${normalizeExecutionError(error)}`;
+              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
             }
           }
         } finally {

@@ -82,6 +82,13 @@ const benchmarkSchema = z
     explore: z.object({
       capabilityIds: z.array(z.string().min(1)).min(1),
       probeScenarioIds: z.array(z.string().min(1)).min(1),
+      runtime: z
+        .object({
+          timeoutMs: z.number().int().positive().optional(),
+          retryCount: z.number().int().min(0).optional(),
+          maxSteps: z.number().int().positive().optional()
+        })
+        .optional(),
       heuristicTargets: z.object({
         minStates: z.number().int().positive(),
         minTransitions: z.number().int().positive(),
@@ -90,6 +97,13 @@ const benchmarkSchema = z
     }),
     heal: z.object({
       caseIds: z.array(z.string().min(1)).min(1),
+      runtime: z
+        .object({
+          timeoutMs: z.number().int().positive().optional(),
+          retryCount: z.number().int().min(0).optional(),
+          maxSteps: z.number().int().positive().optional()
+        })
+        .optional(),
       cases: z.array(healCaseSchema).min(1)
     })
   })
