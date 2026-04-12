@@ -37,6 +37,7 @@ import {
 } from "./experiments/explore.js";
 import {
   buildHealComparison,
+  buildHealReport,
   clearHealOutputs,
   compareHealRuns,
   getHealReport,
@@ -1104,6 +1105,35 @@ type SelectedBenchmarkRowRecord = LatestBenchmarkReportRecord & {
   row: BenchmarkComparisonRow;
 };
 
+async function hydrateSavedBenchmarkReport(
+  kind: BenchmarkRunKind,
+  resultsDir: string,
+  report: SavedBenchmarkReport
+): Promise<SavedBenchmarkReport> {
+  if (kind !== "heal") {
+    return report;
+  }
+
+  try {
+    const root = await resolveExperimentRoot(resultsDir, "heal");
+    const artifact = await readJsonFile<HealRunArtifact>(join(root, "runs", report.runId, "run.json"));
+    if (artifact.kind !== "heal") {
+      return report;
+    }
+
+    const rebuilt = buildHealReport(artifact);
+    return {
+      kind: "heal",
+      runId: rebuilt.runId,
+      appId: rebuilt.appId,
+      generatedAt: report.generatedAt,
+      section: rebuilt.section
+    };
+  } catch {
+    return report;
+  }
+}
+
 async function listBenchmarkRunReports(
   kind: BenchmarkRunKind,
   resultsDir: string
@@ -1124,7 +1154,8 @@ async function listBenchmarkRunReports(
 
     const reportPath = join(reportsDir, entry.name);
     try {
-      const report = await readJsonFile<SavedBenchmarkReport>(reportPath);
+      const savedReport = await readJsonFile<SavedBenchmarkReport>(reportPath);
+      const report = await hydrateSavedBenchmarkReport(kind, resultsDir, savedReport);
       if (
         benchmarkRunKind(report.runId) !== kind ||
         typeof report.appId !== "string" ||
@@ -1266,7 +1297,8 @@ async function rebuildSavedModeReportHtml(kind: BenchmarkRunKind, resultsDir: st
 
       const reportPath = join(reportsDir, entry.name);
       try {
-        const savedReport = await readJsonFile<SavedBenchmarkReport>(reportPath);
+        const rawSavedReport = await readJsonFile<SavedBenchmarkReport>(reportPath);
+        const savedReport = await hydrateSavedBenchmarkReport(kind, resultsDir, rawSavedReport);
         if (benchmarkRunKind(savedReport.runId) !== kind) {
           return;
         }

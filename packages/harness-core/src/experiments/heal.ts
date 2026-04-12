@@ -247,7 +247,7 @@ function buildHealSection(input: {
   };
 }
 
-function buildReport(artifact: HealRunArtifact): HealReport {
+export function buildHealReport(artifact: HealRunArtifact): HealReport {
   const reportableModelSummaries = artifact.modelSummaries.filter(isReportableHealModelSummary);
   const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
@@ -743,7 +743,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
     modelSummaries
   };
 
-  const output = await persistHealOutput(resultsRoot, artifact, buildReport(artifact));
+  const output = await persistHealOutput(resultsRoot, artifact, buildHealReport(artifact));
   emitExperimentLog(
     input.onLog,
     `[heal] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`
@@ -754,7 +754,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
 export async function getHealReport(runId: string, resultsDir = "results"): Promise<HealReport> {
   const reportsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const raw = await readFile(join(reportsRoot, "runs", runId, "run.json"), "utf8");
-  return buildReport(JSON.parse(raw) as HealRunArtifact);
+  return buildHealReport(JSON.parse(raw) as HealRunArtifact);
 }
 
 export function buildHealComparison(reports: Array<{ section: BenchmarkComparisonSection }>): ModeComparisonBuildResult {

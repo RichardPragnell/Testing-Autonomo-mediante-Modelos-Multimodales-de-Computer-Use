@@ -347,7 +347,7 @@ describe("report rebuild", () => {
     expect(modeJson.modeSections?.[0]?.rows?.map((row) => row.modelId)).toEqual(["google/gemini-2.5-flash"]);
   });
 
-  it("excludes failed heal repair rows from rebuilt reports", async () => {
+  it("keeps completed failed heal repair rows in rebuilt reports", async () => {
     const dir = await mkdtemp(join(tmpdir(), "report-rebuild-heal-failed-"));
     tempDirs.push(dir);
 
@@ -365,13 +365,125 @@ describe("report rebuild", () => {
       resultsDir: dir
     });
 
-    expect(rebuilt.selectedReports.map((item) => item.modelId)).toEqual(["google/gemini-2.5-flash"]);
+    expect(rebuilt.selectedReports.map((item) => item.modelId)).toEqual([
+      "example/failed-repair-model",
+      "google/gemini-2.5-flash"
+    ]);
     const modeJson = JSON.parse(await readFile(rebuilt.modeReports[0]!.finalJsonPath, "utf8")) as {
       modeSections?: Array<{
         rows?: Array<{ modelId?: string }>;
       }>;
     };
-    expect(modeJson.modeSections?.[0]?.rows?.map((row) => row.modelId)).toEqual(["google/gemini-2.5-flash"]);
+    expect(modeJson.modeSections?.[0]?.rows?.map((row) => row.modelId)).toEqual([
+      "example/failed-repair-model",
+      "google/gemini-2.5-flash"
+    ]);
+  });
+
+  it("rebuilds stale empty heal reports from run artifacts", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "report-rebuild-heal-artifact-"));
+    tempDirs.push(dir);
+
+    const appId = "todo-angular";
+    const modelId = "google/gemini-2.5-flash";
+    const runId = "heal-todo-angular-artifact";
+    const generatedAt = "2026-04-12T13:00:00.000Z";
+    const reportsDir = join(dir, "heal", "reports");
+    const runDir = join(dir, "heal", "runs", runId);
+    await mkdir(reportsDir, { recursive: true });
+    await mkdir(runDir, { recursive: true });
+
+    const staleReport = createReport("heal", appId, modelId, runId, generatedAt, 0);
+    staleReport.section.rows = [];
+    staleReport.section.audit.rows = [];
+    await writeFile(join(reportsDir, `${runId}.json`), `${JSON.stringify(staleReport, null, 2)}\n`, "utf8");
+
+    const usage = {
+      latencyMs: 100,
+      inputTokens: 10,
+      outputTokens: 5,
+      reasoningTokens: 0,
+      cachedInputTokens: 0,
+      totalTokens: 15,
+      costUsd: 0.01,
+      resolvedCostUsd: 0.01,
+      costSource: "exact",
+      callCount: 1,
+      unavailableCalls: 0
+    };
+    await writeFile(
+      join(runDir, "run.json"),
+      `${JSON.stringify(
+        {
+          kind: "heal",
+          runId,
+          appId,
+          startedAt: "2026-04-12T12:59:00.000Z",
+          finishedAt: generatedAt,
+          spec: {},
+          modelSummaries: [
+            {
+              model: { id: modelId, provider: "google", enabled: true, available: true },
+              metrics: {
+                modelId,
+                localizationAccuracy: 1,
+                patchApplyRate: 1,
+                validationPassRate: 1,
+                failingScenarioFixRate: 0,
+                regressionFreeRate: 0,
+                fixRate: 0,
+                avgLatencyMs: 100,
+                avgCostUsd: 0.01,
+                score: 20
+              },
+              caseResults: [
+                {
+                  caseId: "case-a",
+                  title: "Partial repair with validation evidence",
+                  trial: 1,
+                  reproductionRuns: [],
+                  findings: [],
+                  suspectedFiles: ["src/app/app.component.ts"],
+                  goldTouchedFiles: ["src/app/app.component.ts"],
+                  patchGenerated: true,
+                  patchApplied: true,
+                  validationPassed: true,
+                  validationExitCode: 0,
+                  failingScenarioFixRate: 0,
+                  regressionFreeRate: 0,
+                  localizationScore: 1,
+                  fixed: false,
+                  repairUsage: usage,
+                  reproductionUsage: usage,
+                  postPatchUsage: usage,
+                  totalUsage: usage,
+                  note: "patch applied and validated",
+                  postPatchReproductionRuns: [],
+                  postPatchRegressionRuns: []
+                }
+              ]
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    const rebuilt = await rebuildBenchmarkReports({
+      mode: "heal",
+      resultsDir: dir
+    });
+
+    expect(rebuilt.selectedReports.map((item) => item.modelId)).toEqual([modelId]);
+    const modeJson = JSON.parse(await readFile(rebuilt.modeReports[0]!.finalJsonPath, "utf8")) as {
+      modeSections?: Array<{
+        rows?: Array<{ modelId?: string; cells?: Array<{ metrics?: Record<string, number> }> }>;
+      }>;
+    };
+    expect(modeJson.modeSections?.[0]?.rows?.map((row) => row.modelId)).toEqual([modelId]);
+    expect(modeJson.modeSections?.[0]?.rows?.[0]?.cells?.[0]?.metrics?.validationPass).toBe(1);
   });
 
   it("keeps completed failed heal model data for skip-existing but prunes infrastructure failures", async () => {
@@ -507,8 +619,8 @@ describe("report rebuild", () => {
     const prunedReport = JSON.parse(await readFile(join(reportsDir, `${runId}.json`), "utf8")) as {
       section: { rows: Array<{ modelId: string }>; audit: { rows: string[][] } };
     };
-    expect(prunedReport.section.rows.map((row) => row.modelId)).toEqual([goodModel]);
-    expect(prunedReport.section.audit.rows.flat()).not.toContain(failedModel);
+    expect(prunedReport.section.rows.map((row) => row.modelId)).toEqual([goodModel, failedModel]);
+    expect(prunedReport.section.audit.rows.flat()).toContain(failedModel);
     expect(prunedReport.section.audit.rows.flat()).not.toContain(infraModel);
     expect(await readFile(join(goodAttemptDir, "marker.txt"), "utf8")).toBe("keep");
     expect(await readFile(join(failedAttemptDir, "marker.txt"), "utf8")).toBe("keep failed");

@@ -59,26 +59,6 @@ export function isReportableExploreModelSummary(summary: ExploreModelSummary): b
   return explorationEvidence || probeRuns.some((run) => !isInfrastructureScenarioRun(run));
 }
 
-function isReportableHealCase(caseResult: HealCaseTrialResult): boolean {
-  if (hasInfrastructureFailureText(caseResult.note)) {
-    return false;
-  }
-  const reproductionRuns = caseResult.reproductionRuns ?? [];
-  if (reproductionRuns.length > 0 && reproductionRuns.every(isInfrastructureScenarioRun)) {
-    return false;
-  }
-  return caseResult.fixed;
-}
-
-export function isReportableHealModelSummary(summary: HealModelSummary): boolean {
-  return (
-    summary.model.available &&
-    (numericMetric(summary.metrics.fixRate) > 0 ||
-      numericMetric(summary.metrics.failingScenarioFixRate) > 0 ||
-      summary.caseResults.some(isReportableHealCase))
-  );
-}
-
 function isInfrastructureHealCase(caseResult: HealCaseTrialResult): boolean {
   if (hasInfrastructureFailureText(caseResult.note)) {
     return true;
@@ -100,14 +80,31 @@ function hasHealExecutionEvidence(caseResult: HealCaseTrialResult): boolean {
   );
 }
 
-export function isReusableHealModelSummary(summary: HealModelSummary): boolean {
+function hasHealMetricEvidence(summary: HealModelSummary): boolean {
+  return (
+    numericMetric(summary.metrics.score) > 0 ||
+    numericMetric(summary.metrics.fixRate) > 0 ||
+    numericMetric(summary.metrics.failingScenarioFixRate) > 0 ||
+    numericMetric(summary.metrics.regressionFreeRate) > 0 ||
+    numericMetric(summary.metrics.validationPassRate) > 0 ||
+    numericMetric(summary.metrics.localizationAccuracy) > 0 ||
+    numericMetric(summary.metrics.patchApplyRate) > 0 ||
+    numericMetric(summary.metrics.avgCostUsd) > 0
+  );
+}
+
+export function isReportableHealModelSummary(summary: HealModelSummary): boolean {
   return (
     summary.model.available &&
     summary.caseResults.length > 0 &&
-    (isReportableHealModelSummary(summary) ||
-      (!summary.caseResults.every(isInfrastructureHealCase) &&
-        summary.caseResults.some((caseResult) => hasHealExecutionEvidence(caseResult) && !isInfrastructureHealCase(caseResult))))
+    !summary.caseResults.every(isInfrastructureHealCase) &&
+    (hasHealMetricEvidence(summary) ||
+      summary.caseResults.some((caseResult) => hasHealExecutionEvidence(caseResult) && !isInfrastructureHealCase(caseResult)))
   );
+}
+
+export function isReusableHealModelSummary(summary: HealModelSummary): boolean {
+  return isReportableHealModelSummary(summary);
 }
 
 function numericMetric(value: unknown): number {
@@ -121,7 +118,7 @@ export function isReportableComparisonRow(row: BenchmarkComparisonRow): boolean 
     }
 
     if ("fixRate" in cell.metrics || "failingScenarioFix" in cell.metrics) {
-      return numericMetric(cell.metrics.fixRate) > 0 || numericMetric(cell.metrics.failingScenarioFix) > 0;
+      return true;
     }
 
     return Object.entries(cell.metrics).some(([key, value]) => {
