@@ -76,16 +76,14 @@ describe("model registry", () => {
     const repoRoot = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))));
     const registry = await loadModelRegistry(join(repoRoot, "experiments", "models", "registry.yaml"));
 
-    expect(registry.defaultModel).toBe("google/gemini-2.5-flash-lite-preview-09-2025");
+    expect(registry.defaultModel).toBe("google/gemini-2.5-flash-lite");
     expect(registry.models.filter((model) => model.enabled).map((model) => model.id)).toEqual([
-      "google/gemini-3-flash-preview",
-      "google/gemini-2.5-flash-lite-preview-09-2025"
+      "google/gemini-2.5-flash-lite"
     ]);
     expect(registry.models.filter((model) => !model.enabled).map((model) => model.id)).toEqual([
       "deepseek/deepseek-v3.2",
       "mistralai/mistral-small-3.2-24b-instruct",
       "qwen/qwen3.5-flash-02-23",
-      "google/gemini-2.5-flash-lite",
       "minimax/minimax-m2.5:free",
       "moonshotai/kimi-k2.5",
       "z-ai/glm-5-turbo",

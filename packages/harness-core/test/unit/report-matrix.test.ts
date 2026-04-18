@@ -209,7 +209,7 @@ function buildSingleModeReport(): BenchmarkComparisonReport {
         scoreDefinition: buildScoreDefinition("Explore"),
         rows: [
           {
-            modelId: "google/gemini-2.5-flash-lite-preview-09-2025",
+            modelId: "google/gemini-2.5-flash-lite",
             provider: "google",
             avgScore: 91.795,
             cells: [
@@ -232,7 +232,7 @@ function buildSingleModeReport(): BenchmarkComparisonReport {
         audit: {
           title: "Explore Cost Audit",
           columns: ["App", "Model", "Source"],
-          rows: [["todo-react", "google/gemini-2.5-flash-lite-preview-09-2025", "Exact"]]
+          rows: [["todo-react", "google/gemini-2.5-flash-lite", "Exact"]]
         }
       }
     ]

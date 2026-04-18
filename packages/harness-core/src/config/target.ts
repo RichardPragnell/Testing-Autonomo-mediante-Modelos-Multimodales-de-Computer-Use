@@ -16,13 +16,13 @@ const taskSchema = z.object({
     type: z.enum(["contains", "url_contains", "text_visible", "text_not_visible"]),
     value: z.string().min(1)
   }),
-  source: z.enum(["synthetic", "generated"]).optional()
+  source: z.enum(["synthetic", "curated"]).optional()
 });
 
 const scenarioSchema = z.object({
   scenarioId: z.string().min(1),
   title: z.string().min(1),
-  source: z.enum(["synthetic", "generated"]),
+  source: z.enum(["synthetic", "curated"]),
   tasks: z.array(taskSchema).min(1)
 });
 

@@ -139,8 +139,8 @@ describe("report rebuild", () => {
     ]);
     expect(rebuilt.modeReports).toHaveLength(1);
     expect(rebuilt.modeReports[0]?.kind).toBe("qa");
-    expect(rebuilt.modeReports[0]?.finalReportPath).toContain("compare\\guided-compare-latest.html");
-    expect(rebuilt.modeReports[0]?.finalJsonPath).toContain("compare\\guided-compare-latest.json");
+    expect(rebuilt.modeReports[0]?.finalReportPath).toContain(join("compare", "guided-compare-latest.html"));
+    expect(rebuilt.modeReports[0]?.finalJsonPath).toContain(join("compare", "guided-compare-latest.json"));
     expect(rebuilt.finalReportPath).toBeUndefined();
     expect(rebuilt.finalJsonPath).toBeUndefined();
 
@@ -179,8 +179,8 @@ describe("report rebuild", () => {
     expect(rebuilt.selectedReports.map((item) => item.kind)).toEqual(["heal", "qa"]);
     expect(rebuilt.modeReports.map((item) => item.kind)).toEqual(["qa", "heal"]);
     expect(rebuilt.modeReports.every((item) => item.finalReportPath.includes("latest"))).toBe(true);
-    expect(rebuilt.finalReportPath).toContain("compare\\benchmark-compare-latest.html");
-    expect(rebuilt.finalJsonPath).toContain("compare\\benchmark-compare-latest.json");
+    expect(rebuilt.finalReportPath).toContain(join("compare", "benchmark-compare-latest.html"));
+    expect(rebuilt.finalJsonPath).toContain(join("compare", "benchmark-compare-latest.json"));
     const standardizedReportPath = rebuilt.finalReportPath!.replace(
       "benchmark-compare-latest.html",
       "benchmark-compare-standardized-latest.html"

@@ -9,16 +9,16 @@ const rawTaskSchema = z.object({
     type: z.enum(["contains", "url_contains", "text_visible"]),
     value: z.string().min(1)
   }),
-  source: z.enum(["synthetic", "generated"]).optional()
+  source: z.enum(["synthetic", "curated"]).optional()
 });
 
 const corpusSchema = z.object({
   experiment_id: z.string().optional(),
-  source: z.enum(["synthetic", "generated"]),
+  source: z.enum(["synthetic", "curated"]),
   tasks: z.array(rawTaskSchema).min(1)
 });
 
-function normalizeTask(task: z.infer<typeof rawTaskSchema>, fallbackSource: "synthetic" | "generated"): ExperimentTask {
+function normalizeTask(task: z.infer<typeof rawTaskSchema>, fallbackSource: "synthetic" | "curated"): ExperimentTask {
   return {
     id: task.id,
     instruction: task.instruction,

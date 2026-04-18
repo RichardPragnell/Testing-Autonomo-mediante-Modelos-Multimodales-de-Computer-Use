@@ -1,4 +1,4 @@
-default_model: google/gemini-2.5-flash-lite-preview-09-2025
+default_model: google/gemini-2.5-flash-lite
 models:
   - id: deepseek/deepseek-v3.2
     provider: deepseek
@@ -11,13 +11,10 @@ models:
     enabled: false
   - id: google/gemini-2.5-flash-lite
     provider: google
-    enabled: false
+    enabled: true
   - id: minimax/minimax-m2.5:free
     provider: minimax
     enabled: false
-  - id: google/gemini-3-flash-preview
-    provider: google
-    enabled: true
   - id: moonshotai/kimi-k2.5
     provider: moonshotai
     enabled: false
@@ -27,6 +24,3 @@ models:
   - id: google/gemma-3-27b-it:free
     provider: google
     enabled: false
-  - id: google/gemini-2.5-flash-lite-preview-09-2025
-    provider: google
-    enabled: true  

@@ -116,7 +116,7 @@ async function stopSpawnedAut(child: SpawnedChild): Promise<void> {
     if (!signalChildProcessGroup(child, "SIGKILL")) {
       child.kill("SIGKILL");
     }
-    await waitForClose(child);
+    await Promise.race([waitForClose(child), delay(500)]);
   }
 }
 

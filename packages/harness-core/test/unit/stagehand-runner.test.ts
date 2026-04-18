@@ -31,7 +31,7 @@ const task = {
     type: "text_visible" as const,
     value: "Done"
   },
-  source: "generated" as const
+  source: "curated" as const
 };
 
 describe("stagehand runner guided helpers", () => {

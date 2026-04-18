@@ -2,7 +2,7 @@
 
 This directory is the framework-agnostic source of truth for the benchmark todo app.
 
-Use [contract.json](/c:/Projects/master/specs/todo-web/contract.json) when building another implementation in Vue, Svelte, Angular, Next, Solid, or any other web stack.
+Use [contract.json](./contract.json) when building another implementation in Vue, Svelte, Angular, Next, Solid, or any other web stack.
 
 Keep these identical across implementations:
 

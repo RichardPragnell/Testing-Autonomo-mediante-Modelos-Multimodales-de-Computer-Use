@@ -169,7 +169,7 @@
     "guided": {
       "scenarioId": "guided",
       "title": "Todo Bench guided interactions",
-      "source": "generated",
+      "source": "curated",
       "tasks": [
         {
           "id": "guided-add-task",

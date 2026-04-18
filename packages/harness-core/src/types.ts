@@ -116,7 +116,7 @@ export interface TaskExpectation {
   value: string;
 }
 
-export type BenchmarkTaskSource = "synthetic" | "generated";
+export type BenchmarkTaskSource = "synthetic" | "curated";
 
 export interface BenchmarkTask {
   id: string;
