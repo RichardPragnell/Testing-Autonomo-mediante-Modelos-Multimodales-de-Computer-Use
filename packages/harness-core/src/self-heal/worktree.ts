@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -19,6 +19,42 @@ function createWorktreeToken(attemptId: string): string {
 async function hasGitRepo(cwd: string): Promise<boolean> {
   const result = await execCommand("git rev-parse --is-inside-work-tree", { cwd });
   return result.exitCode === 0 && result.stdout.trim() === "true";
+}
+
+async function unlinkWorktreeJunction(path: string): Promise<void> {
+  try {
+    const stats = await lstat(path);
+    if (!stats.isSymbolicLink()) {
+      return;
+    }
+  } catch {
+    return;
+  }
+
+  await rm(path, { recursive: false, force: true });
+}
+
+async function pruneDangerousWorktreeLinks(worktreePath: string): Promise<void> {
+  const topLevelJunctions = [join(worktreePath, "node_modules")];
+
+  for (const linkPath of topLevelJunctions) {
+    await unlinkWorktreeJunction(linkPath);
+  }
+
+  // Defensive cleanup for framework-created top-level junctions or symlinks.
+  let entries;
+  try {
+    entries = await readdir(worktreePath, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isSymbolicLink()) {
+      continue;
+    }
+    await rm(join(worktreePath, entry.name), { recursive: false, force: true });
+  }
 }
 
 export function rebaseAutConfig(aut: AutConfig, fromPath: string, toPath: string): AutConfig {
@@ -105,6 +141,7 @@ export async function withPatchedIsolatedWorktree<T>(input: {
       result: await input.run({ worktreePath, patchPath })
     };
   } finally {
+    await pruneDangerousWorktreeLinks(worktreePath);
     await execCommand(`git worktree remove --force "${worktreePath}"`, {
       cwd: input.cwd
     });

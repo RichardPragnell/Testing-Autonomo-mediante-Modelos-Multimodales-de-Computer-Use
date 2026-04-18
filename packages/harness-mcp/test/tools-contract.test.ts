@@ -31,11 +31,43 @@ describe("MCP tool contracts", () => {
     expect(() => z.object(tool!.inputSchema).parse({})).toThrow();
   });
 
+  it("requires scenarioIds for bench.run_guided", () => {
+    const tool = toolContracts.find((item) => item.name === "bench.run_guided");
+    expect(tool).toBeDefined();
+    const schema = z.object(tool!.inputSchema);
+
+    expect(() => schema.parse({ targetId: "todo-react" })).toThrow();
+    expect(() => schema.parse({ targetId: "todo-react", scenarioIds: [] })).toThrow();
+    expect(() => schema.parse({ targetId: "todo-react", scenarioIds: ["smoke-load"] })).not.toThrow();
+  });
+
   it("keeps bench.list_targets idempotent for repeated reads", async () => {
     const tool = toolContracts.find((item) => item.name === "bench.list_targets");
     expect(tool).toBeDefined();
     const first = await tool!.handler({});
     const second = await tool!.handler({});
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it("returns scenario metadata for bench.describe_target", async () => {
+    const tool = toolContracts.find((item) => item.name === "bench.describe_target");
+    expect(tool).toBeDefined();
+
+    const result = await tool!.handler({ targetId: "todo-react" });
+
+    expect(result.scenarios).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scenarioId: "smoke-load"
+        })
+      ])
+    );
+    expect(result.benchmark.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scenarioIds: expect.arrayContaining(["smoke-load"])
+        })
+      ])
+    );
   });
 });

@@ -1,4 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { z } from "zod";
+import {
+  applyOpenRouterModelCooldown,
+  computeOpenRouterRetryDelayMs,
+  getOpenRouterModelCooldownDelay
+} from "../ai/openrouter-limiter.js";
 import { summarizeCacheTelemetry } from "../cache/summary.js";
 import { isOpenRouterCostTrackingEnabled } from "../ai/openrouter.js";
 import { emptyAiUsageSummary, summarizeAiUsage, sumAiUsageSummaries } from "../ai/usage.js";
@@ -11,30 +17,30 @@ import {
   upsertObserveCacheEntry
 } from "../exploration/observe-cache.js";
 import { CoverageGraph, fingerprintState } from "../graph/state-graph.js";
-import { evaluateExpectation } from "./expectations.js";
 import type {
   ActionCacheEntry,
   AiUsagePhase,
   AiUsageRecord,
   AiUsageSummary,
   AutomationRunner,
-  CacheMode,
+  BenchmarkScenarioAssertion,
+  BenchmarkScenarioStep,
   CacheStatus,
   CacheTelemetry,
   ExplorationArtifact,
+  ExtractScenarioAssertion,
+  ObserveScenarioAssertion,
   ObserveCacheEntry,
   ObservedAction,
   OperationTrace,
-  RunTaskInput,
+  RunScenarioInput,
+  ScenarioAssertionRun,
+  ScenarioRunResult,
+  ScenarioStepRun,
   StagehandHistoryEntry,
-  TaskRunResult
 } from "../types.js";
 import { nowIso } from "../utils/time.js";
 import { StagehandOpenRouterTrackingClient } from "./stagehand-openrouter-client.js";
-
-type StagehandExecutionResult = {
-  metadata?: Record<string, unknown>;
-};
 
 type StagehandLogLine = {
   category?: string;
@@ -48,6 +54,30 @@ const GENERIC_PROVIDER_ERROR_PATTERNS = [
   /^failed after \d+ attempts(?: with non-retryable error)?: ['"]?provider returned error['"]?$/i,
   /^failed after \d+ attempts\. last error: provider returned error$/i
 ];
+const STAGEHAND_AUXILIARY_TIMEOUT_MS = 5_000;
+
+async function withTimeout<T>(work: Promise<T> | T, timeoutMs: number, label: string): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return await work;
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(work),
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => {
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeout.unref?.();
+      })
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
 
 function isGenericProviderError(message: string): boolean {
   return GENERIC_PROVIDER_ERROR_PATTERNS.some((pattern) => pattern.test(message.trim()));
@@ -149,52 +179,13 @@ export function normalizeExecutionError(error: unknown): string {
   return uniqueMessages.sort((left, right) => scoreErrorMessage(right) - scoreErrorMessage(left))[0]!;
 }
 
-function readNumberEnv(name: string, env: NodeJS.ProcessEnv = process.env): number | undefined {
-  const rawValue = env[name];
-  if (!rawValue?.trim()) {
-    return undefined;
-  }
-
-  const parsed = Number(rawValue);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function isRateLimitError(message: string): boolean {
-  return /rate limit|too many requests|free-models-per-min|429/i.test(message);
-}
-
-function isProviderAvailabilityError(message: string): boolean {
-  return /provider returned error|no endpoints available|guardrail restrictions|data policy/i.test(message);
-}
-
-function isTransientExecutionError(message: string): boolean {
-  return (
-    isRateLimitError(message) ||
-    isProviderAvailabilityError(message) ||
-    /service unavailable|gateway timeout|bad gateway|temporarily unavailable|connection closed|timed out/i.test(message)
-  );
-}
-
 export function computeRetryDelayMs(input: {
   attempt: number;
   modelId: string;
   errorMessage: string;
   env?: NodeJS.ProcessEnv;
 }): number {
-  const env = input.env ?? process.env;
-  if (!isTransientExecutionError(input.errorMessage)) {
-    return 0;
-  }
-
-  const isFreeModel = input.modelId.includes(":free");
-  const rateLimitDelayMs =
-    readNumberEnv("STAGEHAND_RATE_LIMIT_DELAY_MS", env) ??
-    (isFreeModel ? 20_000 : 7_500);
-  const providerDelayMs =
-    readNumberEnv("STAGEHAND_PROVIDER_ERROR_DELAY_MS", env) ??
-    (isFreeModel ? 4_000 : 2_000);
-  const baseDelayMs = isRateLimitError(input.errorMessage) ? rateLimitDelayMs : providerDelayMs;
-  return baseDelayMs * (input.attempt + 1);
+  return computeOpenRouterRetryDelayMs(input);
 }
 
 function estimateAiInvocation(metrics: any): boolean {
@@ -225,7 +216,9 @@ function normalizeHistoryEntry(entry: any): StagehandHistoryEntry {
 async function readStagehandMetrics(stagehand: any): Promise<any> {
   try {
     const metrics = stagehand?.metrics;
-    return metrics && typeof metrics.then === "function" ? await metrics : metrics;
+    return metrics && typeof metrics.then === "function"
+      ? await withTimeout(metrics, STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand metrics read")
+      : metrics;
   } catch {
     return undefined;
   }
@@ -234,7 +227,9 @@ async function readStagehandMetrics(stagehand: any): Promise<any> {
 async function readStagehandHistory(stagehand: any): Promise<StagehandHistoryEntry[]> {
   try {
     const history = stagehand?.history;
-    const resolved = history && typeof history.then === "function" ? await history : history;
+    const resolved = history && typeof history.then === "function"
+      ? await withTimeout(history, STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand history read")
+      : history;
     return Array.isArray(resolved) ? resolved.map(normalizeHistoryEntry) : [];
   } catch {
     return [];
@@ -250,7 +245,7 @@ function readBooleanEnv(name: string): boolean | undefined {
 }
 
 function buildLocalBrowserLaunchOptions(input: {
-  viewport: RunTaskInput["runConfig"]["viewport"];
+  viewport: RunScenarioInput["runConfig"]["viewport"];
 }): Record<string, unknown> {
   const options: Record<string, unknown> = {
     viewport: input.viewport
@@ -349,9 +344,9 @@ function buildAttemptUsageSummary(input: {
 function buildStagehandConfig(
   stagehandEnv: string,
   input: {
-    model: RunTaskInput["model"];
-    runConfig: RunTaskInput["runConfig"];
-    cacheConfig: RunTaskInput["cacheConfig"];
+    model: RunScenarioInput["model"];
+    runConfig: RunScenarioInput["runConfig"];
+    cacheConfig: RunScenarioInput["cacheConfig"];
     usagePhase: AiUsagePhase;
     usageSink: AiUsageRecord[];
     logger?: (line: any) => void;
@@ -371,7 +366,8 @@ function buildStagehandConfig(
       provider: input.model.provider,
       phase: input.usagePhase,
       usageSink: input.usageSink,
-      defaultMaxOutputTokens: input.runConfig.maxOutputTokens
+      defaultMaxOutputTokens: input.runConfig.maxOutputTokens,
+      requestTimeoutMs: input.runConfig.timeoutMs
     })
   };
 
@@ -454,6 +450,24 @@ async function snapshotPage(page: any): Promise<{
   };
 }
 
+async function closeStagehand(stagehand: any, trace?: OperationTrace[]): Promise<void> {
+  if (typeof stagehand?.close !== "function") {
+    return;
+  }
+
+  try {
+    await withTimeout(stagehand.close(), STAGEHAND_AUXILIARY_TIMEOUT_MS, "stagehand close");
+  } catch (error) {
+    trace?.push({
+      timestamp: nowIso(),
+      action: "stagehand.close_timeout",
+      details: {
+        message: normalizeExecutionError(error)
+      }
+    });
+  }
+}
+
 function normalizeObservedActions(actions: any[]): ObservedAction[] {
   return actions
     .filter((item) => item && typeof item === "object" && item.selector && item.description)
@@ -516,16 +530,13 @@ function buildExecutableAction(entry: ActionCacheEntry, step: number): ObservedA
   };
 }
 
-function buildGuidedCacheTelemetry(input: {
-  cacheConfig: RunTaskInput["cacheConfig"];
-  mode: CacheMode;
+function buildScenarioCacheTelemetry(input: {
+  cacheConfig: RunScenarioInput["cacheConfig"];
   metrics: any;
   logs: StagehandLogLine[];
-  executionResult?: StagehandExecutionResult;
 }): CacheTelemetry {
   const messages = input.logs.map((item) => item.message.toLowerCase());
-  const hasHit =
-    input.executionResult?.metadata?.cacheHit === true || messages.some((message) => message.includes("cache hit"));
+  const hasHit = messages.some((message) => message.includes("cache hit"));
   const replayFailed = messages.some((message) => message.includes("cache replay failed"));
   const selfHealed = messages.some((message) => message.includes("cache entry updated after self-heal"));
   const warnings: string[] = [];
@@ -543,7 +554,7 @@ function buildGuidedCacheTelemetry(input: {
     rootDir: input.cacheConfig.rootDir,
     namespace: input.cacheConfig.namespace,
     configSignature: input.cacheConfig.configSignature,
-    mode: input.mode,
+    mode: "scenario_native",
     status,
     aiInvoked: estimateAiInvocation(input.metrics),
     warnings
@@ -551,7 +562,7 @@ function buildGuidedCacheTelemetry(input: {
 }
 
 function buildObserveCacheTelemetry(input: {
-  cacheConfig: RunTaskInput["cacheConfig"];
+  cacheConfig: RunScenarioInput["cacheConfig"];
   status: CacheStatus;
   warnings?: string[];
 }): CacheTelemetry {
@@ -570,180 +581,383 @@ function buildExplorationObserveInstruction(prompt: string): string {
   return `Exploration goal: ${prompt}\nFind the most useful clickable, toggle, navigation, save, cancel, edit, delete, or fill actions on this page for continuing exploration.`;
 }
 
-function buildGuidedStepInstruction(taskInstruction: string, step: number): string {
-  return `Goal: ${taskInstruction}\nTake exactly one next UI action toward the goal. Do not explain. Step ${step + 1}.`;
+function currentPageUrl(page: any, fallback = ""): string {
+  try {
+    return typeof page?.url === "function" ? String(page.url()) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function shouldAbortGuidedLoop(input: {
-  unchangedStateCount: number;
-  unchangedUrlCount: number;
-}): boolean {
-  return input.unchangedStateCount >= 2 || input.unchangedUrlCount >= 2;
+function normalizeMethod(value: string | undefined): string {
+  return (value ?? "click").trim().toLowerCase();
 }
 
-interface GuidedAttemptResult {
-  assertion: Awaited<ReturnType<typeof evaluateExpectation>>;
-  executionMode: CacheMode;
-  executionResult?: unknown;
-  pageSnapshot: Awaited<ReturnType<typeof snapshotPage>>;
+function formatValue(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value);
 }
 
-export async function executeGuidedStepLoop(input: {
-  stagehand: any;
-  page: any;
-  task: RunTaskInput["task"];
-  autUrl: string;
-  runConfig: RunTaskInput["runConfig"];
-  trace: TaskRunResult["trace"];
-  cacheNamespace: string;
-}): Promise<GuidedAttemptResult> {
-  const initialAssertion = await evaluateExpectation(input.page, input.task.expected);
-  const initialSnapshot = await snapshotPage(input.page);
-  if (initialAssertion.success) {
+function buildExtractSchema(assertion: ExtractScenarioAssertion) {
+  switch (assertion.resultType) {
+    case "string":
+      return z.string();
+    case "number":
+      return z.number();
+    case "boolean":
+      return z.boolean();
+    case "string_array":
+      return z.array(z.string());
+  }
+}
+
+function normalizeExtractedValue(
+  assertion: ExtractScenarioAssertion,
+  rawValue: unknown
+): ScenarioAssertionRun["extractedValue"] {
+  const extracted =
+    rawValue && typeof rawValue === "object" && "extraction" in rawValue
+      ? (rawValue as { extraction: unknown }).extraction
+      : rawValue;
+
+  switch (assertion.resultType) {
+    case "string":
+      return String(extracted ?? "");
+    case "number":
+      return Number(extracted);
+    case "boolean":
+      return Boolean(extracted);
+    case "string_array":
+      return Array.isArray(extracted) ? extracted.map((item) => String(item)) : [];
+  }
+}
+
+function filterObservedActions(
+  observedActions: ObservedAction[],
+  assertion: ObserveScenarioAssertion
+): ObservedAction[] {
+  return observedActions.filter((action) => {
+    if (assertion.method && normalizeMethod(action.method) !== normalizeMethod(assertion.method)) {
+      return false;
+    }
+    if (
+      assertion.descriptionContains &&
+      !action.description.toLowerCase().includes(assertion.descriptionContains.toLowerCase())
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function evaluateExtractAssertion(
+  assertion: ExtractScenarioAssertion,
+  extractedValue: ScenarioAssertionRun["extractedValue"]
+): Pick<ScenarioAssertionRun, "success" | "message"> {
+  if ("equals" in assertion.match) {
+    const success = extractedValue === assertion.match.equals;
     return {
-      assertion: initialAssertion,
-      executionMode: "act_native",
-      pageSnapshot: initialSnapshot
+      success,
+      message: success
+        ? `Extract matched ${formatValue(assertion.match.equals)}.`
+        : `Expected ${formatValue(assertion.match.equals)} but got ${formatValue(extractedValue)}.`
     };
   }
 
-  let previousFingerprint = fingerprintState({
-    url: initialSnapshot.url || input.autUrl,
-    domSnapshot: initialSnapshot.domSnapshot,
-    screenshotBase64: initialSnapshot.screenshotBase64
-  });
-  let previousUrl = initialSnapshot.url || input.autUrl;
-  let latestAssertion = initialAssertion;
-  let latestSnapshot = initialSnapshot;
-  let unchangedStateCount = 0;
-  let unchangedUrlCount = 0;
-
-  if (typeof input.stagehand.act !== "function") {
-    throw new Error("stagehand act not available");
+  if ("contains" in assertion.match) {
+    const actual = typeof extractedValue === "string" ? extractedValue : "";
+    const success = actual.includes(assertion.match.contains);
+    return {
+      success,
+      message: success
+        ? `Extract contains ${formatValue(assertion.match.contains)}.`
+        : `Expected extract to contain ${formatValue(assertion.match.contains)} but got ${formatValue(actual)}.`
+    };
   }
 
-  for (let step = 0; step < input.runConfig.maxSteps; step += 1) {
-    const instruction = buildGuidedStepInstruction(input.task.instruction, step);
-    await input.stagehand.act(instruction);
-    input.trace.push({
-      timestamp: nowIso(),
-      action: "act",
-      details: {
-        instruction,
-        step: step + 1,
-        cacheNamespace: input.cacheNamespace
-      }
-    });
-
-    latestAssertion = await evaluateExpectation(input.page, input.task.expected);
-    latestSnapshot = await snapshotPage(input.page);
-    const nextUrl = latestSnapshot.url || input.autUrl;
-    const nextFingerprint = fingerprintState({
-      url: nextUrl,
-      domSnapshot: latestSnapshot.domSnapshot,
-      screenshotBase64: latestSnapshot.screenshotBase64
-    });
-
-    const unchangedState = nextFingerprint.id === previousFingerprint.id;
-    unchangedStateCount = unchangedState ? unchangedStateCount + 1 : 0;
-    unchangedUrlCount = unchangedState && nextUrl === previousUrl ? unchangedUrlCount + 1 : 0;
-
-    if (latestAssertion.success) {
-      return {
-        assertion: latestAssertion,
-        executionMode: "act_native",
-        executionResult: {
-          stepCount: step + 1
-        },
-        pageSnapshot: latestSnapshot
-      };
-    }
-
-    if (shouldAbortGuidedLoop({ unchangedStateCount, unchangedUrlCount })) {
-      input.trace.push({
-        timestamp: nowIso(),
-        action: "guided.loop_abort",
-        details: {
-          step: step + 1,
-          reason: unchangedStateCount >= 2 ? "same_state_loop" : "same_url_loop",
-          cacheNamespace: input.cacheNamespace
-        }
-      });
-      break;
-    }
-
-    previousFingerprint = nextFingerprint;
-    previousUrl = nextUrl;
+  if ("not_contains" in assertion.match) {
+    const actual = typeof extractedValue === "string" ? extractedValue : "";
+    const success = !actual.includes(assertion.match.not_contains);
+    return {
+      success,
+      message: success
+        ? `Extract excludes ${formatValue(assertion.match.not_contains)}.`
+        : `Expected extract to exclude ${formatValue(assertion.match.not_contains)} but got ${formatValue(actual)}.`
+    };
   }
 
+  if ("includes" in assertion.match) {
+    const actual = Array.isArray(extractedValue) ? extractedValue : [];
+    const success = actual.includes(assertion.match.includes);
+    return {
+      success,
+      message: success
+        ? `Extract includes ${formatValue(assertion.match.includes)}.`
+        : `Expected extract to include ${formatValue(assertion.match.includes)} but got ${formatValue(actual)}.`
+    };
+  }
+
+  const actual = Array.isArray(extractedValue) ? extractedValue : [];
+  const success = !actual.includes(assertion.match.excludes);
   return {
-    assertion: latestAssertion,
-    executionMode: "act_native",
-    executionResult: {
-      exhausted: true
-    },
-    pageSnapshot: latestSnapshot
+    success,
+    message: success
+      ? `Extract excludes ${formatValue(assertion.match.excludes)}.`
+      : `Expected extract to exclude ${formatValue(assertion.match.excludes)} but got ${formatValue(actual)}.`
   };
 }
 
-export async function executeGuidedTaskAttempt(input: {
+async function executeScenarioAssertion(input: {
+  stagehand: any;
+  assertion: BenchmarkScenarioAssertion;
+  step: BenchmarkScenarioStep;
+  trace: OperationTrace[];
+}): Promise<ScenarioAssertionRun> {
+  const traceBase = {
+    stepId: input.step.stepId,
+    assertionId: input.assertion.assertionId,
+    instruction: "instruction" in input.assertion ? input.assertion.instruction : undefined
+  };
+
+  if (input.assertion.type === "observe") {
+    try {
+      if (typeof input.stagehand.observe !== "function") {
+        throw new Error("stagehand observe not available");
+      }
+
+      const observedActions = normalizeObservedActions(await input.stagehand.observe(input.assertion.instruction));
+      const matchingActions = filterObservedActions(observedActions, input.assertion);
+      const success = input.assertion.exists ? matchingActions.length > 0 : matchingActions.length === 0;
+      const requirementParts = [];
+      if (input.assertion.method) {
+        requirementParts.push(`method=${input.assertion.method}`);
+      }
+      if (input.assertion.descriptionContains) {
+        requirementParts.push(`description includes ${formatValue(input.assertion.descriptionContains)}`);
+      }
+      const requirement = requirementParts.length ? ` with ${requirementParts.join(", ")}` : "";
+      const message = success
+        ? input.assertion.exists
+          ? `Observed ${matchingActions.length} matching action(s)${requirement}.`
+          : `No matching action observed${requirement}.`
+        : input.assertion.exists
+          ? `Expected an observable action${requirement}, but none matched.`
+          : `Expected no observable action${requirement}, but found ${matchingActions.length}.`;
+
+      input.trace.push({
+        timestamp: nowIso(),
+        action: "scenario.assert.observe",
+        details: {
+          ...traceBase,
+          observedActions: observedActions.length,
+          matchingActions: matchingActions.length,
+          success
+        }
+      });
+
+      return {
+        assertionId: input.assertion.assertionId,
+        type: input.assertion.type,
+        success,
+        message,
+        observedActions
+      };
+    } catch (error) {
+      const message = normalizeExecutionError(error);
+      return {
+        assertionId: input.assertion.assertionId,
+        type: input.assertion.type,
+        success: false,
+        message: `Observe assertion failed: ${message}`,
+        error: message
+      };
+    }
+  }
+
+  try {
+    if (typeof input.stagehand.extract !== "function") {
+      throw new Error("stagehand extract not available");
+    }
+
+    const schema = buildExtractSchema(input.assertion);
+    const extracted = input.assertion.selector
+      ? await input.stagehand.extract(input.assertion.instruction, schema, { selector: input.assertion.selector })
+      : await input.stagehand.extract(input.assertion.instruction, schema);
+    const extractedValue = normalizeExtractedValue(input.assertion, extracted);
+    const evaluation = evaluateExtractAssertion(input.assertion, extractedValue);
+
+    input.trace.push({
+      timestamp: nowIso(),
+      action: "scenario.assert.extract",
+      details: {
+        ...traceBase,
+        selector: input.assertion.selector,
+        resultType: input.assertion.resultType,
+        success: evaluation.success
+      }
+    });
+
+    return {
+      assertionId: input.assertion.assertionId,
+      type: input.assertion.type,
+      success: evaluation.success,
+      message: evaluation.message,
+      extractedValue
+    };
+  } catch (error) {
+    const message = normalizeExecutionError(error);
+    return {
+      assertionId: input.assertion.assertionId,
+      type: input.assertion.type,
+      success: false,
+      message: `Extract assertion failed: ${message}`,
+      error: message
+    };
+  }
+}
+
+async function executeScenarioStep(input: {
   stagehand: any;
   page: any;
-  modelId: string;
-  systemPrompt?: string;
-  task: RunTaskInput["task"];
-  autUrl: string;
-  runConfig: RunTaskInput["runConfig"];
-  trace: TaskRunResult["trace"];
-  cacheNamespace: string;
-  allowAgentFallback: boolean;
-}): Promise<GuidedAttemptResult> {
-  const stepLoopResult = await executeGuidedStepLoop({
-    stagehand: input.stagehand,
-    page: input.page,
-    task: input.task,
-    autUrl: input.autUrl,
-    runConfig: input.runConfig,
-    trace: input.trace,
-    cacheNamespace: input.cacheNamespace
-  });
+  step: BenchmarkScenarioStep;
+  trace: ScenarioRunResult["trace"];
+}): Promise<ScenarioStepRun> {
+  const stepRun: ScenarioStepRun = {
+    stepId: input.step.stepId,
+    title: input.step.title,
+    success: false,
+    message: "",
+    actionInstruction: input.step.actionInstruction,
+    assertionRuns: []
+  };
 
-  if (stepLoopResult.assertion.success || !input.allowAgentFallback) {
-    return stepLoopResult;
-  }
-
-  const agent =
-    typeof input.stagehand.agent === "function"
-      ? input.stagehand.agent({
-          model: input.modelId,
-          mode: "dom",
-          systemPrompt: input.systemPrompt
-        })
-      : undefined;
-
-  if (!agent?.execute) {
-    return stepLoopResult;
-  }
-
-  const executionResult = await agent.execute({
-    instruction: input.task.instruction,
-    maxSteps: input.runConfig.maxSteps
-  });
   input.trace.push({
     timestamp: nowIso(),
-    action: "agent.execute",
+    action: "scenario.step.start",
     details: {
-      instruction: input.task.instruction,
-      maxSteps: input.runConfig.maxSteps,
-      cacheNamespace: input.cacheNamespace
+      stepId: input.step.stepId,
+      title: input.step.title
     }
   });
 
+  if (input.step.actionInstruction) {
+    try {
+      if (typeof input.stagehand.observe !== "function") {
+        throw new Error("stagehand observe not available");
+      }
+
+      const observedActions = normalizeObservedActions(await input.stagehand.observe(input.step.actionInstruction));
+      stepRun.observedActions = observedActions;
+      input.trace.push({
+        timestamp: nowIso(),
+        action: "scenario.step.observe",
+        details: {
+          stepId: input.step.stepId,
+          instruction: input.step.actionInstruction,
+          candidates: observedActions.length
+        }
+      });
+
+      const action = observedActions[0];
+      if (!action) {
+        stepRun.message = `No candidate action observed for "${input.step.actionInstruction}".`;
+        stepRun.urlAfter = currentPageUrl(input.page);
+        return stepRun;
+      }
+
+      stepRun.executedAction = action;
+      if (typeof input.stagehand.act !== "function") {
+        throw new Error("stagehand act not available");
+      }
+      await input.stagehand.act(action);
+      input.trace.push({
+        timestamp: nowIso(),
+        action: "scenario.step.act",
+        details: {
+          stepId: input.step.stepId,
+          instruction: input.step.actionInstruction,
+          selector: action.selector,
+          method: action.method
+        }
+      });
+    } catch (error) {
+      stepRun.message = `Action step failed: ${normalizeExecutionError(error)}`;
+      stepRun.urlAfter = currentPageUrl(input.page);
+      return stepRun;
+    }
+  }
+
+  for (const assertion of input.step.assertions) {
+    const assertionRun = await executeScenarioAssertion({
+      stagehand: input.stagehand,
+      assertion,
+      step: input.step,
+      trace: input.trace
+    });
+    stepRun.assertionRuns.push(assertionRun);
+
+    if (!assertionRun.success) {
+      stepRun.message = assertionRun.error ?? assertionRun.message;
+      stepRun.urlAfter = currentPageUrl(input.page);
+      input.trace.push({
+        timestamp: nowIso(),
+        action: "scenario.step.failed",
+        details: {
+          stepId: input.step.stepId,
+          assertionId: assertionRun.assertionId,
+          message: stepRun.message
+        }
+      });
+      return stepRun;
+    }
+  }
+
+  stepRun.success = true;
+  stepRun.message = `Step passed (${input.step.assertions.length} assertion${input.step.assertions.length === 1 ? "" : "s"}).`;
+  stepRun.urlAfter = currentPageUrl(input.page);
+  input.trace.push({
+    timestamp: nowIso(),
+    action: "scenario.step.passed",
+    details: {
+      stepId: input.step.stepId,
+      assertions: input.step.assertions.length
+    }
+  });
+  return stepRun;
+}
+
+export async function executeScenarioSteps(input: {
+  stagehand: any;
+  page: any;
+  scenario: RunScenarioInput["scenario"];
+  trace: ScenarioRunResult["trace"];
+}): Promise<{
+  success: boolean;
+  message: string;
+  stepRuns: ScenarioStepRun[];
+}> {
+  const stepRuns: ScenarioStepRun[] = [];
+
+  for (const step of input.scenario.steps) {
+    const stepRun = await executeScenarioStep({
+      stagehand: input.stagehand,
+      page: input.page,
+      step,
+      trace: input.trace
+    });
+    stepRuns.push(stepRun);
+    if (!stepRun.success) {
+      return {
+        success: false,
+        message: `Step ${step.stepId} failed: ${stepRun.message}`,
+        stepRuns
+      };
+    }
+  }
+
   return {
-    assertion: await evaluateExpectation(input.page, input.task.expected),
-    executionMode: "agent_native",
-    executionResult,
-    pageSnapshot: await snapshotPage(input.page)
+    success: true,
+    message: `Scenario passed (${input.scenario.steps.length} step${input.scenario.steps.length === 1 ? "" : "s"}).`,
+    stepRuns
   };
 }
 
@@ -775,21 +989,18 @@ function pickReplacementAction(
 }
 
 export class StagehandAutomationRunner implements AutomationRunner {
-  private readonly modelCooldowns = new Map<string, number>();
-
   constructor(private readonly stagehandEnv: string = "LOCAL") {}
 
-  async runTask(input: RunTaskInput): Promise<TaskRunResult> {
+  async runScenario(input: RunScenarioInput): Promise<ScenarioRunResult> {
     const started = Date.now();
-    const trace: TaskRunResult["trace"] = [];
-    const usagePhase = input.usagePhase ?? "guided_task";
+    const trace: ScenarioRunResult["trace"] = [];
+    const usagePhase = input.usagePhase ?? "guided_scenario";
     const allAiCalls: AiUsageRecord[] = [];
     const usageSummaries: AiUsageSummary[] = [];
     let stagehand: any | undefined;
 
     for (let attempt = 0; attempt <= input.runConfig.retryCount; attempt += 1) {
-      const cooldownUntil = this.modelCooldowns.get(input.model.id) ?? 0;
-      const cooldownDelayMs = Math.max(0, cooldownUntil - Date.now());
+      const cooldownDelayMs = getOpenRouterModelCooldownDelay(input.model.id);
       if (cooldownDelayMs > 0) {
         trace.push({
           timestamp: nowIso(),
@@ -818,7 +1029,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
             logger: createStagehandLogCollector(stagehandLogs)
           })
         );
-        await stagehand.init();
+        await withTimeout(stagehand.init(), input.runConfig.timeoutMs, "stagehand init");
         const page =
           stagehand.page ??
           stagehand.context?.pages?.()[0] ??
@@ -827,7 +1038,11 @@ export class StagehandAutomationRunner implements AutomationRunner {
           throw new Error("stagehand page not available after initialization");
         }
 
-        await page.setViewportSize?.(input.runConfig.viewport);
+        await withTimeout(
+          Promise.resolve(page.setViewportSize?.(input.runConfig.viewport)),
+          STAGEHAND_AUXILIARY_TIMEOUT_MS,
+          "set viewport"
+        );
         trace.push({
           timestamp: nowIso(),
           action: "set_viewport",
@@ -837,36 +1052,41 @@ export class StagehandAutomationRunner implements AutomationRunner {
           }
         });
 
-        await page.goto(input.aut.url, {
-          timeout: input.runConfig.timeoutMs,
-          waitUntil: "domcontentloaded"
-        });
+        await withTimeout(
+          page.goto(input.aut.url, {
+            timeout: input.runConfig.timeoutMs,
+            waitUntil: "domcontentloaded"
+          }),
+          input.runConfig.timeoutMs,
+          "page navigation"
+        );
         trace.push({
           timestamp: nowIso(),
           action: "goto",
           details: { url: input.aut.url, attempt }
         });
 
-        const execution = await executeGuidedTaskAttempt({
-          stagehand,
-          page,
-          modelId: input.model.id,
-          systemPrompt: input.systemPrompt,
-          task: input.task,
-          autUrl: input.aut.url,
-          runConfig: input.runConfig,
-          trace,
-          cacheNamespace: input.cacheConfig.namespace,
-          allowAgentFallback: input.runConfig.profile === "full" && attempt === input.runConfig.retryCount
-        });
+        const execution = await withTimeout(
+          executeScenarioSteps({
+            stagehand,
+            page,
+            scenario: input.scenario,
+            trace,
+          }),
+          input.runConfig.timeoutMs,
+          `scenario ${input.scenario.scenarioId}`
+        );
+        const pageSnapshot = await withTimeout(
+          snapshotPage(page),
+          STAGEHAND_AUXILIARY_TIMEOUT_MS,
+          "page snapshot"
+        );
         const metrics = await readStagehandMetrics(stagehand);
         history = await readStagehandHistory(stagehand);
-        const cache = buildGuidedCacheTelemetry({
+        const cache = buildScenarioCacheTelemetry({
           cacheConfig: input.cacheConfig,
-          mode: execution.executionMode,
           metrics,
-          logs: stagehandLogs,
-          executionResult: execution.executionResult as StagehandExecutionResult | undefined
+          logs: stagehandLogs
         });
 
         appendCacheTrace(trace, cache);
@@ -879,31 +1099,32 @@ export class StagehandAutomationRunner implements AutomationRunner {
         usageSummaries.push(attemptUsageSummary);
         const usageSummary = sumAiUsageSummaries(usageSummaries);
 
-        await stagehand.close?.();
+        await closeStagehand(stagehand, trace);
         return {
-          taskId: input.task.id,
+          scenarioId: input.scenario.scenarioId,
+          scenarioTitle: input.scenario.title,
           trial: input.trial,
           modelId: input.model.id,
-          success: execution.assertion.success,
-          message: execution.assertion.message,
+          success: execution.success,
+          message: execution.message,
           latencyMs: Date.now() - started,
           costUsd: usageSummary.costUsd,
           usageSummary,
           aiCalls: [...allAiCalls],
-          urlAfter: execution.assertion.urlAfter ?? execution.pageSnapshot.url,
-          screenshotBase64: execution.pageSnapshot.screenshotBase64,
-          domSnapshot: execution.pageSnapshot.domSnapshot,
+          urlAfter: pageSnapshot.url,
+          screenshotBase64: pageSnapshot.screenshotBase64,
+          domSnapshot: pageSnapshot.domSnapshot,
           trace,
           historyEntries: history,
-          cache
+          cache,
+          stepRuns: execution.stepRuns
         };
       } catch (error) {
         const metrics = await readStagehandMetrics(stagehand);
         history = await readStagehandHistory(stagehand);
         appendHistoryTrace(trace, history);
-        const cache = buildGuidedCacheTelemetry({
+        const cache = buildScenarioCacheTelemetry({
           cacheConfig: input.cacheConfig,
-          mode: input.runConfig.profile === "full" && attempt === input.runConfig.retryCount ? "agent_native" : "act_native",
           metrics,
           logs: stagehandLogs
         });
@@ -921,7 +1142,7 @@ export class StagehandAutomationRunner implements AutomationRunner {
           errorMessage
         });
         if (retryDelayMs > 0) {
-          this.modelCooldowns.set(input.model.id, Date.now() + retryDelayMs);
+          applyOpenRouterModelCooldown(input.model.id, retryDelayMs);
         }
 
         trace.push({
@@ -932,15 +1153,16 @@ export class StagehandAutomationRunner implements AutomationRunner {
             message: errorMessage
           }
         });
-        await stagehand?.close?.();
+        await closeStagehand(stagehand, trace);
         if (attempt >= input.runConfig.retryCount) {
           const usageSummary = sumAiUsageSummaries(usageSummaries);
           return {
-            taskId: input.task.id,
+            scenarioId: input.scenario.scenarioId,
+            scenarioTitle: input.scenario.title,
             trial: input.trial,
             modelId: input.model.id,
             success: false,
-            message: "task execution failed after retries",
+            message: "scenario execution failed after retries",
             latencyMs: Date.now() - started,
             costUsd: usageSummary.costUsd,
             usageSummary,
@@ -948,7 +1170,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
             trace,
             historyEntries: history,
             cache,
-            error: errorMessage
+            error: errorMessage,
+            stepRuns: []
           };
         }
 
@@ -968,7 +1191,8 @@ export class StagehandAutomationRunner implements AutomationRunner {
     }
 
     return {
-      taskId: input.task.id,
+      scenarioId: input.scenario.scenarioId,
+      scenarioTitle: input.scenario.title,
       trial: input.trial,
       modelId: input.model.id,
       success: false,
@@ -978,24 +1202,24 @@ export class StagehandAutomationRunner implements AutomationRunner {
       usageSummary: sumAiUsageSummaries(usageSummaries),
       aiCalls: [...allAiCalls],
       trace,
-      cache: buildGuidedCacheTelemetry({
+      cache: buildScenarioCacheTelemetry({
         cacheConfig: input.cacheConfig,
-        mode: input.runConfig.profile === "full" ? "agent_native" : "act_native",
         metrics: undefined,
         logs: []
-      })
+      }),
+      stepRuns: []
     };
   }
 
   async exploreTarget(input: {
-    model: RunTaskInput["model"];
+    model: RunScenarioInput["model"];
     trial: number;
     targetId: string;
     bugIds: string[];
     prompt: string;
-    aut: RunTaskInput["aut"];
-    runConfig: RunTaskInput["runConfig"];
-    cacheConfig: RunTaskInput["cacheConfig"];
+    aut: RunScenarioInput["aut"];
+    runConfig: RunScenarioInput["runConfig"];
+    cacheConfig: RunScenarioInput["cacheConfig"];
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
     const trace: OperationTrace[] = [];

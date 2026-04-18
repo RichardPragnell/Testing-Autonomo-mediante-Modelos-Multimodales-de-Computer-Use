@@ -4,7 +4,7 @@ import type { BenchmarkComparisonSection, BenchmarkMetricColumn } from "../../sr
 
 const METRIC_COLUMNS: BenchmarkMetricColumn[] = [
   { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-  { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+  { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
   { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
   { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
 ];
@@ -63,7 +63,7 @@ function buildSection(input: {
 }
 
 describe("benchmark summary figures", () => {
-  it("builds deterministic column ranks, missing cells, and shared frontier metadata", () => {
+  it("builds deterministic score columns, missing cells, and shared frontier metadata", () => {
     const figures = buildBenchmarkSummaryFigures([
       buildSection({
         kind: "qa",
@@ -105,25 +105,24 @@ describe("benchmark summary figures", () => {
     ]);
 
     expect(figures).toBeDefined();
-    expect(figures!.rankMatrix.columns.map((column) => column.key)).toEqual([
+    expect(figures!.scoreMatrix.columns.map((column) => column.key)).toEqual([
       "qa:todo-a",
       "qa:todo-b",
       "explore:todo-a"
     ]);
-    expect(figures!.rankMatrix.rows.map((row) => row.modelId)).toEqual(["model/b", "model/c", "model/a"]);
+    expect(figures!.scoreMatrix.rows.map((row) => row.modelId)).toEqual(["model/b", "model/c", "model/a"]);
 
-    const rowA = figures!.rankMatrix.rows.find((row) => row.modelId === "model/a");
-    const rowB = figures!.rankMatrix.rows.find((row) => row.modelId === "model/b");
-    const rowC = figures!.rankMatrix.rows.find((row) => row.modelId === "model/c");
+    const rowA = figures!.scoreMatrix.rows.find((row) => row.modelId === "model/a");
+    const rowB = figures!.scoreMatrix.rows.find((row) => row.modelId === "model/b");
+    const rowC = figures!.scoreMatrix.rows.find((row) => row.modelId === "model/c");
 
-    expect(rowA?.cells.map((cell) => cell.rank)).toEqual([2, 1, 2]);
-    expect(rowA?.cells[0]?.rankPercentile).toBe(0);
-    expect(rowA?.cells[1]?.rankPercentile).toBe(1);
-    expect(rowB?.cells[0]?.rank).toBe(1);
+    expect(rowA?.cells.map((cell) => cell.score)).toEqual([80, 90, 55]);
+    expect(rowB?.cells[0]?.score).toBe(80);
     expect(rowB?.cells[1]?.missing).toBe(true);
     expect(rowC?.cells[0]?.missing).toBe(true);
-    expect(rowB?.meanRank).toBe(1);
-    expect(rowA?.meanRank).toBe(1.667);
+    expect(rowB?.meanScore).toBe(80);
+    expect(rowA?.meanScore).toBe(75);
+    expect(JSON.stringify(figures)).not.toContain("rank");
 
     expect(figures!.efficiencyFrontier.panels.map((panel) => panel.kind)).toEqual(["qa", "explore"]);
     expect(figures!.efficiencyFrontier.legend.map((entry) => entry.modelId)).toEqual(["model/b", "model/c", "model/a"]);

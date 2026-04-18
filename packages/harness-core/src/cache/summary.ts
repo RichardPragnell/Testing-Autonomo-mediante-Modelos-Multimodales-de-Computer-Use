@@ -1,4 +1,4 @@
-import type { CacheTelemetry, CacheUsageSummary, TaskRunResult } from "../types.js";
+import type { CacheTelemetry, CacheUsageSummary, ScenarioRunResult } from "../types.js";
 
 function summarizeSharedValue(values: string[]): string {
   const unique = [...new Set(values.filter(Boolean))];
@@ -30,6 +30,6 @@ export function summarizeCacheTelemetry(entries: CacheTelemetry[]): CacheUsageSu
   };
 }
 
-export function summarizeTaskRunCache(taskRuns: TaskRunResult[]): CacheUsageSummary | undefined {
-  return summarizeCacheTelemetry(taskRuns.flatMap((taskRun) => (taskRun.cache ? [taskRun.cache] : [])));
+export function summarizeScenarioRunCache(scenarioRuns: ScenarioRunResult[]): CacheUsageSummary | undefined {
+  return summarizeCacheTelemetry(scenarioRuns.flatMap((scenarioRun) => (scenarioRun.cache ? [scenarioRun.cache] : [])));
 }

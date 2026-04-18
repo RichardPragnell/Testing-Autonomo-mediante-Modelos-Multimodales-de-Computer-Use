@@ -9,6 +9,41 @@ export interface RunningAut {
 type SpawnedChild = ReturnType<typeof spawn>;
 const activeAutChildren = new Set<SpawnedChild>();
 let exitCleanupInstalled = false;
+const MAX_AUT_OUTPUT_CHARS = 4_000;
+
+function appendOutputTail(current: string, chunk: string): string {
+  const next = `${current}${chunk}`;
+  return next.length <= MAX_AUT_OUTPUT_CHARS ? next : next.slice(-MAX_AUT_OUTPUT_CHARS);
+}
+
+function summarizeAutOutput(stdoutTail: string, stderrTail: string): string {
+  const sections: string[] = [];
+
+  const normalizedStdout = stdoutTail.trim();
+  if (normalizedStdout) {
+    sections.push(`stdout:\n${normalizedStdout}`);
+  }
+
+  const normalizedStderr = stderrTail.trim();
+  if (normalizedStderr) {
+    sections.push(`stderr:\n${normalizedStderr}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+function formatAutFailureMessage(input: {
+  reason: string;
+  command: string;
+  cwd: string;
+  stdoutTail: string;
+  stderrTail: string;
+}): string {
+  const output = summarizeAutOutput(input.stdoutTail, input.stderrTail);
+  return output
+    ? `${input.reason}\nCommand: ${input.command}\nCwd: ${input.cwd}\n${output}`
+    : `${input.reason}\nCommand: ${input.command}\nCwd: ${input.cwd}`;
+}
 
 function registerAutChild(child: SpawnedChild): void {
   if (!exitCleanupInstalled) {
@@ -47,6 +82,16 @@ async function isUrlReachable(url: string): Promise<boolean> {
     return response.ok || response.status < 500;
   } catch {
     return false;
+  }
+}
+
+async function waitForUrlToStop(url: string, timeoutMs = 5_000, pollIntervalMs = 100): Promise<void> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (!(await isUrlReachable(url))) {
+      return;
+    }
+    await delay(pollIntervalMs);
   }
 }
 
@@ -138,12 +183,25 @@ export async function startAut(
     releasePort();
     return undefined;
   }
+  const cwd = aut.cwd ?? process.cwd();
+  let stdoutTail = "";
+  let stderrTail = "";
   const child = spawn(aut.command, {
-    cwd: aut.cwd ?? process.cwd(),
+    cwd,
     env: { ...process.env, ...aut.env },
     detached: process.platform !== "win32",
     shell: true,
-    stdio: "inherit"
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdoutTail = appendOutputTail(stdoutTail, chunk);
+    process.stdout.write(chunk);
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    stderrTail = appendOutputTail(stderrTail, chunk);
+    process.stderr.write(chunk);
   });
   registerAutChild(child);
 
@@ -151,7 +209,15 @@ export async function startAut(
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
       if (child.exitCode !== null) {
-        throw new Error(`AUT process exited before becoming reachable with code ${child.exitCode}`);
+        throw new Error(
+          formatAutFailureMessage({
+            reason: `AUT process exited before becoming reachable with code ${child.exitCode}`,
+            command: aut.command,
+            cwd,
+            stdoutTail,
+            stderrTail
+          })
+        );
       }
       if (await isUrlReachable(aut.url)) {
         break;
@@ -160,13 +226,22 @@ export async function startAut(
     }
 
     if (!(await isUrlReachable(aut.url))) {
-      throw new Error(`AUT did not become reachable at ${aut.url} within ${timeoutMs}ms`);
+      throw new Error(
+        formatAutFailureMessage({
+          reason: `AUT did not become reachable at ${aut.url} within ${timeoutMs}ms`,
+          command: aut.command,
+          cwd,
+          stdoutTail,
+          stderrTail
+        })
+      );
     }
 
     return {
       stop: async () => {
         try {
           await stopSpawnedAut(child);
+          await waitForUrlToStop(aut.url);
         } finally {
           releasePort();
         }
@@ -175,6 +250,7 @@ export async function startAut(
   } catch (error) {
     try {
       await stopSpawnedAut(child);
+      await waitForUrlToStop(aut.url);
     } finally {
       releasePort();
     }

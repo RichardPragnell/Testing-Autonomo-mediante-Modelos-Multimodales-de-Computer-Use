@@ -1,40 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  computeRetryDelayMs,
-  executeGuidedStepLoop,
-  executeGuidedTaskAttempt,
-  normalizeExecutionError
-} from "../../src/runner/stagehand-runner.js";
+import { computeRetryDelayMs, executeScenarioSteps, normalizeExecutionError } from "../../src/runner/stagehand-runner.js";
 
-function createPage(initialText: string) {
-  const state = {
-    text: initialText,
-    url: "http://127.0.0.1:3101/",
-    dom: `<html><body>${initialText}</body></html>`
-  };
-
+function createPage(url = "http://127.0.0.1:3101/") {
   return {
-    state,
-    page: {
-      url: () => state.url,
-      content: async () => state.dom,
-      screenshot: async () => Buffer.from(state.dom),
-      evaluate: async () => state.text
-    }
+    url: () => url,
+    content: async () => "<html><body>Todo Bench</body></html>",
+    screenshot: async () => Buffer.from("screenshot")
   };
 }
 
-const task = {
-  id: "guided-edit-task",
-  instruction: "Edit the existing task so it reads Done.",
-  expected: {
-    type: "text_visible" as const,
-    value: "Done"
-  },
-  source: "curated" as const
-};
-
-describe("stagehand runner guided helpers", () => {
+describe("stagehand runner scenario helpers", () => {
   it("promotes a nested provider cause over the generic wrapper message", () => {
     const cause = {
       message: "Rate limit exceeded: free-models-per-min. ",
@@ -79,104 +54,213 @@ describe("stagehand runner guided helpers", () => {
     expect(providerDelay).toBeGreaterThan(0);
   });
 
-  it("exits the guided step loop as soon as the expectation passes", async () => {
+  it("passes observe assertions when a matching action exists", async () => {
     const trace: Array<{ action: string }> = [];
-    const { state, page } = createPage("Initial");
-    const act = vi.fn(async () => {
-      state.text = "Done";
-      state.dom = "<html><body>Done</body></html>";
-    });
+    const observe = vi.fn(async () => [{ selector: "button.remove", description: "Remove task button", method: "click" }]);
 
-    const result = await executeGuidedStepLoop({
-      stagehand: { act },
-      page,
-      task,
-      autUrl: "http://127.0.0.1:3101/",
-      runConfig: {
-        profile: "fast",
-        timeoutMs: 45_000,
-        retryCount: 0,
-        maxSteps: 5,
-        maxOutputTokens: 300,
-        viewport: { width: 1280, height: 720 }
+    const result = await executeScenarioSteps({
+      stagehand: { observe },
+      page: createPage(),
+      scenario: {
+        scenarioId: "create-delete-task",
+        title: "Delete a task",
+        source: "generated",
+        steps: [
+          {
+            stepId: "create-delete-task.observe-remove",
+            title: "Confirm the remove control exists",
+            assertions: [
+              {
+                assertionId: "create-delete-task.remove-visible",
+                type: "observe",
+                instruction: "find the Remove button for the task Remove benchmark draft",
+                exists: true,
+                method: "click"
+              }
+            ]
+          }
+        ]
       },
-      trace: trace as never,
-      cacheNamespace: "guided-cache"
+      trace: trace as never
     });
 
-    expect(result.assertion.success).toBe(true);
+    expect(result.success).toBe(true);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(result.stepRuns[0]?.assertionRuns[0]?.observedActions).toHaveLength(1);
+  });
+
+  it("passes extract assertions with Stagehand-native extraction results", async () => {
+    const extract = vi.fn(async () => "Todo Bench");
+
+    const result = await executeScenarioSteps({
+      stagehand: { extract },
+      page: createPage(),
+      scenario: {
+        scenarioId: "smoke-load",
+        title: "Load the app",
+        source: "synthetic",
+        steps: [
+          {
+            stepId: "smoke-load.assert-heading",
+            title: "Verify the heading",
+            assertions: [
+              {
+                assertionId: "smoke-load.heading",
+                type: "extract",
+                instruction: "extract the main page heading text",
+                resultType: "string",
+                match: { equals: "Todo Bench" }
+              }
+            ]
+          }
+        ]
+      },
+      trace: []
+    });
+
+    expect(result.success).toBe(true);
+    expect(extract).toHaveBeenCalledTimes(1);
+    expect(result.stepRuns[0]?.assertionRuns[0]?.extractedValue).toBe("Todo Bench");
+  });
+
+  it("executes a step action with observe plus act before validating assertions", async () => {
+    const observe = vi.fn(async (instruction: string) => {
+      if (instruction === "click the Add task button") {
+        return [{ selector: "button[data-action='add']", description: "Add task button", method: "click" }];
+      }
+
+      return [{ selector: "button[data-action='remove']", description: "Remove task button", method: "click" }];
+    });
+    const act = vi.fn(async () => undefined);
+
+    const result = await executeScenarioSteps({
+      stagehand: { observe, act },
+      page: createPage(),
+      scenario: {
+        scenarioId: "add-task",
+        title: "Add a task",
+        source: "generated",
+        steps: [
+          {
+            stepId: "add-task.submit",
+            title: "Submit the task",
+            actionInstruction: "click the Add task button",
+            assertions: [
+              {
+                assertionId: "add-task.remove-visible",
+                type: "observe",
+                instruction: "find the Remove button for the task Review benchmark notes",
+                exists: true,
+                method: "click"
+              }
+            ]
+          }
+        ]
+      },
+      trace: []
+    });
+
+    expect(result.success).toBe(true);
     expect(act).toHaveBeenCalledTimes(1);
-    expect(trace.filter((entry) => entry.action === "act")).toHaveLength(1);
+    expect(result.stepRuns[0]?.executedAction?.selector).toBe("button[data-action='add']");
   });
 
-  it("stops early when repeated actions make no progress", async () => {
-    const trace: Array<{ action: string }> = [];
-    const { page } = createPage("Still initial");
-    const act = vi.fn(async () => undefined);
+  it("aborts the scenario on the first failing step", async () => {
+    const extract = vi
+      .fn()
+      .mockResolvedValueOnce("Todo Bench")
+      .mockResolvedValueOnce("0 of 2 tasks done");
 
-    const result = await executeGuidedStepLoop({
-      stagehand: { act },
-      page,
-      task,
-      autUrl: "http://127.0.0.1:3101/",
-      runConfig: {
-        profile: "fast",
-        timeoutMs: 45_000,
-        retryCount: 0,
-        maxSteps: 5,
-        maxOutputTokens: 300,
-        viewport: { width: 1280, height: 720 }
+    const result = await executeScenarioSteps({
+      stagehand: { extract },
+      page: createPage(),
+      scenario: {
+        scenarioId: "smoke-load",
+        title: "Load the app",
+        source: "synthetic",
+        steps: [
+          {
+            stepId: "smoke-load.assert-heading",
+            title: "Verify the heading",
+            assertions: [
+              {
+                assertionId: "smoke-load.heading",
+                type: "extract",
+                instruction: "extract the main page heading text",
+                resultType: "string",
+                match: { equals: "Todo Bench" }
+              }
+            ]
+          },
+          {
+            stepId: "smoke-load.assert-progress",
+            title: "Verify the progress card",
+            assertions: [
+              {
+                assertionId: "smoke-load.progress",
+                type: "extract",
+                instruction: "extract the text shown in the Progress summary card",
+                resultType: "string",
+                match: { equals: "1 of 2 tasks done" }
+              }
+            ]
+          },
+          {
+            stepId: "smoke-load.unreachable",
+            title: "This step should never run",
+            assertions: [
+              {
+                assertionId: "smoke-load.unreachable-assertion",
+                type: "extract",
+                instruction: "extract anything",
+                resultType: "string",
+                match: { equals: "never" }
+              }
+            ]
+          }
+        ]
       },
-      trace: trace as never,
-      cacheNamespace: "guided-cache"
+      trace: []
     });
 
-    expect(result.assertion.success).toBe(false);
-    expect(act).toHaveBeenCalledTimes(2);
-    expect(trace.some((entry) => entry.action === "guided.loop_abort")).toBe(true);
+    expect(result.success).toBe(false);
+    expect(result.stepRuns).toHaveLength(2);
+    expect(result.stepRuns[1]?.success).toBe(false);
+    expect(extract).toHaveBeenCalledTimes(2);
   });
 
-  it("uses agent fallback only after the guided step loop fails", async () => {
-    const trace: Array<{ action: string }> = [];
-    const { state, page } = createPage("Initial");
-    const act = vi.fn(async () => undefined);
-    const execute = vi.fn(async () => {
-      state.text = "Done";
-      state.dom = "<html><body>Done</body></html>";
-      return { ok: true };
+  it("does not invoke agent fallback when a scenario step fails", async () => {
+    const observe = vi.fn(async () => []);
+    const agent = vi.fn(() => ({ execute: vi.fn() }));
+
+    const result = await executeScenarioSteps({
+      stagehand: { observe, agent },
+      page: createPage(),
+      scenario: {
+        scenarioId: "add-task",
+        title: "Add a task",
+        source: "generated",
+        steps: [
+          {
+            stepId: "add-task.submit",
+            title: "Submit the task",
+            actionInstruction: "click the Add task button",
+            assertions: [
+              {
+                assertionId: "add-task.remove-visible",
+                type: "observe",
+                instruction: "find the Remove button for the task Review benchmark notes",
+                exists: true,
+                method: "click"
+              }
+            ]
+          }
+        ]
+      },
+      trace: []
     });
 
-    const result = await executeGuidedTaskAttempt({
-      stagehand: {
-        act,
-        agent: () => ({
-          execute
-        })
-      },
-      page,
-      modelId: "z-ai/glm-4-32b",
-      systemPrompt: "Be concise",
-      task,
-      autUrl: "http://127.0.0.1:3101/",
-      runConfig: {
-        profile: "full",
-        timeoutMs: 90_000,
-        retryCount: 1,
-        maxSteps: 5,
-        maxOutputTokens: 600,
-        viewport: { width: 1280, height: 720 }
-      },
-      trace: trace as never,
-      cacheNamespace: "guided-cache",
-      allowAgentFallback: true
-    });
-
-    expect(act).toHaveBeenCalledTimes(2);
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(trace.findIndex((entry) => entry.action === "guided.loop_abort")).toBeLessThan(
-      trace.findIndex((entry) => entry.action === "agent.execute")
-    );
-    expect(result.executionMode).toBe("agent_native");
-    expect(result.assertion.success).toBe(true);
+    expect(result.success).toBe(false);
+    expect(agent).not.toHaveBeenCalled();
   });
 });

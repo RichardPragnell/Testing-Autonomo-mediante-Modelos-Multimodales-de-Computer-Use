@@ -9,12 +9,15 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
-    "app:todo-react": "node node_modules/vite/bin/vite.js --config apps/todo-react/template/vite.config.js --host 127.0.0.1 --port 3101",
-    "guided": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts guided",
-    "explore": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts explore",
-    "heal": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts heal",
-    "report": "corepack pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts report",
-    "mcp": "corepack pnpm --filter @agentic-qa/harness-mcp start"
+    "app:todo-react": "node scripts/run-app.mjs todo-react",
+    "app:todo-nextjs": "node scripts/run-app.mjs todo-nextjs",
+    "app:todo-angular": "node scripts/run-app.mjs todo-angular",
+    "guided": "pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts guided",
+    "explore": "pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts explore",
+    "heal": "pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts heal",
+    "fullbench": "pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts fullbench",
+    "report": "pnpm --filter @agentic-qa/harness-core build && tsx packages/harness-cli/src/index.ts report",
+    "mcp": "pnpm --filter @agentic-qa/harness-mcp start"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "20.3.6",

@@ -2,11 +2,12 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
-import type { AutomationRunner, ModelAvailability, OperationTrace, TaskRunResult } from "../types.js";
-import { summarizeTaskRunCache } from "../cache/summary.js";
+import type { AutomationRunner, ModelAvailability, OperationTrace, ScenarioRunResult } from "../types.js";
+import { summarizeScenarioRunCache } from "../cache/summary.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { StagehandAutomationRunner } from "../runner/stagehand-runner.js";
+import { normalizeExecutionError } from "../runner/stagehand-runner.js";
 import { prepareRunWorkspace } from "../runtime/workspace.js";
 import { startAut } from "../runtime/aut.js";
 import { OpenRouterRepairModelClient, type RepairModelClient } from "../self-heal/model-client.js";
@@ -24,7 +25,7 @@ import {
 import {
   buildResolvedSuite,
   emitExperimentLog,
-  executeGuidedTasks,
+  executeGuidedScenarios,
   formatDurationMs,
   mapWithConcurrency,
   readCandidateFileSnippets,
@@ -34,6 +35,7 @@ import {
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
+import { isReportableHealModelSummary } from "./reportability.js";
 import { computeHealScore, HEAL_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -64,12 +66,13 @@ const healPresetSchema = z
 
 const HEAL_METRIC_COLUMNS: BenchmarkMetricColumn[] = [
   { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-  { key: "failingTaskFix", label: "Failing-Task Fix", kind: "percent", aggregate: "mean" },
+  { key: "fixRate", label: "Fix Rate", kind: "percent", aggregate: "mean" },
+  { key: "failingScenarioFix", label: "Failing-Scenario Fix", kind: "percent", aggregate: "mean" },
   { key: "regressionFree", label: "Regression-Free", kind: "percent", aggregate: "mean" },
   { key: "validationPass", label: "Validation Pass", kind: "percent", aggregate: "mean" },
-  { key: "localization", label: "Localization", kind: "percent", aggregate: "mean" },
+  { key: "localization", label: "Localization Recall", kind: "percent", aggregate: "mean" },
   { key: "patchApply", label: "Patch Apply", kind: "percent", aggregate: "mean" },
-  { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+  { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
   { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
   { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
 ];
@@ -85,6 +88,10 @@ export interface RunHealExperimentInput {
   resetModeResults?: boolean;
   runner?: AutomationRunner;
   repairClient?: RepairModelClient;
+  reusableModelSummaries?: Array<{
+    sourceRunId: string;
+    summary: HealModelSummary;
+  }>;
   onLog?: ExperimentLogFn;
 }
 
@@ -116,7 +123,7 @@ function zeroMetrics(model: ModelAvailability): HealModelMetrics {
     localizationAccuracy: 0,
     patchApplyRate: 0,
     validationPassRate: 0,
-    failingTaskFixRate: 0,
+    failingScenarioFixRate: 0,
     regressionFreeRate: 0,
     fixRate: 0,
     avgLatencyMs: 0,
@@ -128,17 +135,16 @@ function zeroMetrics(model: ModelAvailability): HealModelMetrics {
 function buildLeaderboard(modelSummaries: HealModelSummary[]): HealLeaderboardEntry[] {
   return [...modelSummaries]
     .sort((left, right) => right.metrics.score - left.metrics.score)
-    .map((summary, index) => {
+    .map((summary) => {
       const costSummary = summarizeUsageCosts(summary.caseResults.map((caseResult) => caseResult.totalUsage), summary.caseResults.length);
       return {
-        rank: index + 1,
         modelId: summary.model.id,
         provider: summary.model.provider,
         score: summary.metrics.score,
         localizationAccuracy: summary.metrics.localizationAccuracy,
         patchApplyRate: summary.metrics.patchApplyRate,
         validationPassRate: summary.metrics.validationPassRate,
-        failingTaskFixRate: summary.metrics.failingTaskFixRate,
+        failingScenarioFixRate: summary.metrics.failingScenarioFixRate,
         regressionFreeRate: summary.metrics.regressionFreeRate,
         fixRate: summary.metrics.fixRate,
         avgLatencyMs: summary.metrics.avgLatencyMs,
@@ -195,7 +201,7 @@ function buildHealSection(input: {
     kind: "heal",
     title: "Self-Heal",
     summary: topModel
-      ? `${topModel.modelId} leads self-heal mode with ${topModel.score.toFixed(3)} score, ${(topModel.failingTaskFixRate * 100).toFixed(1)}% failing-task fix rate, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
+      ? `${topModel.modelId} leads self-heal mode with ${topModel.score.toFixed(3)} score, ${(topModel.fixRate * 100).toFixed(1)}% fix rate, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
       : "No self-heal results were available.",
     appIds: [input.appId],
     metricColumns: HEAL_METRIC_COLUMNS,
@@ -210,7 +216,8 @@ function buildHealSection(input: {
           runIds: [input.runId],
           metrics: {
             score: entry.score,
-            failingTaskFix: entry.failingTaskFixRate,
+            fixRate: entry.fixRate,
+            failingScenarioFix: entry.failingScenarioFixRate,
             regressionFree: entry.regressionFreeRate,
             validationPass: entry.validationPassRate,
             localization: entry.localizationAccuracy,
@@ -225,7 +232,8 @@ function buildHealSection(input: {
     })),
     notes: [
       "Score is shown on a 0-100 scale where higher is better.",
-      "Failing-Task Fix and Regression-Free dominate the self-heal score.",
+      "Fix Rate is the primary self-heal outcome, followed by failing-scenario repair quality and regression control.",
+      "Patch Apply remains visible as an operational metric, but it no longer contributes to the weighted score.",
       "Total Cost sums resolved self-heal spend across the full run."
     ],
     audit: {
@@ -239,8 +247,9 @@ function buildHealSection(input: {
   };
 }
 
-function buildReport(artifact: HealRunArtifact): HealReport {
-  const leaderboard = buildLeaderboard(artifact.modelSummaries);
+export function buildHealReport(artifact: HealRunArtifact): HealReport {
+  const reportableModelSummaries = artifact.modelSummaries.filter(isReportableHealModelSummary);
+  const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
     kind: "heal",
     runId: artifact.runId,
@@ -248,8 +257,8 @@ function buildReport(artifact: HealRunArtifact): HealReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard,
-    modelSummaries: artifact.modelSummaries,
-    costGraph: buildHealCostGraph(artifact.modelSummaries),
+    modelSummaries: reportableModelSummaries,
+    costGraph: buildHealCostGraph(reportableModelSummaries),
     section: buildHealSection({
       appId: artifact.appId,
       runId: artifact.runId,
@@ -313,15 +322,15 @@ function localizationScore(suspectedFiles: string[], goldTouchedFiles: string[])
   return round(hits.length / gold.size);
 }
 
-function rateFromRuns(taskRuns: TaskRunResult[]): number {
-  if (!taskRuns.length) {
+function rateFromRuns(scenarioRuns: ScenarioRunResult[]): number {
+  if (!scenarioRuns.length) {
     return 0;
   }
-  return round(taskRuns.filter((run) => run.success).length / taskRuns.length);
+  return round(scenarioRuns.filter((run) => run.success).length / scenarioRuns.length);
 }
 
-function flattenTaskTraces(taskRuns: TaskRunResult[]): OperationTrace[] {
-  return taskRuns.flatMap((run) => run.trace);
+function flattenScenarioTraces(scenarioRuns: ScenarioRunResult[]): OperationTrace[] {
+  return scenarioRuns.flatMap((run) => run.trace);
 }
 
 function dedupeSourceCandidates(caseResults: HealCaseTrialResult["findings"]): Array<{
@@ -353,7 +362,7 @@ function computeModelMetrics(model: ModelAvailability, caseResults: HealCaseTria
   const localizationAccuracy = round(caseResults.reduce((sum, item) => sum + item.localizationScore, 0) / caseResults.length);
   const patchApplyRate = round(caseResults.filter((item) => item.patchApplied).length / caseResults.length);
   const validationPassRate = round(caseResults.filter((item) => item.validationPassed).length / caseResults.length);
-  const failingTaskFixRate = round(caseResults.reduce((sum, item) => sum + item.failingTaskFixRate, 0) / caseResults.length);
+  const failingScenarioFixRate = round(caseResults.reduce((sum, item) => sum + item.failingScenarioFixRate, 0) / caseResults.length);
   const regressionFreeRate = round(caseResults.reduce((sum, item) => sum + item.regressionFreeRate, 0) / caseResults.length);
   const fixRate = round(caseResults.filter((item) => item.fixed).length / caseResults.length);
   const totalUsage = sumAiUsageSummaries(caseResults.map((item) => item.totalUsage));
@@ -365,16 +374,17 @@ function computeModelMetrics(model: ModelAvailability, caseResults: HealCaseTria
     localizationAccuracy,
     patchApplyRate,
     validationPassRate,
-    failingTaskFixRate,
+    failingScenarioFixRate,
     regressionFreeRate,
     fixRate,
     avgLatencyMs,
     avgCostUsd: costSummary.avgResolvedUsd,
     score: computeHealScore({
+      fixRate,
       localizationAccuracy,
       patchApplyRate,
       validationPassRate,
-      failingTaskFixRate,
+      failingScenarioFixRate,
       regressionFreeRate,
       avgLatencyMs,
       avgCostUsd: costSummary.avgResolvedUsd
@@ -396,19 +406,19 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   const resultsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels =
-    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
+  const requestedModels = input.models ?? preset.models;
   const models = resolveModelAvailability(registry, requestedModels);
+  const healRuntime = benchmark.benchmark.heal.runtime;
   const spec: HealExperimentSpec = {
     appId: input.appId,
     caseIds,
-    models: requestedModels,
+    models: models.map((model) => model.id),
     promptId: preset.promptId ?? benchmark.benchmark.prompts.heal,
     trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.healTrials,
     runtime: {
-      timeoutMs: benchmark.benchmark.runtime.timeoutMs,
-      retryCount: benchmark.benchmark.runtime.retryCount,
-      maxSteps: benchmark.benchmark.runtime.maxSteps,
+      timeoutMs: healRuntime?.timeoutMs ?? benchmark.benchmark.runtime.timeoutMs,
+      retryCount: healRuntime?.retryCount ?? benchmark.benchmark.runtime.retryCount,
+      maxSteps: healRuntime?.maxSteps ?? benchmark.benchmark.runtime.maxSteps,
       viewport: benchmark.benchmark.runtime.viewport
     },
     resultsDir
@@ -423,7 +433,19 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
   );
   const runner = input.runner ?? new StagehandAutomationRunner();
   const repairClient = input.repairClient ?? new OpenRouterRepairModelClient();
+  const reusableModelSummaries = new Map(
+    (input.reusableModelSummaries ?? []).map((entry) => [entry.summary.metrics.modelId, entry])
+  );
   const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
+    const reusableModelSummary = reusableModelSummaries.get(model.id);
+    if (reusableModelSummary) {
+      emitExperimentLog(
+        input.onLog,
+        `[heal] Model ${modelIndex + 1}/${models.length}: ${model.id} skipped; reusing existing run data from ${reusableModelSummary.sourceRunId}`
+      );
+      return reusableModelSummary.summary;
+    }
+
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
@@ -445,17 +467,17 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         input.onLog,
         `[heal] Case ${caseIndex + 1}/${caseIds.length} ${caseId} (${healCase.bugId}) for ${model.id} started`
       );
-      const taskIds = [...new Set([...healCase.reproductionTaskIds, ...healCase.regressionTaskIds])];
+      const scenarioIds = [...new Set([...healCase.reproductionScenarioIds, ...healCase.regressionScenarioIds])];
       const resolvedSuite = await buildResolvedSuite({
         resolvedBenchmark: benchmark,
-        taskIds,
+        scenarioIds,
         bugIds: [healCase.bugId],
         explorationMode: "guided",
         suiteId: `${runId}-${caseId}`,
         resultsDir,
         runtime: spec.runtime,
         promptIds: {
-          guided: benchmark.benchmark.prompts.qa,
+          guided: benchmark.benchmark.prompts.guided,
           repair: spec.promptId
         }
       });
@@ -470,7 +492,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         });
         let autHandle: Awaited<ReturnType<typeof startAut>> | undefined;
 
-        let reproductionRuns: TaskRunResult[] = [];
+        let reproductionRuns: ScenarioRunResult[] = [];
         let findings: HealCaseTrialResult["findings"] = [];
         let suspectedFiles: string[] = [];
         let patchGenerated = false;
@@ -493,12 +515,12 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
           unavailableCalls: 0
         };
         let patchPath: string | undefined;
-        let postPatchReproductionRuns: TaskRunResult[] = [];
-        let postPatchRegressionRuns: TaskRunResult[] = [];
+        let postPatchReproductionRuns: ScenarioRunResult[] = [];
+        let postPatchRegressionRuns: ScenarioRunResult[] = [];
 
         try {
           autHandle = await startAut(workspace.aut);
-          const reproduction = await executeGuidedTasks({
+          const reproduction = await executeGuidedScenarios({
             runId: attemptId,
             resultsRoot,
             resolvedSuite,
@@ -510,11 +532,11 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
             systemPrompt: resolvedSuite.prompts.guided,
             includeFindings: true,
             includeBugHints: false,
-            taskIds: healCase.reproductionTaskIds,
+            scenarioIds: healCase.reproductionScenarioIds,
             onLog: input.onLog,
-            taskLabel: `[heal][${model.id}][${caseId}][trial ${trial}] reproduction task`
+            scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] reproduction scenario`
           });
-          reproductionRuns = reproduction.taskRuns;
+          reproductionRuns = reproduction.scenarioRuns;
           findings = reproduction.findings;
           emitExperimentLog(
             input.onLog,
@@ -532,118 +554,126 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
               candidates: dedupeSourceCandidates(findings),
               limit: 3
             });
-            const traces = flattenTaskTraces(reproductionRuns);
-            const repairResult = await repairClient.repair({
-              model,
-              systemPrompt: resolvedSuite.prompts.repair ?? "Produce the smallest correct patch.",
-              context: {
-                appId: input.appId,
-                findings,
-                candidateFiles,
-                validationCommand: healCase.validationCommand ?? workspace.validationCommand,
-                traces
-              }
-            });
-            diagnosis = repairResult.diagnosis;
-            suspectedFiles = repairResult.diagnosis.suspectedFiles;
-            patchGenerated = Boolean(repairResult.patch);
-            repairUsage = repairResult.usage;
-            emitExperimentLog(
-              input.onLog,
-              `[heal] Case ${caseId} trial ${trial}/${spec.trials}: repair diagnosis targeted ${suspectedFiles.length} file(s) and ${patchGenerated ? "returned a patch" : "did not return a patch"}`
-            );
-
-            if (!repairResult.patch) {
-              note = "repair model did not return a patch";
-              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
-            } else {
-              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: validating patched worktree`);
-              const worktreeResult = await withPatchedIsolatedWorktree({
-                cwd: workspace.workspacePath,
-                patch: repairResult.patch,
-                attemptId,
-                run: async ({ worktreePath, patchPath: createdPatchPath }) => {
-                  const validationCommand = healCase.validationCommand ?? workspace.validationCommand;
-                  const validation = await execCommand(validationCommand, { cwd: worktreePath });
-                  const rebasedAut = rebaseAutConfig(workspace.aut, workspace.workspacePath, worktreePath);
-                  const worktreeWorkspace = {
-                    ...workspace,
-                    workspacePath: worktreePath,
-                    aut: rebasedAut,
-                    validationCommand
-                  };
-                  const aut = await startAut(rebasedAut);
-                  try {
-                    const reproductionAfterPatch = await executeGuidedTasks({
-                      runId: `${attemptId}-post-patch`,
-                      resultsRoot,
-                      resolvedSuite,
-                      workspace: worktreeWorkspace,
-                      model,
-                      runner,
-                      trial,
-                      usagePhase: "post_patch_replay",
-                      systemPrompt: resolvedSuite.prompts.guided,
-                      taskIds: healCase.reproductionTaskIds,
-                      onLog: input.onLog,
-                      taskLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch reproduction task`
-                    });
-                    const regressionAfterPatch = await executeGuidedTasks({
-                      runId: `${attemptId}-post-patch`,
-                      resultsRoot,
-                      resolvedSuite,
-                      workspace: worktreeWorkspace,
-                      model,
-                      runner,
-                      trial,
-                      usagePhase: "post_patch_replay",
-                      systemPrompt: resolvedSuite.prompts.guided,
-                      taskIds: healCase.regressionTaskIds,
-                      onLog: input.onLog,
-                      taskLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch regression task`
-                    });
-
-                    return {
-                      validationPassed: validation.exitCode === 0,
-                      validationExitCode: validation.exitCode,
-                      patchPath: createdPatchPath,
-                      note: validation.exitCode === 0 ? "patch applied and validated" : `validation failed: ${validation.stderr || validation.stdout}`,
-                      postPatchReproductionRuns: reproductionAfterPatch.taskRuns,
-                      postPatchRegressionRuns: regressionAfterPatch.taskRuns
-                    };
-                  } finally {
-                    await aut?.stop();
-                  }
-                }
+            const traces = flattenScenarioTraces(reproductionRuns);
+            try {
+              const repairResult = await repairClient.repair({
+                model,
+                systemPrompt: resolvedSuite.prompts.repair ?? "Produce the smallest correct patch.",
+                context: {
+                  appId: input.appId,
+                  findings,
+                  candidateFiles,
+                  validationCommand: healCase.validationCommand ?? workspace.validationCommand,
+                  traces
+                },
+                timeoutMs: spec.runtime.timeoutMs
               });
+              diagnosis = repairResult.diagnosis;
+              suspectedFiles = repairResult.diagnosis.suspectedFiles;
+              patchGenerated = Boolean(repairResult.patch);
+              repairUsage = repairResult.usage;
+              emitExperimentLog(
+                input.onLog,
+                `[heal] Case ${caseId} trial ${trial}/${spec.trials}: repair diagnosis targeted ${suspectedFiles.length} file(s) and ${patchGenerated ? "returned a patch" : "did not return a patch"}`
+              );
 
-              if (!worktreeResult.ok) {
-                note = worktreeResult.repair.note;
-                patchPath = worktreeResult.repair.patchPath;
+              if (!repairResult.patch) {
+                note = "repair model did not return a patch";
                 emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
               } else {
-                patchApplied = true;
-                validationPassed = worktreeResult.result.validationPassed;
-                validationExitCode = worktreeResult.result.validationExitCode;
-                patchPath = worktreeResult.result.patchPath;
-                note = worktreeResult.result.note;
-                postPatchReproductionRuns = worktreeResult.result.postPatchReproductionRuns;
-                postPatchRegressionRuns = worktreeResult.result.postPatchRegressionRuns;
-                emitExperimentLog(
-                  input.onLog,
-                  `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}; post-patch reproduction ${postPatchReproductionRuns.filter((run) => run.success).length}/${postPatchReproductionRuns.length}, regression ${postPatchRegressionRuns.filter((run) => run.success).length}/${postPatchRegressionRuns.length}`
-                );
+                const preservedPatchPath = join(resultsRoot, "runs", attemptId, "repair.patch");
+                await writeText(preservedPatchPath, repairResult.patch);
+                patchPath = preservedPatchPath;
+                emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: validating patched worktree`);
+                const worktreeResult = await withPatchedIsolatedWorktree({
+                  cwd: workspace.workspacePath,
+                  patch: repairResult.patch,
+                  attemptId,
+                  run: async ({ worktreePath }) => {
+                    const validationCommand = healCase.validationCommand ?? workspace.validationCommand;
+                    const validation = await execCommand(validationCommand, { cwd: worktreePath });
+                    const rebasedAut = rebaseAutConfig(workspace.aut, workspace.workspacePath, worktreePath);
+                    const worktreeWorkspace = {
+                      ...workspace,
+                      workspacePath: worktreePath,
+                      aut: rebasedAut,
+                      validationCommand
+                    };
+                    const aut = await startAut(rebasedAut);
+                    try {
+                      const reproductionAfterPatch = await executeGuidedScenarios({
+                        runId: `${attemptId}-post-patch`,
+                        resultsRoot,
+                        resolvedSuite,
+                        workspace: worktreeWorkspace,
+                        model,
+                        runner,
+                        trial,
+                        usagePhase: "post_patch_replay",
+                        systemPrompt: resolvedSuite.prompts.guided,
+                        scenarioIds: healCase.reproductionScenarioIds,
+                        onLog: input.onLog,
+                        scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch reproduction scenario`
+                      });
+                      const regressionAfterPatch = await executeGuidedScenarios({
+                        runId: `${attemptId}-post-patch`,
+                        resultsRoot,
+                        resolvedSuite,
+                        workspace: worktreeWorkspace,
+                        model,
+                        runner,
+                        trial,
+                        usagePhase: "post_patch_replay",
+                        systemPrompt: resolvedSuite.prompts.guided,
+                        scenarioIds: healCase.regressionScenarioIds,
+                        onLog: input.onLog,
+                        scenarioLabel: `[heal][${model.id}][${caseId}][trial ${trial}] post-patch regression scenario`
+                      });
+
+                      return {
+                        validationPassed: validation.exitCode === 0,
+                        validationExitCode: validation.exitCode,
+                        patchPath: preservedPatchPath,
+                        note: validation.exitCode === 0 ? "patch applied and validated" : `validation failed: ${validation.stderr || validation.stdout}`,
+                        postPatchReproductionRuns: reproductionAfterPatch.scenarioRuns,
+                        postPatchRegressionRuns: regressionAfterPatch.scenarioRuns
+                      };
+                    } finally {
+                      await aut?.stop();
+                    }
+                  }
+                });
+
+                if (!worktreeResult.ok) {
+                  note = worktreeResult.repair.note;
+                  emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
+                } else {
+                  patchApplied = true;
+                  validationPassed = worktreeResult.result.validationPassed;
+                  validationExitCode = worktreeResult.result.validationExitCode;
+                  patchPath = worktreeResult.result.patchPath;
+                  note = worktreeResult.result.note;
+                  postPatchReproductionRuns = worktreeResult.result.postPatchReproductionRuns;
+                  postPatchRegressionRuns = worktreeResult.result.postPatchRegressionRuns;
+                  emitExperimentLog(
+                    input.onLog,
+                    `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}; post-patch reproduction ${postPatchReproductionRuns.filter((run) => run.success).length}/${postPatchReproductionRuns.length}, regression ${postPatchRegressionRuns.filter((run) => run.success).length}/${postPatchRegressionRuns.length}`
+                  );
+                }
               }
+            } catch (error) {
+              note = `repair model request failed: ${normalizeExecutionError(error)}`;
+              emitExperimentLog(input.onLog, `[heal] Case ${caseId} trial ${trial}/${spec.trials}: ${note}`);
             }
           }
         } finally {
           await autHandle?.stop();
         }
 
-        const failingTaskFixRate = rateFromRuns(postPatchReproductionRuns);
+        const failingScenarioFixRate = rateFromRuns(postPatchReproductionRuns);
         const regressionFreeRate = rateFromRuns(postPatchRegressionRuns);
         const localization = localizationScore(suspectedFiles, healCase.goldTouchedFiles);
-        const fixed = validationPassed && failingTaskFixRate === 1 && regressionFreeRate === 1;
+        const fixed = validationPassed && failingScenarioFixRate === 1 && regressionFreeRate === 1;
         const reproductionUsage = sumAiUsageSummaries(reproductionRuns.map((run) => run.usageSummary));
         const postPatchUsage = sumAiUsageSummaries(
           [...postPatchReproductionRuns, ...postPatchRegressionRuns].map((run) => run.usageSummary)
@@ -663,7 +693,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
           patchApplied,
           validationPassed,
           validationExitCode,
-          failingTaskFixRate,
+          failingScenarioFixRate,
           regressionFreeRate,
           localizationScore: localization,
           fixed,
@@ -678,7 +708,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
         });
         emitExperimentLog(
           input.onLog,
-          `[heal] Case ${caseId} trial ${trial}/${spec.trials} completed: fixed=${fixed ? "yes" : "no"}, failing-task ${(failingTaskFixRate * 100).toFixed(1)}%, regression-free ${(regressionFreeRate * 100).toFixed(1)}%`
+          `[heal] Case ${caseId} trial ${trial}/${spec.trials} completed: fixed=${fixed ? "yes" : "no"}, failing-scenario ${(failingScenarioFixRate * 100).toFixed(1)}%, regression-free ${(regressionFreeRate * 100).toFixed(1)}%`
         );
       }
     }
@@ -687,7 +717,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
     const summary = {
       model,
       metrics,
-      cacheSummary: summarizeTaskRunCache(
+      cacheSummary: summarizeScenarioRunCache(
         caseResults.flatMap((caseResult) => [
           ...caseResult.reproductionRuns,
           ...caseResult.postPatchReproductionRuns,
@@ -713,7 +743,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
     modelSummaries
   };
 
-  const output = await persistHealOutput(resultsRoot, artifact, buildReport(artifact));
+  const output = await persistHealOutput(resultsRoot, artifact, buildHealReport(artifact));
   emitExperimentLog(
     input.onLog,
     `[heal] Completed ${runId} in ${formatDurationMs(Date.now() - runStartedAtMs)}. Report: ${output.reportPath}`
@@ -724,7 +754,7 @@ export async function runHealExperiment(input: RunHealExperimentInput): Promise<
 export async function getHealReport(runId: string, resultsDir = "results"): Promise<HealReport> {
   const reportsRoot = await resolveExperimentRoot(resultsDir, "heal");
   const raw = await readFile(join(reportsRoot, "runs", runId, "run.json"), "utf8");
-  return buildReport(JSON.parse(raw) as HealRunArtifact);
+  return buildHealReport(JSON.parse(raw) as HealRunArtifact);
 }
 
 export function buildHealComparison(reports: Array<{ section: BenchmarkComparisonSection }>): ModeComparisonBuildResult {

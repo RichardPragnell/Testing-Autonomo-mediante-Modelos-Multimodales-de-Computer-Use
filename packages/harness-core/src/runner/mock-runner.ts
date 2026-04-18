@@ -1,6 +1,6 @@
 import { sha256 } from "../utils/hash.js";
 import { nowIso } from "../utils/time.js";
-import type { AutomationRunner, ExplorationArtifact, RunTaskInput, TaskRunResult } from "../types.js";
+import type { AutomationRunner, ExplorationArtifact, RunScenarioInput, ScenarioRunResult } from "../types.js";
 
 function seededNumber(seedText: string): number {
   const hex = sha256(seedText).slice(0, 12);
@@ -26,21 +26,52 @@ function baseModelQuality(modelId: string): number {
 export class MockAutomationRunner implements AutomationRunner {
   constructor(private readonly seed = 42) {}
 
-  async runTask(input: RunTaskInput): Promise<TaskRunResult> {
+  async runScenario(input: RunScenarioInput): Promise<ScenarioRunResult> {
     const started = Date.now();
     const score = seededNumber(
-      `${this.seed}|${input.model.id}|${input.task.id}|${input.trial}|${input.aut.url}`
+      `${this.seed}|${input.model.id}|${input.scenario.scenarioId}|${input.trial}|${input.aut.url}`
     );
     const quality = baseModelQuality(input.model.id);
     const success = score <= quality;
     const latencyMs = Math.round(800 + score * 2200);
     const costUsd = Number((0.002 + score * 0.008).toFixed(6));
-    const message = success ? "mock assertion passed" : "mock assertion failed";
-    const domSnapshot = `<html><body><h1>${success ? input.task.expected.value : "Mismatch"}</h1></body></html>`;
+    const message = success ? "mock scenario passed" : "mock scenario failed";
+    const finalStep = input.scenario.steps.at(-1);
+    const domSnapshot = `<html><body><h1>${success ? input.scenario.title : "Mismatch"}</h1></body></html>`;
     const screenshotBase64 = Buffer.from(
-      `${input.model.id}:${input.task.id}:${input.trial}:${success ? "ok" : "ko"}`
+      `${input.model.id}:${input.scenario.scenarioId}:${input.trial}:${success ? "ok" : "ko"}`
     ).toString("base64");
     const cacheStatus = input.trial > 1 ? "hit" : "miss";
+    const failingStepId = finalStep?.stepId ?? input.scenario.steps[0]?.stepId ?? "step-1";
+    const stepRuns = input.scenario.steps.map((step, index) => {
+      const stepSuccess = success || index < input.scenario.steps.length - 1;
+      return {
+        stepId: step.stepId,
+        title: step.title,
+        success: stepSuccess,
+        message: stepSuccess ? "mock step passed" : "mock step failed",
+        actionInstruction: step.actionInstruction,
+        assertionRuns: step.assertions.map((assertion) => ({
+          assertionId: assertion.assertionId,
+          type: assertion.type,
+          success: stepSuccess,
+          message: stepSuccess ? "mock assertion passed" : "mock assertion failed",
+          extractedValue:
+            assertion.type === "extract"
+              ? assertion.resultType === "string_array"
+                ? []
+                : assertion.resultType === "boolean"
+                  ? false
+                  : assertion.resultType === "number"
+                    ? 0
+                    : success
+                      ? input.scenario.title
+                      : "Mismatch"
+              : undefined
+        })),
+        urlAfter: success ? `${input.aut.url}#${step.stepId}` : `${input.aut.url}#${failingStepId}`
+      };
+    });
     const usageSummary = {
       latencyMs,
       inputTokens: Math.round(800 + score * 300),
@@ -56,7 +87,8 @@ export class MockAutomationRunner implements AutomationRunner {
     };
 
     return {
-      taskId: input.task.id,
+      scenarioId: input.scenario.scenarioId,
+      scenarioTitle: input.scenario.title,
       trial: input.trial,
       modelId: input.model.id,
       success,
@@ -66,13 +98,13 @@ export class MockAutomationRunner implements AutomationRunner {
       usageSummary,
       aiCalls: [
         {
-          phase: input.usagePhase ?? "guided_task",
+          phase: input.usagePhase ?? "guided_scenario",
           operation: "agent",
           requestedModelId: input.model.id,
           requestedProvider: input.model.provider,
           servedModelId: input.model.id,
           servedProvider: input.model.provider,
-          generationId: `mock-gen-${this.seed}-${input.task.id}-${input.trial}`,
+          generationId: `mock-gen-${this.seed}-${input.scenario.scenarioId}-${input.trial}`,
           costSource: "exact",
           costUsd,
           latencyMs,
@@ -93,7 +125,7 @@ export class MockAutomationRunner implements AutomationRunner {
           timestamp: nowIso(),
           action: "mock.act",
           details: {
-            instruction: input.task.instruction,
+            scenarioId: input.scenario.scenarioId,
             score,
             quality,
             systemPrompt: input.systemPrompt,
@@ -106,24 +138,25 @@ export class MockAutomationRunner implements AutomationRunner {
         rootDir: input.cacheConfig.rootDir,
         namespace: input.cacheConfig.namespace,
         configSignature: input.cacheConfig.configSignature,
-        mode: "agent_native",
+        mode: "scenario_native",
         status: cacheStatus,
         aiInvoked: cacheStatus !== "hit",
         warnings: []
       },
-      error: success ? undefined : "mock failure"
+      error: success ? undefined : "mock failure",
+      stepRuns
     };
   }
 
   async exploreTarget(input: {
-    model: RunTaskInput["model"];
+    model: RunScenarioInput["model"];
     trial: number;
     targetId: string;
     bugIds: string[];
     prompt: string;
-    aut: RunTaskInput["aut"];
-    runConfig: RunTaskInput["runConfig"];
-    cacheConfig: RunTaskInput["cacheConfig"];
+    aut: RunScenarioInput["aut"];
+    runConfig: RunScenarioInput["runConfig"];
+    cacheConfig: RunScenarioInput["cacheConfig"];
     workspacePath: string;
   }): Promise<ExplorationArtifact> {
     const explorationRunId = `mock-explore-${this.seed}-${input.trial}`;

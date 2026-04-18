@@ -30,17 +30,19 @@ export default function App() {
     setEditingDraft(next.draft);
   }
 
-  function handleCancelEdit() {
+  function resetEditingState() {
     const next = cancelTodoEdit();
     setEditingId(next.editingId);
     setEditingDraft(next.draft);
   }
 
+  function handleCancelEdit() {
+    resetEditingState();
+  }
+
   function handleSaveEdit() {
     setTodos((current) => commitTodoEdit(current, editingId, editingDraft).todos);
-    const next = cancelTodoEdit();
-    setEditingId(next.editingId);
-    setEditingDraft(next.draft);
+    resetEditingState();
   }
 
   function handleEditKeyDown(event) {

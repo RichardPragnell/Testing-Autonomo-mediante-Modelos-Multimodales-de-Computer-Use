@@ -16,7 +16,7 @@ export function cancelTodoEdit() {
 
 export function commitTodoEdit(todos, editingId, draft) {
   return {
-    todos: editingId ? updateTodoText(todos, editingId, draft) : todos,
+    todos: editingId === null ? todos : updateTodoText(todos, editingId, draft),
     ...cancelTodoEdit()
   };
 }

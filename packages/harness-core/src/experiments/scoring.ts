@@ -1,200 +1,152 @@
-import { clamp, computeCostEfficiency, computeLatencyEfficiency, round } from "./common.js";
+import { clamp, round } from "./common.js";
 import type { BenchmarkScoreDefinition } from "./types.js";
 
 export const QA_SCORE_DEFINITION: BenchmarkScoreDefinition = {
-  modeDescription: "Guided mode rewards end-to-end task completion first, then consistency and efficiency.",
+  modeDescription: "Guided mode rewards end-to-end scenario completion first, then step quality and consistency.",
   formula:
-    "Score = 100 x clamp(0.45 x Scenario Completion + 0.25 x Task Pass + 0.15 x Capability Pass + 0.10 x Stability + 0.03 x Latency Efficiency + 0.02 x Cost Efficiency)",
+    "Score = 100 x clamp(0.45 x Scenario Completion + 0.25 x Step Pass + 0.15 x Capability Pass + 0.15 x Stability)",
   metrics: [
     {
-      key: "fullScenarioCompletionRate",
+      key: "scenarioCompletionRate",
       label: "Scenario Completion",
       weight: 0.45,
-      description: "Share of trials where every guided task in the scenario succeeded.",
-      contribution: "Largest term because partial task success should not outrank a fully completed run."
+      description: "Share of guided scenario runs that completed successfully.",
+      contribution: "Largest term because a full journey should outrank isolated successful steps."
     },
     {
-      key: "taskPassRate",
-      label: "Task Pass",
+      key: "stepPassRate",
+      label: "Step Pass",
       weight: 0.25,
-      description: "Share of guided tasks that passed across all executed trials.",
-      contribution: "Captures granular task execution quality even when full scenarios are not completed."
+      description: "Share of scenario steps that passed across all executed guided scenario runs.",
+      contribution: "Captures granular journey quality even when full scenarios are not completed."
     },
     {
       key: "capabilityPassRate",
       label: "Capability Pass",
       weight: 0.15,
-      description: "Share of benchmark capabilities whose grouped tasks all passed.",
+      description: "Share of benchmark capabilities whose grouped scenarios all passed.",
       contribution: "Rewards breadth across benchmark capabilities instead of repeated success on one narrow path."
     },
     {
       key: "stability",
       label: "Stability",
-      weight: 0.1,
-      description: "Consistency score derived from run-to-run variance in binary task outcomes.",
-      contribution: "Rewards repeatable behavior; unstable models lose score even if single runs look strong."
-    },
-    {
-      key: "latencyEfficiency",
-      label: "Latency Efficiency",
-      weight: 0.03,
-      description: "Efficiency term computed from average latency using the shared latency pivot.",
-      contribution: "Small bonus that separates otherwise similar guided results in favor of faster runs."
-    },
-    {
-      key: "costEfficiency",
-      label: "Cost Efficiency",
-      weight: 0.02,
-      description: "Efficiency term computed from average resolved cost using the shared cost pivot.",
-      contribution: "Small bonus that favors cheaper guided runs without dominating correctness."
+      weight: 0.15,
+      description: "Consistency score normalized to the full 0-1 range from run-to-run variance in binary scenario outcomes.",
+      contribution: "Rewards repeatable behavior and more strongly penalizes unstable models than the previous scaling."
     }
   ],
   specialRules: [
-    "Latency Efficiency = 1 / (1 + avgLatencyMs / 2000).",
-    "Cost Efficiency = 1 / (1 + avgCostUsd / 0.05).",
+    "Stability = 1 - (average binary standard deviation / 0.5), clamped to the 0-1 range.",
     "Higher score is better; the final score is clamped to the 0-100 range after weighting."
   ]
 };
 
 export const EXPLORE_SCORE_DEFINITION: BenchmarkScoreDefinition = {
-  modeDescription: "Explore mode rewards discovering useful coverage first, with replay and efficiency as secondary terms.",
+  modeDescription: "Explore mode rewards useful coverage first, then replay utility.",
   formula:
-    "Score = 100 x clamp(0.30 x Capability Discovery + 0.25 x State Coverage + 0.20 x Transition Coverage + 0.15 x Probe Replay + 0.05 x Action Diversity + 0.03 x Latency Efficiency + 0.02 x Cost Efficiency)",
+    "Score = 100 x clamp(0.35 x Capability Discovery + 0.20 x State Coverage + 0.15 x Transition Coverage + 0.10 x Action Diversity + 0.20 x Probe Replay)",
   metrics: [
     {
       key: "capabilityDiscoveryRate",
       label: "Capability Discovery",
-      weight: 0.3,
+      weight: 0.35,
       description: "Share of benchmark capabilities that autonomous exploration surfaced.",
       contribution: "Primary exploration objective because discovery quality matters more than wandering volume."
     },
     {
       key: "stateCoverage",
       label: "State Coverage",
-      weight: 0.25,
+      weight: 0.2,
       description: "Observed state count normalized against the configured minimum target.",
       contribution: "Rewards breadth of reachable UI states without overvaluing redundant steps."
     },
     {
       key: "transitionCoverage",
       label: "Transition Coverage",
-      weight: 0.2,
+      weight: 0.15,
       description: "Observed state-transition count normalized against the configured minimum target.",
       contribution: "Rewards meaningful navigation through the app rather than isolated snapshots."
     },
     {
-      key: "probeReplayPassRate",
-      label: "Probe Replay",
-      weight: 0.15,
-      description: "Share of guided probe tasks that pass when replayed from exploration artifacts.",
-      contribution: "Measures whether exploration found reusable actions instead of only novel traces."
-    },
-    {
       key: "actionDiversity",
       label: "Action Diversity",
-      weight: 0.05,
+      weight: 0.1,
       description: "Fraction of expected action kinds covered by the exploration trace.",
-      contribution: "Small bonus for varied exploration behavior once discovery and coverage are already strong."
+      contribution: "Small bonus for varied exploration behavior after the primary coverage objectives have been met."
     },
     {
-      key: "latencyEfficiency",
-      label: "Latency Efficiency",
-      weight: 0.03,
-      description: "Efficiency term computed from average latency using the shared latency pivot.",
-      contribution: "Small bonus that favors faster exploration runs when outcome metrics are close."
-    },
-    {
-      key: "costEfficiency",
-      label: "Cost Efficiency",
-      weight: 0.02,
-      description: "Efficiency term computed from average resolved cost using the shared cost pivot.",
-      contribution: "Small bonus that favors cheaper exploration runs without overpowering coverage."
+      key: "probeReplayPassRate",
+      label: "Probe Replay",
+      weight: 0.2,
+      description: "Share of guided probe scenarios that pass when replayed from exploration artifacts.",
+      contribution: "Measures whether exploration found reusable journeys instead of only novel traces."
     }
   ],
-  specialRules: [
-    "State and transition coverage are capped at 1.0 after normalizing against the heuristic targets.",
-    "Latency Efficiency = 1 / (1 + avgLatencyMs / 2000).",
-    "Cost Efficiency = 1 / (1 + avgCostUsd / 0.05)."
-  ]
+  specialRules: ["State and transition coverage are capped at 1.0 after normalizing against the heuristic targets."]
 };
 
 export const HEAL_SCORE_DEFINITION: BenchmarkScoreDefinition = {
-  modeDescription: "Self-heal mode rewards fixing the failing tasks without regressions, then discounts patch-only outcomes through a fix-rate gate.",
+  modeDescription: "Self-heal mode rewards complete scenario-level repairs first, then regression safety and diagnostic accuracy.",
   formula:
-    "Base = 0.40 x Failing-Task Fix + 0.20 x Regression-Free + 0.15 x Validation Pass + 0.10 x Localization + 0.05 x Patch Apply; Gated Outcome = Base x (0.5 + 0.5 x Failing-Task Fix); Score = 100 x clamp(Gated Outcome + 0.03 x Latency Efficiency + 0.02 x Cost Efficiency)",
+    "Score = 100 x clamp(0.35 x Fix Rate + 0.30 x Failing-Scenario Fix + 0.15 x Regression-Free + 0.10 x Validation Pass + 0.10 x Localization Recall)",
   metrics: [
     {
-      key: "failingTaskFixRate",
-      label: "Failing-Task Fix",
-      weight: 0.4,
-      description: "Average fraction of originally failing benchmark tasks fixed after the patch.",
-      contribution: "Dominant term because successful repair is the main objective of self-heal."
+      key: "fixRate",
+      label: "Fix Rate",
+      weight: 0.35,
+      description: "Share of repair cases that validate, fully fix the failing tasks, and avoid regressions.",
+      contribution: "Primary signal because it captures end-to-end repair success at the case level."
+    },
+    {
+      key: "failingScenarioFixRate",
+      label: "Failing-Scenario Fix",
+      weight: 0.3,
+      description: "Average fraction of originally failing benchmark scenarios fixed after the patch.",
+      contribution: "Captures partial repair quality when full case resolution has not yet been reached."
     },
     {
       key: "regressionFreeRate",
       label: "Regression-Free",
-      weight: 0.2,
+      weight: 0.15,
       description: "Average fraction of regression checks that still pass after the patch.",
-      contribution: "Second-largest term to prevent fixes that break previously healthy behavior."
+      contribution: "Prevents apparently strong repairs from ranking well if they damage previously healthy behavior."
     },
     {
       key: "validationPassRate",
       label: "Validation Pass",
-      weight: 0.15,
+      weight: 0.1,
       description: "Share of repair cases where the validation command completed successfully.",
-      contribution: "Rewards patches that survive the benchmark’s validation gate."
+      contribution: "Rewards repairs that clear the explicit verification gate."
     },
     {
       key: "localizationAccuracy",
-      label: "Localization",
+      label: "Localization Recall",
       weight: 0.1,
-      description: "Average overlap between suspected files and gold touched files for the seeded bug.",
+      description: "Average recall of gold touched files recovered by the suspected-file set for the seeded bug.",
       contribution: "Rewards accurate diagnosis, but less than actual repair outcomes."
-    },
-    {
-      key: "patchApplyRate",
-      label: "Patch Apply",
-      weight: 0.05,
-      description: "Share of repair attempts whose generated patch applied cleanly.",
-      contribution: "Small bonus for operational patch quality after diagnosis."
-    },
-    {
-      key: "latencyEfficiency",
-      label: "Latency Efficiency",
-      weight: 0.03,
-      description: "Efficiency term computed from average latency using the shared latency pivot.",
-      contribution: "Small bonus that favors faster repair cycles when repair quality is similar."
-    },
-    {
-      key: "costEfficiency",
-      label: "Cost Efficiency",
-      weight: 0.02,
-      description: "Efficiency term computed from average resolved cost using the shared cost pivot.",
-      contribution: "Small bonus that favors cheaper repair cycles without outranking actual fixes."
     }
   ],
   specialRules: [
-    "The base repair outcome is multiplied by (0.5 + 0.5 x Failing-Task Fix), so patch-only results are gated down.",
-    "Latency Efficiency = 1 / (1 + avgLatencyMs / 2000).",
-    "Cost Efficiency = 1 / (1 + avgCostUsd / 0.05)."
+    "Patch Apply is still reported operationally, but it is excluded from the weighted score.",
+    "Localization Recall = |suspected files intersect gold files| / |gold files|."
   ]
 };
 
 export function computeQaScore(input: {
   capabilityPassRate: number;
-  fullScenarioCompletionRate: number;
-  taskPassRate: number;
+  scenarioCompletionRate: number;
+  stepPassRate: number;
   stability: number;
   avgLatencyMs: number;
   avgCostUsd: number;
 }): number {
   const weighted =
-    input.fullScenarioCompletionRate * 0.45 +
-    input.taskPassRate * 0.25 +
+    input.scenarioCompletionRate * 0.45 +
+    input.stepPassRate * 0.25 +
     input.capabilityPassRate * 0.15 +
-    input.stability * 0.1 +
-    computeLatencyEfficiency(input.avgLatencyMs) * 0.03 +
-    computeCostEfficiency(input.avgCostUsd) * 0.02;
+    input.stability * 0.15;
+  void input.avgLatencyMs;
+  void input.avgCostUsd;
   return round(clamp(weighted) * 100, 3);
 }
 
@@ -208,33 +160,35 @@ export function computeExploreScore(input: {
   avgCostUsd: number;
 }): number {
   const weighted =
-    input.capabilityDiscoveryRate * 0.3 +
-    input.stateCoverage * 0.25 +
-    input.transitionCoverage * 0.2 +
-    input.probeReplayPassRate * 0.15 +
-    input.actionDiversity * 0.05;
-  const efficiencyBonus =
-    computeLatencyEfficiency(input.avgLatencyMs) * 0.03 + computeCostEfficiency(input.avgCostUsd) * 0.02;
-  return round(clamp(weighted + efficiencyBonus) * 100, 3);
+    input.capabilityDiscoveryRate * 0.35 +
+    input.stateCoverage * 0.2 +
+    input.transitionCoverage * 0.15 +
+    input.actionDiversity * 0.1 +
+    input.probeReplayPassRate * 0.2;
+  void input.avgLatencyMs;
+  void input.avgCostUsd;
+  return round(clamp(weighted) * 100, 3);
 }
 
 export function computeHealScore(input: {
+  fixRate: number;
   localizationAccuracy: number;
   patchApplyRate: number;
   validationPassRate: number;
-  failingTaskFixRate: number;
+  failingScenarioFixRate: number;
   regressionFreeRate: number;
   avgLatencyMs: number;
   avgCostUsd: number;
 }): number {
-  const base =
-    input.failingTaskFixRate * 0.4 +
-    input.regressionFreeRate * 0.2 +
-    input.validationPassRate * 0.15 +
-    input.localizationAccuracy * 0.1 +
-    input.patchApplyRate * 0.05;
-  const gatedOutcome = base * (0.5 + 0.5 * input.failingTaskFixRate);
-  const efficiencyBonus =
-    computeLatencyEfficiency(input.avgLatencyMs) * 0.03 + computeCostEfficiency(input.avgCostUsd) * 0.02;
-  return round(clamp(gatedOutcome + efficiencyBonus) * 100, 3);
+  const weighted =
+    input.fixRate * 0.35 +
+    input.failingScenarioFixRate * 0.3 +
+    input.regressionFreeRate * 0.15 +
+    input.validationPassRate * 0.1 +
+    input.localizationAccuracy * 0.1;
+
+  void input.patchApplyRate;
+  void input.avgLatencyMs;
+  void input.avgCostUsd;
+  return round(clamp(weighted) * 100, 3);
 }

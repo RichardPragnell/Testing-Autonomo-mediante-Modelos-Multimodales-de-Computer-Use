@@ -302,7 +302,8 @@ export function renderPaperReport(input: PaperDocument): string {
         width: min(1120px, calc(100vw - 32px));
         margin: 32px auto 56px;
         background: var(--sheet);
-        border: 1px solid var(--rule);
+        border-top: 1px solid var(--rule);
+        border-bottom: 1px solid var(--rule);
         box-shadow: 0 18px 60px rgba(22, 20, 18, 0.08);
       }
       .paper-header,

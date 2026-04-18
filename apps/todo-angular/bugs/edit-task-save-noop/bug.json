@@ -5,5 +5,7 @@
   "category": "state",
   "severity": "medium",
   "patchPath": "patch.diff",
-  "expectedFailureTaskIds": ["guided-edit-task"]
+  "expectedFailureScenarioIds": [
+    "edit-task"
+  ]
 }

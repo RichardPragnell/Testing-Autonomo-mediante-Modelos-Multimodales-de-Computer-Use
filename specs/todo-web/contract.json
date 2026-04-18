@@ -6,7 +6,7 @@
   "implementationConstraints": [
     "Serve as a single-page local web app with no backend dependency.",
     "Keep state in memory only so every page reload resets to the same seeded todos.",
-    "Keep user-visible copy, seeded data, scenario task ids, and bug pack ids identical across framework ports.",
+    "Keep user-visible copy, seeded data, scenario ids, and bug pack ids identical across framework ports.",
     "Allow implementation-specific component structure and styling, but preserve the accessible labels, button text, and flows defined here."
   ],
   "ui": {
@@ -55,7 +55,11 @@
   },
   "seed": {
     "entity": "todo",
-    "fields": ["id", "text", "done"],
+    "fields": [
+      "id",
+      "text",
+      "done"
+    ],
     "initialTodos": [
       {
         "id": "todo-1",
@@ -128,7 +132,11 @@
       {
         "element": "filter buttons",
         "attribute": "data-filter",
-        "valueSet": ["all", "active", "completed"]
+        "valueSet": [
+          "all",
+          "active",
+          "completed"
+        ]
       },
       {
         "element": "todo rows",
@@ -138,78 +146,381 @@
       {
         "element": "action buttons and checkbox",
         "attribute": "data-action",
-        "valueSet": ["add", "toggle", "edit", "remove", "save", "cancel"]
+        "valueSet": [
+          "add",
+          "toggle",
+          "edit",
+          "remove",
+          "save",
+          "cancel"
+        ]
       }
     ]
   },
   "scenarios": {
-    "smoke": {
-      "scenarioId": "smoke",
-      "title": "Todo Bench smoke flow",
+    "smoke-load": {
+      "scenarioId": "smoke-load",
+      "title": "Load the Todo Bench board",
       "source": "synthetic",
-      "tasks": [
+      "steps": [
         {
-          "id": "smoke-home-title",
-          "instruction": "Open the app and verify the page title Todo Bench is visible.",
-          "expected": {
-            "type": "text_visible",
-            "value": "Todo Bench"
-          }
-        },
-        {
-          "id": "smoke-default-count",
-          "instruction": "Verify the summary shows 2 tasks remaining when the app first loads.",
-          "expected": {
-            "type": "text_visible",
-            "value": "2 tasks remaining"
-          }
+          "stepId": "smoke-load.assert-home",
+          "title": "Verify the initial board copy",
+          "assertions": [
+            {
+              "assertionId": "smoke-load.heading",
+              "type": "extract",
+              "instruction": "extract the main page heading text",
+              "resultType": "string",
+              "match": {
+                "equals": "Todo Bench"
+              }
+            },
+            {
+              "assertionId": "smoke-load.remaining",
+              "type": "extract",
+              "instruction": "extract the text shown in the Remaining summary card",
+              "resultType": "string",
+              "match": {
+                "equals": "2 tasks remaining"
+              }
+            },
+            {
+              "assertionId": "smoke-load.progress",
+              "type": "extract",
+              "instruction": "extract the text shown in the Progress summary card",
+              "resultType": "string",
+              "match": {
+                "equals": "0 of 2 tasks done"
+              }
+            },
+            {
+              "assertionId": "smoke-load.seed-plan",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "includes": "Plan todo benchmark"
+              }
+            },
+            {
+              "assertionId": "smoke-load.seed-draft",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "includes": "Draft Stagehand checklist"
+              }
+            }
+          ]
         }
       ]
     },
-    "guided": {
-      "scenarioId": "guided",
-      "title": "Todo Bench guided interactions",
-      "source": "curated",
-      "tasks": [
+    "add-task": {
+      "scenarioId": "add-task",
+      "title": "Add a new task from the composer",
+      "source": "generated",
+      "steps": [
         {
-          "id": "guided-add-task",
-          "instruction": "Add a new task called Review benchmark notes and verify it appears in the task list.",
-          "expected": {
-            "type": "text_visible",
-            "value": "Review benchmark notes"
-          }
+          "stepId": "add-task.fill-composer",
+          "title": "Fill the new task composer",
+          "actionInstruction": "type Review benchmark notes into the New task input",
+          "assertions": [
+            {
+              "assertionId": "add-task.composer-filled",
+              "type": "extract",
+              "instruction": "extract the current value of the New task input",
+              "resultType": "string",
+              "match": {
+                "equals": "Review benchmark notes"
+              }
+            }
+          ]
         },
         {
-          "id": "guided-complete-task",
-          "instruction": "Mark the task Draft Stagehand checklist as completed and verify the summary shows 1 of 2 tasks done.",
-          "expected": {
-            "type": "text_visible",
-            "value": "1 of 2 tasks done"
-          }
+          "stepId": "add-task.submit",
+          "title": "Submit the new task",
+          "actionInstruction": "click the Add task button",
+          "assertions": [
+            {
+              "assertionId": "add-task.remove-visible",
+              "type": "observe",
+              "instruction": "find the Remove button for the task Review benchmark notes",
+              "exists": true,
+              "method": "click"
+            }
+          ]
         },
         {
-          "id": "guided-filter-active",
-          "instruction": "Switch to the Active filter and verify the completed task Draft Stagehand checklist is no longer visible.",
-          "expected": {
-            "type": "text_visible",
-            "value": "Plan todo benchmark"
-          }
+          "stepId": "add-task.assert-outcome",
+          "title": "Verify the new task and cleared composer",
+          "assertions": [
+            {
+              "assertionId": "add-task.todo-visible",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "includes": "Review benchmark notes"
+              }
+            },
+            {
+              "assertionId": "add-task.composer-cleared",
+              "type": "extract",
+              "instruction": "extract whether the New task input is empty",
+              "resultType": "boolean",
+              "match": {
+                "equals": true
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "complete-task": {
+      "scenarioId": "complete-task",
+      "title": "Complete an existing task",
+      "source": "generated",
+      "steps": [
+        {
+          "stepId": "complete-task.toggle",
+          "title": "Toggle the Draft Stagehand checklist task",
+          "actionInstruction": "click the checkbox for the task Draft Stagehand checklist",
+          "assertions": [
+            {
+              "assertionId": "complete-task.active-filter-visible",
+              "type": "observe",
+              "instruction": "find the Active filter button",
+              "exists": true,
+              "method": "click"
+            }
+          ]
         },
         {
-          "id": "guided-edit-task",
-          "instruction": "Edit the existing task Plan todo benchmark so it reads Plan todo benchmark outline and verify the updated text is visible.",
-          "expected": {
-            "type": "text_visible",
-            "value": "Plan todo benchmark outline"
-          }
+          "stepId": "complete-task.assert-summary",
+          "title": "Verify the completion summary",
+          "assertions": [
+            {
+              "assertionId": "complete-task.progress",
+              "type": "extract",
+              "instruction": "extract the text shown in the Progress summary card",
+              "resultType": "string",
+              "match": {
+                "equals": "1 of 2 tasks done"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "filter-active": {
+      "scenarioId": "filter-active",
+      "title": "Show only active tasks",
+      "source": "generated",
+      "steps": [
+        {
+          "stepId": "filter-active.complete-one",
+          "title": "Complete the Draft Stagehand checklist task",
+          "actionInstruction": "click the checkbox for the task Draft Stagehand checklist",
+          "assertions": [
+            {
+              "assertionId": "filter-active.progress",
+              "type": "extract",
+              "instruction": "extract the text shown in the Progress summary card",
+              "resultType": "string",
+              "match": {
+                "equals": "1 of 2 tasks done"
+              }
+            }
+          ]
         },
         {
-          "id": "guided-create-delete-task",
-          "instruction": "Create a new task called Remove benchmark draft, delete it, and verify it is no longer visible in the task list.",
-          "expected": {
-            "type": "text_not_visible",
-            "value": "Remove benchmark draft"
-          }
+          "stepId": "filter-active.select-active",
+          "title": "Select the Active filter",
+          "actionInstruction": "click the Active filter button",
+          "assertions": [
+            {
+              "assertionId": "filter-active.completed-filter-visible",
+              "type": "observe",
+              "instruction": "find the Completed filter button",
+              "exists": true,
+              "method": "click"
+            }
+          ]
+        },
+        {
+          "stepId": "filter-active.assert-list",
+          "title": "Verify only active tasks remain visible",
+          "assertions": [
+            {
+              "assertionId": "filter-active.plan-visible",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "includes": "Plan todo benchmark"
+              }
+            },
+            {
+              "assertionId": "filter-active.draft-hidden",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "excludes": "Draft Stagehand checklist"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "edit-task": {
+      "scenarioId": "edit-task",
+      "title": "Edit an existing task label",
+      "source": "generated",
+      "steps": [
+        {
+          "stepId": "edit-task.open-editor",
+          "title": "Enter edit mode for the first task",
+          "actionInstruction": "click the Edit button for the task Plan todo benchmark",
+          "assertions": [
+            {
+              "assertionId": "edit-task.save-visible",
+              "type": "observe",
+              "instruction": "find the Save button for the task being edited",
+              "exists": true,
+              "method": "click"
+            },
+            {
+              "assertionId": "edit-task.input-seeded",
+              "type": "extract",
+              "instruction": "extract the current value of the Edit task input",
+              "resultType": "string",
+              "match": {
+                "equals": "Plan todo benchmark"
+              }
+            }
+          ]
+        },
+        {
+          "stepId": "edit-task.fill-editor",
+          "title": "Update the edit draft",
+          "actionInstruction": "type Plan todo benchmark outline into the Edit task input",
+          "assertions": [
+            {
+              "assertionId": "edit-task.input-updated",
+              "type": "extract",
+              "instruction": "extract the current value of the Edit task input",
+              "resultType": "string",
+              "match": {
+                "equals": "Plan todo benchmark outline"
+              }
+            }
+          ]
+        },
+        {
+          "stepId": "edit-task.save",
+          "title": "Save the edited task",
+          "actionInstruction": "click the Save button",
+          "assertions": [
+            {
+              "assertionId": "edit-task.edit-visible",
+              "type": "observe",
+              "instruction": "find the Edit button for the task Plan todo benchmark outline",
+              "exists": true,
+              "method": "click"
+            }
+          ]
+        },
+        {
+          "stepId": "edit-task.assert-label",
+          "title": "Verify the updated label is visible",
+          "assertions": [
+            {
+              "assertionId": "edit-task.updated-visible",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "includes": "Plan todo benchmark outline"
+              }
+            },
+            {
+              "assertionId": "edit-task.original-hidden",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "excludes": "Plan todo benchmark"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "create-delete-task": {
+      "scenarioId": "create-delete-task",
+      "title": "Create and remove a temporary task",
+      "source": "generated",
+      "steps": [
+        {
+          "stepId": "create-delete-task.fill-composer",
+          "title": "Fill the composer with a removable task",
+          "actionInstruction": "type Remove benchmark draft into the New task input",
+          "assertions": [
+            {
+              "assertionId": "create-delete-task.composer-filled",
+              "type": "extract",
+              "instruction": "extract the current value of the New task input",
+              "resultType": "string",
+              "match": {
+                "equals": "Remove benchmark draft"
+              }
+            }
+          ]
+        },
+        {
+          "stepId": "create-delete-task.submit",
+          "title": "Create the temporary task",
+          "actionInstruction": "click the Add task button",
+          "assertions": [
+            {
+              "assertionId": "create-delete-task.remove-visible",
+              "type": "observe",
+              "instruction": "find the Remove button for the task Remove benchmark draft",
+              "exists": true,
+              "method": "click"
+            }
+          ]
+        },
+        {
+          "stepId": "create-delete-task.remove",
+          "title": "Delete the temporary task",
+          "actionInstruction": "click the Remove button for the task Remove benchmark draft",
+          "assertions": [
+            {
+              "assertionId": "create-delete-task.add-button-still-visible",
+              "type": "observe",
+              "instruction": "find the Add task button",
+              "exists": true,
+              "method": "click"
+            }
+          ]
+        },
+        {
+          "stepId": "create-delete-task.assert-removed",
+          "title": "Verify the task is gone",
+          "assertions": [
+            {
+              "assertionId": "create-delete-task.todo-hidden",
+              "type": "extract",
+              "instruction": "extract all visible todo item labels in the task list",
+              "resultType": "string_array",
+              "match": {
+                "excludes": "Remove benchmark draft"
+              }
+            }
+          ]
         }
       ]
     }
@@ -219,35 +530,47 @@
       {
         "capabilityId": "smoke-load",
         "title": "Load the application",
-        "taskIds": ["smoke-home-title", "smoke-default-count"]
+        "scenarioIds": [
+          "smoke-load"
+        ]
       },
       {
         "capabilityId": "add-task",
         "title": "Add a new task",
-        "taskIds": ["guided-add-task"]
+        "scenarioIds": [
+          "add-task"
+        ]
       },
       {
         "capabilityId": "complete-task",
         "title": "Complete an existing task",
-        "taskIds": ["guided-complete-task"]
+        "scenarioIds": [
+          "complete-task"
+        ]
       },
       {
         "capabilityId": "filter-active",
         "title": "Filter active tasks",
-        "taskIds": ["guided-filter-active"]
+        "scenarioIds": [
+          "filter-active"
+        ]
       },
       {
         "capabilityId": "edit-task",
         "title": "Edit an existing task",
-        "taskIds": ["guided-edit-task"]
+        "scenarioIds": [
+          "edit-task"
+        ]
       },
       {
         "capabilityId": "create-delete-task",
         "title": "Create and delete a task",
-        "taskIds": ["guided-create-delete-task"]
+        "scenarioIds": [
+          "create-delete-task"
+        ]
       }
     ],
-    "qa": {
+    "guided": {
       "capabilityIds": [
         "smoke-load",
         "add-task",
@@ -266,25 +589,31 @@
         "edit-task",
         "create-delete-task"
       ],
-      "probeTaskIds": [
-        "smoke-home-title",
-        "smoke-default-count",
-        "guided-add-task",
-        "guided-complete-task",
-        "guided-filter-active",
-        "guided-edit-task",
-        "guided-create-delete-task"
-      ],
       "heuristicTargets": {
         "minStates": 4,
         "minTransitions": 3,
-        "actionKinds": ["navigate", "add", "toggle", "filter", "edit", "delete"]
+        "actionKinds": [
+          "navigate",
+          "add",
+          "toggle",
+          "filter",
+          "edit",
+          "delete"
+        ]
       },
       "canonicalStates": [
         "Initial loaded board with the seeded todos visible.",
         "A state where one todo is completed and the summary reflects progress.",
         "A state where the Active filter is selected.",
         "A state where one todo is in inline edit mode."
+      ],
+      "probeScenarioIds": [
+        "smoke-load",
+        "add-task",
+        "complete-task",
+        "filter-active",
+        "edit-task",
+        "create-delete-task"
       ]
     },
     "heal": {
@@ -298,45 +627,55 @@
           "caseId": "heal-new-task-label-lost",
           "title": "Repair created task labels",
           "bugId": "new-task-label-lost",
-          "reproductionTaskIds": ["guided-add-task"],
-          "regressionTaskIds": [
-            "smoke-home-title",
-            "smoke-default-count",
-            "guided-complete-task",
-            "guided-filter-active",
-            "guided-edit-task",
-            "guided-create-delete-task"
+          "goldTouchedFiles": [
+            "src/todo-store.js"
           ],
-          "goldTouchedFiles": ["src/todo-store.js"]
+          "reproductionScenarioIds": [
+            "add-task"
+          ],
+          "regressionScenarioIds": [
+            "smoke-load",
+            "complete-task",
+            "filter-active",
+            "edit-task",
+            "create-delete-task"
+          ]
         },
         {
           "caseId": "heal-toggle-completion-noop",
           "title": "Repair completion toggling",
           "bugId": "toggle-completion-noop",
-          "reproductionTaskIds": ["guided-complete-task", "guided-filter-active"],
-          "regressionTaskIds": [
-            "smoke-home-title",
-            "smoke-default-count",
-            "guided-add-task",
-            "guided-edit-task",
-            "guided-create-delete-task"
+          "goldTouchedFiles": [
+            "src/todo-store.js"
           ],
-          "goldTouchedFiles": ["src/todo-store.js"]
+          "reproductionScenarioIds": [
+            "complete-task",
+            "filter-active"
+          ],
+          "regressionScenarioIds": [
+            "smoke-load",
+            "add-task",
+            "edit-task",
+            "create-delete-task"
+          ]
         },
         {
           "caseId": "heal-edit-task-save-noop",
           "title": "Repair task editing persistence",
           "bugId": "edit-task-save-noop",
-          "reproductionTaskIds": ["guided-edit-task"],
-          "regressionTaskIds": [
-            "smoke-home-title",
-            "smoke-default-count",
-            "guided-add-task",
-            "guided-complete-task",
-            "guided-filter-active",
-            "guided-create-delete-task"
+          "goldTouchedFiles": [
+            "src/todo-store.js"
           ],
-          "goldTouchedFiles": ["src/todo-store.js"]
+          "reproductionScenarioIds": [
+            "edit-task"
+          ],
+          "regressionScenarioIds": [
+            "smoke-load",
+            "add-task",
+            "complete-task",
+            "filter-active",
+            "create-delete-task"
+          ]
         }
       ]
     }
@@ -349,10 +688,12 @@
       "category": "assertion",
       "severity": "medium",
       "patchPath": "patch.diff",
-      "expectedFailureTaskIds": ["guided-add-task"],
       "parityRules": [
         "Break only task creation text persistence.",
         "Allow the add flow to continue creating a new todo row so the failure stays observable at the assertion layer."
+      ],
+      "expectedFailureScenarioIds": [
+        "add-task"
       ]
     },
     {
@@ -362,10 +703,13 @@
       "category": "state",
       "severity": "high",
       "patchPath": "patch.diff",
-      "expectedFailureTaskIds": ["guided-complete-task", "guided-filter-active"],
       "parityRules": [
         "Break only the completion state transition.",
         "Keep the checkbox/action visible so the runner can reproduce the failure through the normal UI."
+      ],
+      "expectedFailureScenarioIds": [
+        "complete-task",
+        "filter-active"
       ]
     },
     {
@@ -375,10 +719,12 @@
       "category": "state",
       "severity": "medium",
       "patchPath": "patch.diff",
-      "expectedFailureTaskIds": ["guided-edit-task"],
       "parityRules": [
         "Break only edit persistence after Save or Enter.",
         "Keep edit mode, save controls, and non-edit flows operational."
+      ],
+      "expectedFailureScenarioIds": [
+        "edit-task"
       ]
     }
   ]

@@ -24,3 +24,11 @@ test("commitTodoEdit saves the text and clears editing state", () => {
   assert.equal(next.editingId, null);
   assert.equal(next.draft, "");
 });
+
+test("commitTodoEdit leaves todos unchanged when nothing is being edited", () => {
+  const next = commitTodoEdit(initialTodos, null, "Ignored");
+
+  assert.equal(next.todos, initialTodos);
+  assert.equal(next.editingId, null);
+  assert.equal(next.draft, "");
+});

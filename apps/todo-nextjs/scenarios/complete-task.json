@@ -1,0 +1,36 @@
+{
+  "scenarioId": "complete-task",
+  "title": "Complete an existing task",
+  "source": "generated",
+  "steps": [
+    {
+      "stepId": "complete-task.toggle",
+      "title": "Toggle the Draft Stagehand checklist task",
+      "actionInstruction": "click the checkbox for the task Draft Stagehand checklist",
+      "assertions": [
+        {
+          "assertionId": "complete-task.active-filter-visible",
+          "type": "observe",
+          "instruction": "find the Active filter button",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "complete-task.assert-summary",
+      "title": "Verify the completion summary",
+      "assertions": [
+        {
+          "assertionId": "complete-task.progress",
+          "type": "extract",
+          "instruction": "extract the text shown in the Progress summary card",
+          "resultType": "string",
+          "match": {
+            "equals": "1 of 2 tasks done"
+          }
+        }
+      ]
+    }
+  ]
+}

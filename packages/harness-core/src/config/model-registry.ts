@@ -11,8 +11,6 @@ const modelConfigSchema = z.object({
 });
 
 const modelRegistrySchema = z.object({
-  default_model: z.string().optional(),
-  defaultModel: z.string().optional(),
   models: z.array(modelConfigSchema).min(1)
 });
 
@@ -22,11 +20,7 @@ function normalizeRegistry(input: z.infer<typeof modelRegistrySchema>): ModelReg
     provider: model.provider,
     enabled: model.enabled
   }));
-  const defaultModel = input.defaultModel ?? input.default_model ?? models[0].id;
-  if (!models.some((model) => model.id === defaultModel)) {
-    throw new Error(`default model ${defaultModel} is not declared in the registry`);
-  }
-  return { defaultModel, models };
+  return { models };
 }
 
 export async function loadModelRegistry(modelsPath: string): Promise<ModelRegistry> {
@@ -46,7 +40,7 @@ export function resolveModelAvailability(
   const requestedSet = requestedModels?.length ? new Set(requestedModels) : undefined;
   const selected = requestedSet
     ? registry.models.filter((model) => requestedSet.has(model.id))
-    : registry.models;
+    : registry.models.filter((model) => model.enabled);
 
   return selected.map((model) => {
     if (!model.enabled) {

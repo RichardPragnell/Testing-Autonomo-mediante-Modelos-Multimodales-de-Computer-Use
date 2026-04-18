@@ -5,10 +5,10 @@ import type {
   BenchmarkEfficiencyFrontierFigure,
   BenchmarkEfficiencyFrontierPanel,
   BenchmarkEfficiencyFrontierPoint,
-  BenchmarkRankMatrixCell,
-  BenchmarkRankMatrixColumn,
-  BenchmarkRankMatrixFigure,
-  BenchmarkRankMatrixRow,
+  BenchmarkScoreMatrixCell,
+  BenchmarkScoreMatrixColumn,
+  BenchmarkScoreMatrixFigure,
+  BenchmarkScoreMatrixRow,
   BenchmarkSummaryFigures,
   ExperimentKind
 } from "./types.js";
@@ -29,7 +29,7 @@ const MODEL_PALETTE = [
   "#825a75"
 ];
 
-interface RankableCellMetric {
+interface ScoreMatrixCellMetric {
   modelId: string;
   provider: string;
   runIds: string[];
@@ -81,7 +81,7 @@ function compareNullableDesc(left: number | null, right: number | null): number 
   return right - left;
 }
 
-function compareRankableCells(left: RankableCellMetric, right: RankableCellMetric): number {
+function compareScoreCells(left: ScoreMatrixCellMetric, right: ScoreMatrixCellMetric): number {
   return (
     compareNullableDesc(left.score, right.score) ||
     compareNullableAsc(left.totalCost, right.totalCost) ||
@@ -103,7 +103,7 @@ function modeSectionsInOrder(modeSections: BenchmarkComparisonSection[]): Benchm
   });
 }
 
-function buildRankMatrixColumns(modeSections: BenchmarkComparisonSection[]): BenchmarkRankMatrixColumn[] {
+function buildScoreMatrixColumns(modeSections: BenchmarkComparisonSection[]): BenchmarkScoreMatrixColumn[] {
   return modeSections.flatMap((section) =>
     [...section.appIds].sort((left, right) => left.localeCompare(right)).map((appId) => ({
       key: `${section.kind}:${appId}`,
@@ -115,7 +115,7 @@ function buildRankMatrixColumns(modeSections: BenchmarkComparisonSection[]): Ben
   );
 }
 
-function buildModelColors(rows: BenchmarkRankMatrixRow[]): Map<string, string> {
+function buildModelColors(rows: BenchmarkScoreMatrixRow[]): Map<string, string> {
   return new Map(
     rows.map((row, index) => {
       const paletteColor = MODEL_PALETTE[index % MODEL_PALETTE.length];
@@ -131,14 +131,14 @@ function buildModelColors(rows: BenchmarkRankMatrixRow[]): Map<string, string> {
   );
 }
 
-function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkRankMatrixFigure {
+export function buildScoreMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkScoreMatrixFigure {
   const orderedSections = modeSectionsInOrder(modeSections);
-  const columns = buildRankMatrixColumns(orderedSections);
+  const columns = buildScoreMatrixColumns(orderedSections);
   const modelRecords = new Map<
     string,
     {
       provider: string;
-      cellsByColumn: Map<string, BenchmarkRankMatrixCell>;
+      cellsByColumn: Map<string, BenchmarkScoreMatrixCell>;
     }
   >();
 
@@ -157,8 +157,8 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
 
     for (const appId of [...section.appIds].sort((left, right) => left.localeCompare(right))) {
       const columnKey = `${section.kind}:${appId}`;
-      const rankedCells = section.rows
-        .flatMap<RankableCellMetric>((row) => {
+      const scoreCells = section.rows
+        .flatMap<ScoreMatrixCellMetric>((row) => {
           const cell = row.cells.find((item) => item.appId === appId);
           if (!cell) {
             return [];
@@ -176,12 +176,9 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
             }
           ];
         })
-        .sort(compareRankableCells);
+        .sort(compareScoreCells);
 
-      rankedCells.forEach((entry, index) => {
-        const rank = index + 1;
-        const percentile =
-          rankedCells.length <= 1 ? 1 : roundNumber((rankedCells.length - rank) / (rankedCells.length - 1), 6);
+      scoreCells.forEach((entry) => {
         const record = modelRecords.get(entry.modelId);
         if (!record) {
           return;
@@ -193,8 +190,6 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
           appId,
           runIds: entry.runIds,
           missing: false,
-          rank,
-          rankPercentile: percentile,
           score: entry.score,
           avgLatency: entry.avgLatency === null ? null : roundNumber(entry.avgLatency, 3),
           avgCost: entry.avgCost === null ? null : roundNumber(entry.avgCost, 6),
@@ -204,9 +199,9 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
     }
   }
 
-  const rows: BenchmarkRankMatrixRow[] = [...modelRecords.entries()]
+  const rows: BenchmarkScoreMatrixRow[] = [...modelRecords.entries()]
     .map(([modelId, record]) => {
-      const cells = columns.map<BenchmarkRankMatrixCell>((column) => {
+      const cells = columns.map<BenchmarkScoreMatrixCell>((column) => {
         const existing = record.cellsByColumn.get(column.key);
         return (
           existing ?? {
@@ -215,8 +210,6 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
             appId: column.appId,
             runIds: [],
             missing: true,
-            rank: null,
-            rankPercentile: null,
             score: null,
             avgLatency: null,
             avgCost: null,
@@ -229,10 +222,6 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
       return {
         modelId,
         provider: record.provider,
-        meanRank: averageOrNull(
-          populatedCells.flatMap((cell) => (cell.rank === null ? [] : [cell.rank])),
-          3
-        ),
         meanScore: averageOrNull(
           populatedCells.flatMap((cell) => (cell.score === null ? [] : [cell.score])),
           3
@@ -254,7 +243,6 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
     })
     .sort((left, right) => {
       return (
-        compareNullableAsc(left.meanRank, right.meanRank) ||
         compareNullableDesc(left.meanScore, right.meanScore) ||
         compareNullableAsc(left.meanTotalCost, right.meanTotalCost) ||
         compareNullableAsc(left.meanAvgLatency, right.meanAvgLatency) ||
@@ -263,9 +251,9 @@ function buildRankMatrix(modeSections: BenchmarkComparisonSection[]): BenchmarkR
     });
 
   return {
-    title: "Overall Rank Matrix",
+    title: "Overall Score Matrix",
     caption:
-      "Cells are ranked within each mode/app column using score descending, then total cost ascending, latency ascending, and model id. Darker cells indicate better rank. Hatched N/A cells indicate missing runs and are excluded from row means.",
+      "Cells aggregate score and operational metrics within each mode/app column. Rows are ordered by mean score, then cost, latency, and model id. Hatched N/A cells indicate missing runs and are excluded from row means.",
     modeOrder: MODE_ORDER,
     columns,
     rows
@@ -284,15 +272,15 @@ function isParetoOptimal(point: BenchmarkEfficiencyFrontierPoint, points: Benchm
 
 function buildEfficiencyFrontier(
   modeSections: BenchmarkComparisonSection[],
-  rankRows: BenchmarkRankMatrixRow[]
+  scoreRows: BenchmarkScoreMatrixRow[]
 ): BenchmarkEfficiencyFrontierFigure {
   const orderedSections = modeSectionsInOrder(modeSections);
-  const modelColors = buildModelColors(rankRows);
+  const modelColors = buildModelColors(scoreRows);
 
   const panels: BenchmarkEfficiencyFrontierPanel[] = orderedSections.map((section) => {
-    const points = rankRows
-      .flatMap<BenchmarkEfficiencyFrontierPoint>((rankRow) => {
-        const row = section.rows.find((item) => item.modelId === rankRow.modelId);
+    const points = scoreRows
+      .flatMap<BenchmarkEfficiencyFrontierPoint>((scoreRow) => {
+        const row = section.rows.find((item) => item.modelId === scoreRow.modelId);
         if (!row) {
           return [];
         }
@@ -360,11 +348,11 @@ function buildEfficiencyFrontier(
   return {
     title: "Efficiency Frontier by Mode",
     caption:
-      "Each panel aggregates models across apps within a mode. Shared axes show mean latency and mean cost, bubble size shows mean raw score within that mode, and the frontier line traces Pareto-optimal models.",
+      "Each panel aggregates models across apps within a mode. Shared axes show mean run latency and mean cost, bubble size shows mean raw score within that mode, and the frontier line traces Pareto-optimal models.",
     modeOrder: MODE_ORDER,
     xDomain: { min: 0, max: maxLatency },
     yDomain: { min: 0, max: maxCost },
-    legend: rankRows
+    legend: scoreRows
       .filter((row) => modelColors.has(row.modelId))
       .map((row) => ({
         modelId: row.modelId,
@@ -382,9 +370,9 @@ export function buildBenchmarkSummaryFigures(
     return undefined;
   }
 
-  const rankMatrix = buildRankMatrix(modeSections);
+  const scoreMatrix = buildScoreMatrix(modeSections);
   return {
-    rankMatrix,
-    efficiencyFrontier: buildEfficiencyFrontier(modeSections, rankMatrix.rows)
+    scoreMatrix,
+    efficiencyFrontier: buildEfficiencyFrontier(modeSections, scoreMatrix.rows)
   };
 }

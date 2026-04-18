@@ -24,7 +24,6 @@ describe("model registry", () => {
     await writeFile(
       file,
       [
-        "default_model: mistralai/mistral-small-3.2-24b-instruct",
         "models:",
         "  - id: mistralai/mistral-small-3.2-24b-instruct",
         "    provider: mistralai",
@@ -42,52 +41,39 @@ describe("model registry", () => {
     const registry = await loadModelRegistry(file);
     const unavailable = resolveModelAvailability(registry, undefined, {});
     const available = resolveModelAvailability(registry, undefined, { OPENROUTER_API_KEY: "x" });
+    const explicitlyRequestedDisabled = resolveModelAvailability(registry, ["openrouter/free"], {
+      OPENROUTER_API_KEY: "x"
+    });
 
     expect(unavailable[0].available).toBe(false);
     expect(unavailable[0].reason).toContain("OPENROUTER_API_KEY");
     expect(unavailable[1].available).toBe(false);
-    expect(unavailable[1].reason).toContain("disabled");
+    expect(unavailable[1].reason).toContain("OPENROUTER_API_KEY");
     expect(available[0].available).toBe(true);
-    expect(available[1].available).toBe(false);
-    expect(available[1].reason).toContain("disabled");
-    expect(available[2].available).toBe(true);
+    expect(available[1].available).toBe(true);
+    expect(available.map((model) => model.id)).toEqual([
+      "mistralai/mistral-small-3.2-24b-instruct",
+      "google/gemini-2.5-flash-lite"
+    ]);
+    expect(explicitlyRequestedDisabled[0].available).toBe(false);
+    expect(explicitlyRequestedDisabled[0].reason).toContain("disabled");
   });
 
-  it("rejects a registry whose default model is not declared", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "registry-invalid-default-"));
-    tempDirs.push(dir);
-    const file = join(dir, "models.yaml");
-    await writeFile(
-      file,
-      [
-        "default_model: missing/model",
-        "models:",
-        "  - id: google/gemini-2.5-flash-lite",
-        "    provider: google",
-        "    enabled: true"
-      ].join("\n"),
-      "utf8"
-    );
-
-    await expect(loadModelRegistry(file)).rejects.toThrow("default model missing/model is not declared in the registry");
-  });
-
-  it("loads the shipped registry defaults from the checked-in yaml", async () => {
+  it("loads all enabled models from the checked-in yaml without a fallback selector", async () => {
     const repoRoot = dirname(dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url))))));
     const registry = await loadModelRegistry(join(repoRoot, "experiments", "models", "registry.yaml"));
 
-    expect(registry.defaultModel).toBe("google/gemini-2.5-flash-lite");
+    expect(Object.keys(registry)).toEqual(["models"]);
     expect(registry.models.filter((model) => model.enabled).map((model) => model.id)).toEqual([
-      "google/gemini-2.5-flash-lite"
-    ]);
-    expect(registry.models.filter((model) => !model.enabled).map((model) => model.id)).toEqual([
       "deepseek/deepseek-v3.2",
-      "mistralai/mistral-small-3.2-24b-instruct",
-      "qwen/qwen3.5-flash-02-23",
-      "minimax/minimax-m2.5:free",
+      "google/gemini-3.1-flash-lite-preview",
       "moonshotai/kimi-k2.5",
-      "z-ai/glm-5-turbo",
-      "google/gemma-3-27b-it:free"
+      "openai/gpt-5.4",
+      "openai/gpt-5.4-nano",
+      "mistralai/mistral-medium-3",
+      "anthropic/claude-sonnet-4.6",
+      "z-ai/glm-5.1"
     ]);
+    expect(registry.models.filter((model) => !model.enabled).map((model) => model.id)).toEqual([]);
   });
 });

@@ -1,0 +1,61 @@
+{
+  "scenarioId": "add-task",
+  "title": "Add a new task from the composer",
+  "source": "generated",
+  "steps": [
+    {
+      "stepId": "add-task.fill-composer",
+      "title": "Fill the new task composer",
+      "actionInstruction": "type Review benchmark notes into the New task input",
+      "assertions": [
+        {
+          "assertionId": "add-task.composer-filled",
+          "type": "extract",
+          "instruction": "extract the current value of the New task input",
+          "resultType": "string",
+          "match": {
+            "equals": "Review benchmark notes"
+          }
+        }
+      ]
+    },
+    {
+      "stepId": "add-task.submit",
+      "title": "Submit the new task",
+      "actionInstruction": "click the Add task button",
+      "assertions": [
+        {
+          "assertionId": "add-task.remove-visible",
+          "type": "observe",
+          "instruction": "find the Remove button for the task Review benchmark notes",
+          "exists": true,
+          "method": "click"
+        }
+      ]
+    },
+    {
+      "stepId": "add-task.assert-outcome",
+      "title": "Verify the new task and cleared composer",
+      "assertions": [
+        {
+          "assertionId": "add-task.todo-visible",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "includes": "Review benchmark notes"
+          }
+        },
+        {
+          "assertionId": "add-task.composer-cleared",
+          "type": "extract",
+          "instruction": "extract whether the New task input is empty",
+          "resultType": "boolean",
+          "match": {
+            "equals": true
+          }
+        }
+      ]
+    }
+  ]
+}

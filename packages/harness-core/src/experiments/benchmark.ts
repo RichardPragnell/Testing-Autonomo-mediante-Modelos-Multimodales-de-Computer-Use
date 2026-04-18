@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import type { BenchmarkTask } from "../types.js";
+import type { BenchmarkScenario } from "../types.js";
 import { describeBenchmarkTarget } from "../config/target.js";
 import { resolveWorkspacePath } from "../utils/fs.js";
 import type {
@@ -14,67 +14,150 @@ import type {
 const capabilitySchema = z.object({
   capabilityId: z.string().min(1),
   title: z.string().min(1),
-  taskIds: z.array(z.string().min(1)).min(1)
+  scenarioIds: z.array(z.string().min(1)).min(1)
 });
 
 const healCaseSchema = z.object({
   caseId: z.string().min(1),
   title: z.string().min(1),
   bugId: z.string().min(1),
-  reproductionTaskIds: z.array(z.string().min(1)).min(1),
-  regressionTaskIds: z.array(z.string().min(1)).default([]),
+  reproductionScenarioIds: z.array(z.string().min(1)).min(1),
+  regressionScenarioIds: z.array(z.string().min(1)).default([]),
   goldTouchedFiles: z.array(z.string().min(1)).min(1),
   validationCommand: z.string().optional()
 });
 
-const benchmarkSchema = z.object({
-  appId: z.string().min(1),
-  displayName: z.string().min(1),
-  prompts: z.object({
-    qa: z.string().min(1),
-    explore: z.string().min(1),
-    heal: z.string().min(1)
-  }),
-  runtime: z.object({
-    timeoutMs: z.number().int().positive(),
-    retryCount: z.number().int().min(0),
-    maxSteps: z.number().int().positive(),
-    viewport: z.object({
-      width: z.number().int().positive(),
-      height: z.number().int().positive()
+const benchmarkSchema = z
+  .object({
+    appId: z.string().min(1),
+    displayName: z.string().min(1),
+    prompts: z
+      .object({
+        guided: z.string().min(1).optional(),
+        qa: z.string().min(1).optional(),
+        explore: z.string().min(1),
+        heal: z.string().min(1)
+      })
+      .superRefine((value, ctx) => {
+        if (!value.guided && !value.qa) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "prompts.guided is required"
+          });
+        }
+      }),
+    runtime: z
+      .object({
+        timeoutMs: z.number().int().positive(),
+        retryCount: z.number().int().min(0),
+        maxSteps: z.number().int().positive(),
+        viewport: z.object({
+          width: z.number().int().positive(),
+          height: z.number().int().positive()
+        }),
+        guidedTrials: z.number().int().min(1).optional(),
+        qaTrials: z.number().int().min(1).optional(),
+        exploreTrials: z.number().int().min(1),
+        healTrials: z.number().int().min(1)
+      })
+      .superRefine((value, ctx) => {
+        if (value.guidedTrials === undefined && value.qaTrials === undefined) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "runtime.guidedTrials is required"
+          });
+        }
+      }),
+    capabilities: z.array(capabilitySchema).min(1),
+    guided: z
+      .object({
+        capabilityIds: z.array(z.string().min(1)).min(1)
+      })
+      .optional(),
+    qa: z
+      .object({
+        capabilityIds: z.array(z.string().min(1)).min(1)
+      })
+      .optional(),
+    explore: z.object({
+      capabilityIds: z.array(z.string().min(1)).min(1),
+      probeScenarioIds: z.array(z.string().min(1)).min(1),
+      runtime: z
+        .object({
+          timeoutMs: z.number().int().positive().optional(),
+          retryCount: z.number().int().min(0).optional(),
+          maxSteps: z.number().int().positive().optional()
+        })
+        .optional(),
+      heuristicTargets: z.object({
+        minStates: z.number().int().positive(),
+        minTransitions: z.number().int().positive(),
+        actionKinds: z.array(z.string().min(1)).min(1)
+      })
     }),
-    qaTrials: z.number().int().min(1),
-    exploreTrials: z.number().int().min(1),
-    healTrials: z.number().int().min(1)
-  }),
-  capabilities: z.array(capabilitySchema).min(1),
-  qa: z.object({
-    capabilityIds: z.array(z.string().min(1)).min(1)
-  }),
-  explore: z.object({
-    capabilityIds: z.array(z.string().min(1)).min(1),
-    probeTaskIds: z.array(z.string().min(1)).min(1),
-    heuristicTargets: z.object({
-      minStates: z.number().int().positive(),
-      minTransitions: z.number().int().positive(),
-      actionKinds: z.array(z.string().min(1)).min(1)
+    heal: z.object({
+      caseIds: z.array(z.string().min(1)).min(1),
+      runtime: z
+        .object({
+          timeoutMs: z.number().int().positive().optional(),
+          retryCount: z.number().int().min(0).optional(),
+          maxSteps: z.number().int().positive().optional()
+        })
+        .optional(),
+      cases: z.array(healCaseSchema).min(1)
     })
-  }),
-  heal: z.object({
-    caseIds: z.array(z.string().min(1)).min(1),
-    cases: z.array(healCaseSchema).min(1)
   })
-});
+  .superRefine((value, ctx) => {
+    if (!value.guided && !value.qa) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "guided configuration is required"
+      });
+    }
+  });
 
-function ensureTaskIdsExist(taskIds: string[], taskMap: Map<string, BenchmarkTask>, context: string): void {
-  for (const taskId of taskIds) {
-    if (!taskMap.has(taskId)) {
-      throw new Error(`${context} references unknown task ${taskId}`);
+function normalizeBenchmarkManifest(parsed: z.infer<typeof benchmarkSchema>): AppBenchmarkManifest {
+  return {
+    appId: parsed.appId,
+    displayName: parsed.displayName,
+    prompts: {
+      guided: parsed.prompts.guided ?? parsed.prompts.qa!,
+      explore: parsed.prompts.explore,
+      heal: parsed.prompts.heal
+    },
+    runtime: {
+      timeoutMs: parsed.runtime.timeoutMs,
+      retryCount: parsed.runtime.retryCount,
+      maxSteps: parsed.runtime.maxSteps,
+      viewport: parsed.runtime.viewport,
+      guidedTrials: parsed.runtime.guidedTrials ?? parsed.runtime.qaTrials!,
+      exploreTrials: parsed.runtime.exploreTrials,
+      healTrials: parsed.runtime.healTrials
+    },
+    capabilities: parsed.capabilities,
+    guided: parsed.guided ?? parsed.qa!,
+    explore: parsed.explore,
+    heal: parsed.heal
+  };
+}
+
+function ensureScenarioIdsExist(
+  scenarioIds: string[],
+  scenarioMap: Map<string, BenchmarkScenario>,
+  context: string
+): void {
+  for (const scenarioId of scenarioIds) {
+    if (!scenarioMap.has(scenarioId)) {
+      throw new Error(`${context} references unknown scenario ${scenarioId}`);
     }
   }
 }
 
-function ensureCapabilityIdsExist(capabilityIds: string[], capabilityMap: Map<string, CapabilityDefinition>, context: string): void {
+function ensureCapabilityIdsExist(
+  capabilityIds: string[],
+  capabilityMap: Map<string, CapabilityDefinition>,
+  context: string
+): void {
   for (const capabilityId of capabilityIds) {
     if (!capabilityMap.has(capabilityId)) {
       throw new Error(`${context} references unknown capability ${capabilityId}`);
@@ -94,14 +177,12 @@ export async function loadAppBenchmark(appId: string, appsRoot = "apps"): Promis
   const resolvedAppsRoot = await resolveWorkspacePath(appsRoot);
   const manifestPath = join(resolvedAppsRoot, appId, "benchmark.json");
   const raw = await readFile(manifestPath, "utf8");
-  const benchmark = benchmarkSchema.parse(JSON.parse(raw)) as AppBenchmarkManifest;
+  const benchmark = normalizeBenchmarkManifest(benchmarkSchema.parse(JSON.parse(raw)));
   const target = await describeBenchmarkTarget(appId, appsRoot);
 
-  const tasks = new Map<string, BenchmarkTask>();
+  const scenarios = new Map<string, BenchmarkScenario>();
   for (const scenario of target.scenarios) {
-    for (const task of scenario.tasks) {
-      tasks.set(task.id, task);
-    }
+    scenarios.set(scenario.scenarioId, scenario);
   }
 
   const capabilityMap = new Map<string, CapabilityDefinition>(
@@ -111,18 +192,18 @@ export async function loadAppBenchmark(appId: string, appsRoot = "apps"): Promis
     benchmark.heal.cases.map((item) => [item.caseId, item])
   );
 
-  ensureCapabilityIdsExist(benchmark.qa.capabilityIds, capabilityMap, "qa");
+  ensureCapabilityIdsExist(benchmark.guided.capabilityIds, capabilityMap, "guided");
   ensureCapabilityIdsExist(benchmark.explore.capabilityIds, capabilityMap, "explore");
-  ensureTaskIdsExist(benchmark.explore.probeTaskIds, tasks, "explore");
+  ensureScenarioIdsExist(benchmark.explore.probeScenarioIds, scenarios, "explore");
   ensureHealCaseIdsExist(benchmark.heal.caseIds, healCaseMap);
 
   for (const capability of benchmark.capabilities) {
-    ensureTaskIdsExist(capability.taskIds, tasks, `capability ${capability.capabilityId}`);
+    ensureScenarioIdsExist(capability.scenarioIds, scenarios, `capability ${capability.capabilityId}`);
   }
 
   for (const item of benchmark.heal.cases) {
-    ensureTaskIdsExist(item.reproductionTaskIds, tasks, `heal case ${item.caseId}`);
-    ensureTaskIdsExist(item.regressionTaskIds, tasks, `heal case ${item.caseId}`);
+    ensureScenarioIdsExist(item.reproductionScenarioIds, scenarios, `heal case ${item.caseId}`);
+    ensureScenarioIdsExist(item.regressionScenarioIds, scenarios, `heal case ${item.caseId}`);
     if (!target.bugs.some((bug) => bug.bugId === item.bugId)) {
       throw new Error(`heal case ${item.caseId} references unknown bug ${item.bugId}`);
     }
@@ -132,7 +213,7 @@ export async function loadAppBenchmark(appId: string, appsRoot = "apps"): Promis
     manifestPath,
     benchmark,
     target,
-    tasks,
+    scenarios,
     capabilityMap,
     healCaseMap
   };

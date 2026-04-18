@@ -8,3 +8,26 @@ dist/
 coverage/
 .tmp/
 /results/
+
+# Generated app-template state. Templates should keep source files only.
+/apps/**/template/node_modules/
+/apps/**/template/.angular/
+/apps/**/template/.next/
+/apps/**/template/dist/
+/apps/**/template/build/
+/apps/**/template/out/
+/apps/**/template/coverage/
+/apps/**/template/.cache/
+/apps/**/template/.turbo/
+/apps/**/template/.vite/
+/apps/**/template/.vite-temp/
+/apps/**/template/.tmp/
+/apps/**/template/tmp/
+/apps/**/template/playwright-report/
+/apps/**/template/test-results/
+/apps/**/template/.env
+/apps/**/template/.env.*
+!/apps/**/template/.env.example
+/apps/**/template/package-lock.json
+/apps/**/template/yarn.lock
+/apps/**/template/pnpm-lock.yaml

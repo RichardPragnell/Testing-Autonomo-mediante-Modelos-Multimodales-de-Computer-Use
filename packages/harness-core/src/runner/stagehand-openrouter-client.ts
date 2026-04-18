@@ -1,7 +1,12 @@
 import { generateObject, generateText } from "ai";
 import { LLMClient } from "@browserbasehq/stagehand";
 import type { AiOperation, AiUsagePhase, AiUsageRecord } from "../types.js";
-import { buildOpenRouterUsageRecord, createOpenRouterLanguageModel } from "../ai/openrouter.js";
+import {
+  buildOpenRouterUsageRecord,
+  buildPinnedOpenRouterProviderOptions,
+  createOpenRouterLanguageModel
+} from "../ai/openrouter.js";
+import { runWithOpenRouterModelLimit } from "../ai/openrouter-limiter.js";
 
 function normalizeMessageContent(content: any): any {
   if (!Array.isArray(content)) {
@@ -49,6 +54,30 @@ function formatMessages(messages: Array<{ role: string; content: any }>) {
   });
 }
 
+function textFromMessageContent(content: any): string {
+  if (typeof content === "string") {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return "";
+  }
+  return content.map((item) => (typeof item?.text === "string" ? item.text : "")).join("\n");
+}
+
+function ensureJsonModeInstruction(messages: ReturnType<typeof formatMessages>): ReturnType<typeof formatMessages> {
+  if (messages.some((message) => /\bjson\b/i.test(textFromMessageContent(message.content)))) {
+    return messages;
+  }
+
+  return [
+    {
+      role: "system" as const,
+      content: "Return valid JSON that matches the requested schema."
+    },
+    ...messages
+  ];
+}
+
 function inferOperation(options: {
   responseModelName?: string;
   hasTools: boolean;
@@ -78,11 +107,35 @@ interface StagehandOpenRouterTrackingClientOptions {
   phase: AiUsagePhase;
   usageSink: AiUsageRecord[];
   defaultMaxOutputTokens?: number;
+  requestTimeoutMs?: number;
   env?: NodeJS.ProcessEnv;
 }
 
 function toOptionalNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function createRequestAbortSignal(existingSignal: AbortSignal | undefined, timeoutMs: number | undefined): {
+  signal: AbortSignal | undefined;
+  cleanup: () => void;
+} {
+  if (existingSignal || !timeoutMs) {
+    return {
+      signal: existingSignal,
+      cleanup: () => undefined
+    };
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`OpenRouter request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+  timeout.unref?.();
+
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeout)
+  };
 }
 
 function buildGenerationOptions(
@@ -91,7 +144,8 @@ function buildGenerationOptions(
     messages: ReturnType<typeof formatMessages>;
   },
   options: any,
-  defaultMaxOutputTokens?: number
+  defaultMaxOutputTokens?: number,
+  abortSignal?: AbortSignal
 ) {
   const maxOutputTokens =
     toOptionalNumber(options.maxOutputTokens) ??
@@ -100,6 +154,7 @@ function buildGenerationOptions(
 
   return {
     ...base,
+    abortSignal,
     maxOutputTokens,
     temperature: options.temperature,
     topP: options.top_p,
@@ -115,15 +170,19 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
   private readonly defaultMaxOutputTokens?: number;
   private readonly phase: AiUsagePhase;
   private readonly requestedProvider: string;
+  private readonly providerOptions: ReturnType<typeof buildPinnedOpenRouterProviderOptions>;
   private readonly usageSink: AiUsageRecord[];
+  private readonly requestTimeoutMs?: number;
 
   constructor(options: StagehandOpenRouterTrackingClientOptions) {
     super(options.modelId);
     this.type = options.provider;
     this.phase = options.phase;
     this.requestedProvider = options.provider;
+    this.providerOptions = buildPinnedOpenRouterProviderOptions(options.provider);
     this.usageSink = options.usageSink;
     this.defaultMaxOutputTokens = options.defaultMaxOutputTokens;
+    this.requestTimeoutMs = options.requestTimeoutMs;
     this.model = createOpenRouterLanguageModel(options.modelId, options.env ?? process.env);
   }
 
@@ -146,15 +205,29 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
 
   override generateText = async (options: any): Promise<any> => {
     const startedAt = Date.now();
-    const result = await generateText({
-      ...options,
-      maxOutputTokens:
-        toOptionalNumber(options?.maxOutputTokens) ??
-        toOptionalNumber(options?.max_tokens) ??
-        this.defaultMaxOutputTokens
-    });
-    await this.recordUsage(result, "agent", startedAt);
-    return result;
+    const requestAbort = createRequestAbortSignal(options?.abortSignal, this.requestTimeoutMs);
+    try {
+      const result = await runWithOpenRouterModelLimit({
+        modelId: this.modelName,
+        run: () =>
+          generateText({
+            ...options,
+            abortSignal: requestAbort.signal,
+            providerOptions: {
+              ...(options?.providerOptions ?? {}),
+              ...this.providerOptions
+            },
+            maxOutputTokens:
+              toOptionalNumber(options?.maxOutputTokens) ??
+              toOptionalNumber(options?.max_tokens) ??
+              this.defaultMaxOutputTokens
+          })
+      });
+      await this.recordUsage(result, "agent", startedAt);
+      return result;
+    } finally {
+      requestAbort.cleanup();
+    }
   };
 
   async createChatCompletion<T = any>({ options }: { options: any }): Promise<T> {
@@ -164,22 +237,75 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
       hasTools: Array.isArray(options.tools) && options.tools.length > 0
     });
     const startedAt = Date.now();
+    const requestAbort = createRequestAbortSignal(options?.abortSignal, this.requestTimeoutMs);
 
-    if (options.response_model) {
-      const response = await generateObject({
-        ...buildGenerationOptions(
-          {
-            model: this.model,
-            messages
-          },
-          options,
-          this.defaultMaxOutputTokens
-        ),
-        schema: options.response_model.schema
+    try {
+      if (options.response_model) {
+        const structuredMessages = ensureJsonModeInstruction(messages);
+        const response = await runWithOpenRouterModelLimit({
+          modelId: this.modelName,
+          run: () =>
+            generateObject({
+              ...buildGenerationOptions(
+                {
+                  model: this.model,
+                  messages: structuredMessages
+                },
+                options,
+                this.defaultMaxOutputTokens,
+                requestAbort.signal
+              ),
+              providerOptions: {
+                ...(options?.providerOptions ?? {}),
+                ...this.providerOptions
+              },
+              schema: options.response_model.schema
+            })
+        });
+        await this.recordUsage(response, operation, startedAt);
+        return {
+          data: response.object,
+          usage: {
+            prompt_tokens: response.usage.inputTokens ?? 0,
+            completion_tokens: response.usage.outputTokens ?? 0,
+            reasoning_tokens: response.usage.reasoningTokens ?? 0,
+            cached_input_tokens: response.usage.cachedInputTokens ?? 0,
+            total_tokens: response.usage.totalTokens ?? 0
+          }
+        } as T;
+      }
+
+      const tools: Record<string, any> = {};
+      for (const rawTool of options.tools ?? []) {
+        tools[rawTool.name] = {
+          description: rawTool.description,
+          inputSchema: rawTool.parameters
+        };
+      }
+
+      const response = await runWithOpenRouterModelLimit({
+        modelId: this.modelName,
+        run: () =>
+          generateText({
+            ...buildGenerationOptions(
+              {
+                model: this.model,
+                messages
+              },
+              options,
+              this.defaultMaxOutputTokens,
+              requestAbort.signal
+            ),
+            providerOptions: {
+              ...(options?.providerOptions ?? {}),
+              ...this.providerOptions
+            },
+            tools
+          })
       });
       await this.recordUsage(response, operation, startedAt);
       return {
-        data: response.object,
+        data: response.text,
         usage: {
           prompt_tokens: response.usage.inputTokens ?? 0,
           completion_tokens: response.usage.outputTokens ?? 0,
@@ -188,37 +314,8 @@ export class StagehandOpenRouterTrackingClient extends LLMClient {
           total_tokens: response.usage.totalTokens ?? 0
         }
       } as T;
+    } finally {
+      requestAbort.cleanup();
     }
-
-    const tools: Record<string, any> = {};
-    for (const rawTool of options.tools ?? []) {
-      tools[rawTool.name] = {
-        description: rawTool.description,
-        inputSchema: rawTool.parameters
-      };
-    }
-
-    const response = await generateText({
-      ...buildGenerationOptions(
-        {
-          model: this.model,
-          messages
-        },
-        options,
-        this.defaultMaxOutputTokens
-      ),
-      tools
-    });
-    await this.recordUsage(response, operation, startedAt);
-    return {
-      data: response.text,
-      usage: {
-        prompt_tokens: response.usage.inputTokens ?? 0,
-        completion_tokens: response.usage.outputTokens ?? 0,
-        reasoning_tokens: response.usage.reasoningTokens ?? 0,
-        cached_input_tokens: response.usage.cachedInputTokens ?? 0,
-        total_tokens: response.usage.totalTokens ?? 0
-      }
-    } as T;
   }
 }

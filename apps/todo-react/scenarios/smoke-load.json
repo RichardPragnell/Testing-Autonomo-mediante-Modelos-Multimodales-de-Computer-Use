@@ -1,0 +1,58 @@
+{
+  "scenarioId": "smoke-load",
+  "title": "Load the Todo Bench board",
+  "source": "synthetic",
+  "steps": [
+    {
+      "stepId": "smoke-load.assert-home",
+      "title": "Verify the initial board copy",
+      "assertions": [
+        {
+          "assertionId": "smoke-load.heading",
+          "type": "extract",
+          "instruction": "extract the main page heading text",
+          "resultType": "string",
+          "match": {
+            "equals": "Todo Bench"
+          }
+        },
+        {
+          "assertionId": "smoke-load.remaining",
+          "type": "extract",
+          "instruction": "extract the text shown in the Remaining summary card",
+          "resultType": "string",
+          "match": {
+            "equals": "2 tasks remaining"
+          }
+        },
+        {
+          "assertionId": "smoke-load.progress",
+          "type": "extract",
+          "instruction": "extract the text shown in the Progress summary card",
+          "resultType": "string",
+          "match": {
+            "equals": "0 of 2 tasks done"
+          }
+        },
+        {
+          "assertionId": "smoke-load.seed-plan",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "includes": "Plan todo benchmark"
+          }
+        },
+        {
+          "assertionId": "smoke-load.seed-draft",
+          "type": "extract",
+          "instruction": "extract all visible todo item labels in the task list",
+          "resultType": "string_array",
+          "match": {
+            "includes": "Draft Stagehand checklist"
+          }
+        }
+      ]
+    }
+  ]
+}

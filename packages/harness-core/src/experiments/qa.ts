@@ -2,7 +2,7 @@ import { readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
-import type { AutomationRunner, ModelAvailability, TaskRunResult } from "../types.js";
+import type { AutomationRunner, ModelAvailability, ScenarioRunResult } from "../types.js";
 import { loadModelRegistry, resolveModelAvailability } from "../config/model-registry.js";
 import { loadProjectEnv } from "../env/load.js";
 import { StagehandAutomationRunner } from "../runner/stagehand-runner.js";
@@ -20,16 +20,17 @@ import {
 import {
   buildResolvedSuite,
   emitExperimentLog,
-  executeGuidedTasks,
+  executeGuidedScenarios,
   formatDurationMs,
   mapWithConcurrency,
   resolveExperimentRoot,
   resolveParallelism,
   round,
-  summarizeTaskRuns
+  summarizeScenarioRuns
 } from "./common.js";
 import { renderBenchmarkComparisonHtml } from "./report-matrix.js";
 import { formatCostSummary } from "./report-utils.js";
+import { isReportableQaModelSummary } from "./reportability.js";
 import { computeQaScore, QA_SCORE_DEFINITION } from "./scoring.js";
 import type {
   BenchmarkComparisonReport,
@@ -64,11 +65,11 @@ const qaPresetSchema = z
 
 const QA_METRIC_COLUMNS: BenchmarkMetricColumn[] = [
   { key: "score", label: "Score", kind: "score", aggregate: "mean" },
-  { key: "taskPassRate", label: "Task Pass", kind: "percent", aggregate: "mean" },
+  { key: "stepPassRate", label: "Step Pass", kind: "percent", aggregate: "mean" },
   { key: "scenarioCompletion", label: "Scenario Completion", kind: "percent", aggregate: "mean" },
   { key: "capabilityPassRate", label: "Capability Pass", kind: "percent", aggregate: "mean" },
   { key: "stability", label: "Stability", kind: "score", aggregate: "mean" },
-  { key: "avgLatency", label: "Avg Latency", kind: "ms", aggregate: "mean" },
+  { key: "avgLatency", label: "Run Latency", kind: "ms", aggregate: "mean" },
   { key: "avgCost", label: "Avg Cost", kind: "usd", aggregate: "mean" },
   { key: "totalCost", label: "Total Cost", kind: "usd", aggregate: "sum" }
 ];
@@ -91,6 +92,10 @@ export interface RunQaExperimentInput {
   resultsDir?: string;
   resetModeResults?: boolean;
   runner?: AutomationRunner;
+  reusableModelSummaries?: Array<{
+    sourceRunId: string;
+    summary: QaModelSummary;
+  }>;
   onLog?: ExperimentLogFn;
 }
 
@@ -116,9 +121,9 @@ export async function clearQaOutputs(resultsDir: string): Promise<void> {
   ]);
 }
 
-function slimTaskRunForProgress(run: TaskRunResult) {
+function slimScenarioRunForProgress(run: ScenarioRunResult) {
   return {
-    taskId: run.taskId,
+    scenarioId: run.scenarioId,
     trial: run.trial,
     modelId: run.modelId,
     success: run.success,
@@ -143,12 +148,12 @@ async function persistQaProgress(
     trials: number;
     currentModelId?: string;
     currentTrial?: number;
-    currentTaskIndex?: number;
-    currentTaskId?: string;
-    completedTasks: number;
-    totalTasks: number;
+    currentScenarioIndex?: number;
+    currentScenarioId?: string;
+    completedScenarios: number;
+    totalScenarios: number;
     cumulativeUsage: ReturnType<typeof sumAiUsageSummaries>;
-    lastTaskResult?: ReturnType<typeof slimTaskRunForProgress>;
+    lastScenarioResult?: ReturnType<typeof slimScenarioRunForProgress>;
   }
 ): Promise<void> {
   const runDir = join(resultsRoot, "runs", runId);
@@ -168,30 +173,32 @@ function zeroMetrics(model: ModelAvailability): QaModelMetrics {
   return {
     modelId: model.id,
     capabilityPassRate: 0,
-    fullScenarioCompletionRate: 0,
+    scenarioCompletionRate: 0,
     stability: 0,
-    taskPassRate: 0,
+    stepPassRate: 0,
     avgLatencyMs: 0,
     avgCostUsd: 0,
     score: 0,
-    executedTasks: 0,
-    skippedTasks: 0
+    executedScenarios: 0,
+    skippedScenarios: 0
   };
 }
 
 function buildLeaderboard(modelSummaries: QaModelSummary[]): QaLeaderboardEntry[] {
   return [...modelSummaries]
     .sort((left, right) => right.metrics.score - left.metrics.score)
-    .map((summary, index) => {
-      const costSummary = summarizeUsageCosts(summary.taskRuns.map((run) => run.usageSummary), summary.taskRuns.length);
+    .map((summary) => {
+      const costSummary = summarizeUsageCosts(
+        summary.scenarioRuns.map((run) => run.usageSummary),
+        summary.scenarioRuns.length
+      );
       return {
-        rank: index + 1,
         modelId: summary.model.id,
         provider: summary.model.provider,
         score: summary.metrics.score,
-        taskPassRate: summary.metrics.taskPassRate,
+        stepPassRate: summary.metrics.stepPassRate,
         capabilityPassRate: summary.metrics.capabilityPassRate,
-        fullScenarioCompletionRate: summary.metrics.fullScenarioCompletionRate,
+        scenarioCompletionRate: summary.metrics.scenarioCompletionRate,
         stability: summary.metrics.stability,
         avgLatencyMs: summary.metrics.avgLatencyMs,
         avgCostUsd: costSummary.avgResolvedUsd,
@@ -203,11 +210,14 @@ function buildLeaderboard(modelSummaries: QaModelSummary[]): QaLeaderboardEntry[
 function buildQaCostGraph(modelSummaries: QaModelSummary[]): CostGraph {
   return {
     title: "Guided Cost Breakdown",
-    caption: "Resolved guided benchmark cost per model across all executed tasks and trials.",
+    caption: "Resolved guided benchmark cost per model across all executed scenarios and trials.",
     stacked: false,
-    series: [{ key: "guided", label: "Guided Tasks", color: "#6d5430" }],
+    series: [{ key: "guided", label: "Guided Scenarios", color: "#6d5430" }],
     data: modelSummaries.map((summary) => {
-      const costSummary = summarizeUsageCosts(summary.taskRuns.map((run) => run.usageSummary), summary.taskRuns.length);
+      const costSummary = summarizeUsageCosts(
+        summary.scenarioRuns.map((run) => run.usageSummary),
+        summary.scenarioRuns.length
+      );
       return {
         modelId: summary.model.id,
         provider: summary.model.provider,
@@ -238,7 +248,7 @@ function buildQaSection(input: {
     kind: "qa",
     title: "Guided",
     summary: topModel
-      ? `${topModel.modelId} leads guided mode with ${topModel.score.toFixed(3)} score, ${(topModel.fullScenarioCompletionRate * 100).toFixed(1)}% scenario completion, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
+      ? `${topModel.modelId} leads guided mode with ${topModel.score.toFixed(3)} score, ${(topModel.scenarioCompletionRate * 100).toFixed(1)}% scenario completion, and total cost ${formatCostSummary(topModel.costSummary, "totalResolvedUsd")}.`
       : "No guided results were available.",
     appIds: [input.appId],
     metricColumns: QA_METRIC_COLUMNS,
@@ -253,8 +263,8 @@ function buildQaSection(input: {
           runIds: [input.runId],
           metrics: {
             score: entry.score,
-            taskPassRate: entry.taskPassRate,
-            scenarioCompletion: entry.fullScenarioCompletionRate,
+            stepPassRate: entry.stepPassRate,
+            scenarioCompletion: entry.scenarioCompletionRate,
             capabilityPassRate: entry.capabilityPassRate,
             stability: entry.stability,
             avgLatency: entry.avgLatencyMs,
@@ -267,6 +277,7 @@ function buildQaSection(input: {
     })),
     notes: [
       "Score is shown on a 0-100 scale where higher is better.",
+      "Stability is normalized to the full 0-1 range from binary scenario-outcome variance across trials.",
       "Total Cost sums resolved guided spend across the full run."
     ],
     audit: {
@@ -281,7 +292,8 @@ function buildQaSection(input: {
 }
 
 function buildReport(artifact: QaRunArtifact): QaReport {
-  const leaderboard = buildLeaderboard(artifact.modelSummaries);
+  const reportableModelSummaries = artifact.modelSummaries.filter(isReportableQaModelSummary);
+  const leaderboard = buildLeaderboard(reportableModelSummaries);
   return {
     kind: "qa",
     runId: artifact.runId,
@@ -289,8 +301,8 @@ function buildReport(artifact: QaRunArtifact): QaReport {
     generatedAt: nowIso(),
     spec: artifact.spec,
     leaderboard,
-    modelSummaries: artifact.modelSummaries,
-    costGraph: buildQaCostGraph(artifact.modelSummaries),
+    modelSummaries: reportableModelSummaries,
+    costGraph: buildQaCostGraph(reportableModelSummaries),
     section: buildQaSection({
       appId: artifact.appId,
       runId: artifact.runId,
@@ -343,43 +355,36 @@ async function persistQaOutput(resultsRoot: string, artifact: QaRunArtifact, rep
 
 function computeModelMetrics(summaryInput: {
   model: ModelAvailability;
-  taskRuns: QaModelSummary["taskRuns"];
+  scenarioRuns: QaModelSummary["scenarioRuns"];
   capabilityRuns: QaModelSummary["capabilityRuns"];
-  trials: number;
 }): QaModelMetrics {
   if (!summaryInput.model.available) {
     return zeroMetrics(summaryInput.model);
   }
 
-  const taskSummary = summarizeTaskRuns(summaryInput.taskRuns);
+  const scenarioSummary = summarizeScenarioRuns(summaryInput.scenarioRuns);
   const capabilityPassRate = summaryInput.capabilityRuns.length
     ? summaryInput.capabilityRuns.filter((item) => item.success).length / summaryInput.capabilityRuns.length
     : 0;
-  const fullScenarioCompletionRate =
-    summaryInput.trials > 0
-      ? [...new Set(summaryInput.taskRuns.map((run) => run.trial))]
-          .map((trial) => summaryInput.taskRuns.filter((run) => run.trial === trial).every((run) => run.success))
-          .filter(Boolean).length / summaryInput.trials
-      : 0;
 
   return {
     modelId: summaryInput.model.id,
     capabilityPassRate: round(capabilityPassRate),
-    fullScenarioCompletionRate: round(fullScenarioCompletionRate),
-    stability: taskSummary.stability,
-    taskPassRate: taskSummary.taskPassRate,
-    avgLatencyMs: taskSummary.avgLatencyMs,
-    avgCostUsd: taskSummary.costSummary.avgResolvedUsd,
+    scenarioCompletionRate: round(scenarioSummary.scenarioPassRate),
+    stability: scenarioSummary.stability,
+    stepPassRate: scenarioSummary.stepPassRate,
+    avgLatencyMs: scenarioSummary.avgLatencyMs,
+    avgCostUsd: scenarioSummary.costSummary.avgResolvedUsd,
     score: computeQaScore({
       capabilityPassRate,
-      fullScenarioCompletionRate,
-      taskPassRate: taskSummary.taskPassRate,
-      stability: taskSummary.stability,
-      avgLatencyMs: taskSummary.avgLatencyMs,
-      avgCostUsd: taskSummary.costSummary.avgResolvedUsd
+      scenarioCompletionRate: scenarioSummary.scenarioPassRate,
+      stepPassRate: scenarioSummary.stepPassRate,
+      stability: scenarioSummary.stability,
+      avgLatencyMs: scenarioSummary.avgLatencyMs,
+      avgCostUsd: scenarioSummary.costSummary.avgResolvedUsd
     }),
-    executedTasks: summaryInput.taskRuns.length,
-    skippedTasks: 0
+    executedScenarios: summaryInput.scenarioRuns.length,
+    skippedScenarios: 0
   };
 }
 
@@ -389,8 +394,10 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
   const preset = await loadQaPreset(input.presetPath);
   const benchmark = await loadAppBenchmark(input.appId);
-  const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.qa.capabilityIds;
-  const taskIds = capabilityIds.flatMap((capabilityId) => benchmark.capabilityMap.get(capabilityId)?.taskIds ?? []);
+  const capabilityIds = preset.capabilityIds ?? benchmark.benchmark.guided.capabilityIds;
+  const scenarioIds = capabilityIds.flatMap(
+    (capabilityId) => benchmark.capabilityMap.get(capabilityId)?.scenarioIds ?? []
+  );
   const resultsDir = input.resultsDir ?? "results";
   if (input.resetModeResults !== false) {
     await clearQaOutputs(resultsDir);
@@ -398,17 +405,16 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const resultsRoot = await resolveExperimentRoot(resultsDir, "qa");
   const modelsPath = await resolveWorkspacePath(input.modelsPath ?? "experiments/models/registry.yaml");
   const registry = await loadModelRegistry(modelsPath);
-  const requestedModels =
-    input.models ?? preset.models ?? registry.models.filter((model) => model.enabled).map((model) => model.id);
+  const requestedModels = input.models ?? preset.models;
   const models = resolveModelAvailability(registry, requestedModels);
   const spec: QaExperimentSpec = {
     appId: input.appId,
     capabilityIds,
-    taskIds,
+    scenarioIds,
     models: models.map((model) => model.id),
-    promptId: preset.promptId ?? benchmark.benchmark.prompts.qa,
+    promptId: preset.promptId ?? benchmark.benchmark.prompts.guided,
     profile: GUIDED_RUNTIME_DEFAULTS.profile,
-    trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.qaTrials,
+    trials: input.trials ?? preset.trials ?? benchmark.benchmark.runtime.guidedTrials,
     runtime: {
       profile: GUIDED_RUNTIME_DEFAULTS.profile,
       timeoutMs: input.timeoutMs ?? benchmark.benchmark.runtime.timeoutMs,
@@ -423,16 +429,16 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   const runId = `guided-${input.appId}-${Date.now()}`;
   const parallelism = resolveParallelism(input.parallelism);
   const startedAt = nowIso();
-  let completedTasks = 0;
-  const allTaskRuns: TaskRunResult[] = [];
-  const totalTasks = models.filter((model) => model.available).length * spec.trials * spec.taskIds.length;
+  let completedScenarios = 0;
+  const allScenarioRuns: ScenarioRunResult[] = [];
+  const totalScenarios = models.filter((model) => model.available).length * spec.trials * spec.scenarioIds.length;
   emitExperimentLog(
     input.onLog,
-    `[guided] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.taskIds.length} task(s), model parallelism ${parallelism}`
+    `[guided] Starting ${runId} for ${input.appId}: ${models.length} model(s), ${spec.trials} trial(s), ${spec.scenarioIds.length} scenario(s), model parallelism ${parallelism}`
   );
   const resolvedSuite = await buildResolvedSuite({
     resolvedBenchmark: benchmark,
-    taskIds: spec.taskIds,
+    scenarioIds: spec.scenarioIds,
     bugIds: [],
     explorationMode: "guided",
     suiteId: runId,
@@ -455,15 +461,27 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
     updatedAt: nowIso(),
     models: spec.models,
     trials: spec.trials,
-    completedTasks,
-    totalTasks,
-    cumulativeUsage: sumAiUsageSummaries(allTaskRuns.map((run) => run.usageSummary)),
+    completedScenarios,
+    totalScenarios,
+    cumulativeUsage: sumAiUsageSummaries(allScenarioRuns.map((run) => run.usageSummary)),
     ...overrides
   });
 
-  await writeProgress(buildProgress({ completedTasks: 0 }));
+  await writeProgress(buildProgress({ completedScenarios: 0 }));
   const runner = input.runner ?? new StagehandAutomationRunner();
+  const reusableModelSummaries = new Map(
+    (input.reusableModelSummaries ?? []).map((entry) => [entry.summary.metrics.modelId, entry])
+  );
   const modelSummaries = await mapWithConcurrency(models, parallelism, async (model, modelIndex) => {
+    const reusableModelSummary = reusableModelSummaries.get(model.id);
+    if (reusableModelSummary) {
+      emitExperimentLog(
+        input.onLog,
+        `[guided] Model ${modelIndex + 1}/${models.length}: ${model.id} skipped; reusing existing run data from ${reusableModelSummary.sourceRunId}`
+      );
+      return reusableModelSummary.summary;
+    }
+
     if (!model.available) {
       emitExperimentLog(
         input.onLog,
@@ -472,14 +490,14 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
       return {
         model,
         metrics: zeroMetrics(model),
-        taskRuns: [],
+        scenarioRuns: [],
         capabilityRuns: []
       } satisfies QaModelSummary;
     }
 
     emitExperimentLog(input.onLog, `[guided] Model ${modelIndex + 1}/${models.length}: ${model.id} started`);
     const trialResults: Array<{
-      taskRuns: QaModelSummary["taskRuns"];
+      scenarioRuns: QaModelSummary["scenarioRuns"];
       capabilityRuns: QaModelSummary["capabilityRuns"];
     }> = [];
 
@@ -498,7 +516,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
 
       try {
         autHandle = await startAut(workspace.aut);
-        const execution = await executeGuidedTasks({
+        const execution = await executeGuidedScenarios({
           runId: attemptRunId,
           resultsRoot,
           resolvedSuite,
@@ -506,42 +524,42 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
           model,
           runner,
           trial,
-          usagePhase: "guided_task",
+          usagePhase: "guided_scenario",
           systemPrompt: resolvedSuite.prompts.guided,
           onLog: input.onLog,
-          taskLabel: `[guided][${model.id}][trial ${trial}] guided task`,
-          onTaskRunComplete: async ({ taskIndex, taskId, result }) => {
-            completedTasks += 1;
-            allTaskRuns.push(result);
+          scenarioLabel: `[guided][${model.id}][trial ${trial}] guided scenario`,
+          onScenarioRunComplete: async ({ scenarioIndex, scenarioId, result }) => {
+            completedScenarios += 1;
+            allScenarioRuns.push(result);
             await writeProgress(
               buildProgress({
                 currentModelId: model.id,
                 currentTrial: trial,
-                currentTaskIndex: taskIndex + 1,
-                currentTaskId: taskId,
-                lastTaskResult: slimTaskRunForProgress(result)
+                currentScenarioIndex: scenarioIndex + 1,
+                currentScenarioId: scenarioId,
+                lastScenarioResult: slimScenarioRunForProgress(result)
               })
             );
           }
         });
-        const passedTasks = execution.taskRuns.filter((run) => run.success).length;
+        const passedScenarios = execution.scenarioRuns.filter((run) => run.success).length;
         emitExperimentLog(
           input.onLog,
-          `[guided] Trial ${trial}/${spec.trials} for ${model.id} completed: ${passedTasks}/${execution.taskRuns.length} tasks passed`
+          `[guided] Trial ${trial}/${spec.trials} for ${model.id} completed: ${passedScenarios}/${execution.scenarioRuns.length} scenarios passed`
         );
 
         trialResults.push({
-          taskRuns: execution.taskRuns,
+          scenarioRuns: execution.scenarioRuns,
           capabilityRuns: capabilityIds.map((capabilityId) => {
             const capability = benchmark.capabilityMap.get(capabilityId)!;
-            const relevantRuns = execution.taskRuns.filter((run) => capability.taskIds.includes(run.taskId));
+            const relevantRuns = execution.scenarioRuns.filter((run) => capability.scenarioIds.includes(run.scenarioId));
             return {
               capabilityId,
               title: capability.title,
               trial,
               success: relevantRuns.length > 0 && relevantRuns.every((run) => run.success),
-              taskIds: capability.taskIds,
-              failedTaskIds: relevantRuns.filter((run) => !run.success).map((run) => run.taskId)
+              scenarioIds: capability.scenarioIds,
+              failedScenarioIds: relevantRuns.filter((run) => !run.success).map((run) => run.scenarioId)
             };
           })
         });
@@ -550,31 +568,30 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
       }
     }
 
-    const taskRuns = trialResults.flatMap((trialResult) => trialResult.taskRuns);
+    const scenarioRuns = trialResults.flatMap((trialResult) => trialResult.scenarioRuns);
     const capabilityRuns = trialResults.flatMap((trialResult) => trialResult.capabilityRuns);
-    const taskSummary = summarizeTaskRuns(taskRuns);
+    const scenarioSummary = summarizeScenarioRuns(scenarioRuns);
     const metrics = computeModelMetrics({
       model,
-      taskRuns,
-      capabilityRuns,
-      trials: spec.trials
+      scenarioRuns,
+      capabilityRuns
     });
     const summary = {
       model,
       metrics,
-      cacheSummary: taskSummary.cacheSummary,
-      taskRuns,
+      cacheSummary: scenarioSummary.cacheSummary,
+      scenarioRuns,
       capabilityRuns
     } satisfies QaModelSummary;
 
     emitExperimentLog(
       input.onLog,
-      `[guided] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, task pass ${(metrics.taskPassRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
+      `[guided] Model ${model.id} completed: score ${metrics.score.toFixed(3)}, scenario pass ${(metrics.scenarioCompletionRate * 100).toFixed(1)}%, capability pass ${(metrics.capabilityPassRate * 100).toFixed(1)}%`
     );
     await writeProgress(
       buildProgress({
         currentModelId: model.id,
-        lastTaskResult: taskRuns.length ? slimTaskRunForProgress(taskRuns.at(-1)!) : undefined
+        lastScenarioResult: scenarioRuns.length ? slimScenarioRunForProgress(scenarioRuns.at(-1)!) : undefined
       })
     );
     return summary;
@@ -593,7 +610,7 @@ export async function runQaExperiment(input: RunQaExperimentInput): Promise<QaRu
   await writeProgress(
     buildProgress({
       status: "completed",
-      lastTaskResult: allTaskRuns.length ? slimTaskRunForProgress(allTaskRuns.at(-1)!) : undefined
+      lastScenarioResult: allScenarioRuns.length ? slimScenarioRunForProgress(allScenarioRuns.at(-1)!) : undefined
     })
   );
   emitExperimentLog(

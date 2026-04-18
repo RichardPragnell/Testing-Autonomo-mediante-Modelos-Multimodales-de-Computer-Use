@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { sumAiUsageSummaries, summarizeUsageCosts } from "../ai/usage.js";
-import type { ResolvedBenchmarkSuite, TaskRunResult, UsageCostSummary } from "../types.js";
+import type { ResolvedBenchmarkSuite, ScenarioRunResult, UsageCostSummary } from "../types.js";
 import type { AiUsagePhase, AutomationRunner, Finding, ModelAvailability, RunWorkspace } from "../types.js";
 import { buildStagehandConfigSignature, resolveExecutionCacheConfig } from "../cache/config.js";
-import { summarizeTaskRunCache } from "../cache/summary.js";
+import { summarizeScenarioRunCache } from "../cache/summary.js";
 import { loadPromptText } from "../config/prompt.js";
-import { persistTaskArtifacts } from "../persistence/store.js";
 import { buildSourceCandidates } from "../diagnostics/source-candidates.js";
 import { classifyFailure } from "../diagnostics/taxonomy.js";
+import { persistScenarioArtifacts } from "../persistence/store.js";
 import { nowIso } from "../utils/time.js";
 import { resolveWorkspacePath } from "../utils/fs.js";
 import type {
@@ -74,7 +74,7 @@ export function emitExperimentLog(onLog: ExperimentLogFn | undefined, message: s
   }
 }
 
-function describeTaskResult(result: TaskRunResult): string {
+function describeScenarioResult(result: ScenarioRunResult): string {
   const status = result.success ? "passed" : "failed";
   const cache = result.cache?.status ? `, cache ${result.cache.status}` : "";
   const detailSource = result.success ? result.message : result.error ?? result.message;
@@ -90,7 +90,8 @@ export function computeBinaryStability(groups: number[][]): number {
   if (!groups.length) {
     return 0;
   }
-  return round(clamp(1 - avg(groups.map((group) => std(group)))));
+  const maxBinaryStd = 0.5;
+  return round(clamp(1 - avg(groups.map((group) => std(group) / maxBinaryStd))));
 }
 
 export function computeLatencyEfficiency(avgLatencyMs: number, pivotMs = 2_000): number {
@@ -170,26 +171,26 @@ export function unique<T>(values: T[]): T[] {
 export function mapCapabilityTasks(
   resolvedBenchmark: ResolvedAppBenchmark,
   capabilityIds: string[]
-): Array<CapabilityDefinition & { tasks: TaskRunResult[] }> {
+): Array<CapabilityDefinition & { scenarios: ScenarioRunResult[] }> {
   return capabilityIds.map((capabilityId) => ({
     ...resolvedBenchmark.capabilityMap.get(capabilityId)!,
-    tasks: []
+    scenarios: []
   }));
 }
 
-export function selectTasks(resolvedBenchmark: ResolvedAppBenchmark, taskIds: string[]) {
-  return taskIds.map((taskId) => {
-    const task = resolvedBenchmark.tasks.get(taskId);
-    if (!task) {
-      throw new Error(`unknown task ${taskId}`);
+export function selectScenarios(resolvedBenchmark: ResolvedAppBenchmark, scenarioIds: string[]) {
+  return scenarioIds.map((scenarioId) => {
+    const scenario = resolvedBenchmark.scenarios.get(scenarioId);
+    if (!scenario) {
+      throw new Error(`unknown scenario ${scenarioId}`);
     }
-    return task;
+    return scenario;
   });
 }
 
 export async function buildResolvedSuite(input: {
   resolvedBenchmark: ResolvedAppBenchmark;
-  taskIds: string[];
+  scenarioIds: string[];
   bugIds: string[];
   explorationMode: "guided" | "autonomous";
   suiteId: string;
@@ -201,11 +202,7 @@ export async function buildResolvedSuite(input: {
     repair?: string;
   };
 }): Promise<ResolvedBenchmarkSuite> {
-  const tasks = selectTasks(input.resolvedBenchmark, input.taskIds);
-  const scenarioIds = unique(tasks.map((task) => task.scenarioId).filter((value): value is string => Boolean(value)));
-  const selectedScenarios = input.resolvedBenchmark.target.scenarios.filter((scenario) =>
-    scenarioIds.includes(scenario.scenarioId)
-  );
+  const selectedScenarios = selectScenarios(input.resolvedBenchmark, input.scenarioIds);
   const selectedBugs = input.resolvedBenchmark.target.bugs.filter((bug) => input.bugIds.includes(bug.bugId));
 
   return {
@@ -213,7 +210,7 @@ export async function buildResolvedSuite(input: {
     suite: {
       suiteId: input.suiteId,
       targetId: input.resolvedBenchmark.target.target.targetId,
-      scenarioIds,
+      scenarioIds: input.scenarioIds,
       bugIds: input.bugIds,
       explorationMode: input.explorationMode,
       promptIds: input.promptIds,
@@ -230,7 +227,6 @@ export async function buildResolvedSuite(input: {
     target: input.resolvedBenchmark.target,
     selectedScenarios,
     selectedBugs,
-    tasks,
     prompts: {
       guided: input.promptIds.guided ? await loadPromptText(input.promptIds.guided) : undefined,
       autonomous: input.promptIds.autonomous ? await loadPromptText(input.promptIds.autonomous) : undefined,
@@ -249,7 +245,18 @@ function severityFromCategory(category: ReturnType<typeof classifyFailure>): "lo
   return "low";
 }
 
-export async function executeGuidedTasks(input: {
+function firstFailedAssertion(result: ScenarioRunResult) {
+  for (const step of result.stepRuns) {
+    if (step.success) {
+      continue;
+    }
+    const failedAssertion = step.assertionRuns.find((assertion) => !assertion.success);
+    return { step, failedAssertion };
+  }
+  return undefined;
+}
+
+export async function executeGuidedScenarios(input: {
   runId: string;
   resultsRoot: string;
   resolvedSuite: ResolvedBenchmarkSuite;
@@ -260,24 +267,26 @@ export async function executeGuidedTasks(input: {
   systemPrompt?: string;
   includeFindings?: boolean;
   includeBugHints?: boolean;
-  taskIds?: string[];
+  scenarioIds?: string[];
   usagePhase?: AiUsagePhase;
   onLog?: ExperimentLogFn;
-  taskLabel?: string;
-  onTaskRunComplete?: (event: {
-    taskIndex: number;
-    totalTasks: number;
-    taskId: string;
-    result: TaskRunResult;
+  scenarioLabel?: string;
+  onScenarioRunComplete?: (event: {
+    scenarioIndex: number;
+    totalScenarios: number;
+    scenarioId: string;
+    result: ScenarioRunResult;
   }) => Promise<void> | void;
 }): Promise<{
-  taskRuns: TaskRunResult[];
+  scenarioRuns: ScenarioRunResult[];
   findings: Finding[];
 }> {
-  const taskRuns: TaskRunResult[] = [];
+  const scenarioRuns: ScenarioRunResult[] = [];
   const findings: Finding[] = [];
-  const selectedTaskIds = input.taskIds ? new Set(input.taskIds) : undefined;
-  const selectedTasks = input.resolvedSuite.tasks.filter((task) => !selectedTaskIds || selectedTaskIds.has(task.id));
+  const selectedScenarioIds = input.scenarioIds ? new Set(input.scenarioIds) : undefined;
+  const selectedScenarios = input.resolvedSuite.selectedScenarios.filter(
+    (scenario) => !selectedScenarioIds || selectedScenarioIds.has(scenario.scenarioId)
+  );
   const cacheConfig = await resolveExecutionCacheConfig({
     resultsDir: input.resolvedSuite.suite.resultsDir,
     targetId: input.resolvedSuite.suite.targetId,
@@ -290,12 +299,15 @@ export async function executeGuidedTasks(input: {
     })
   });
 
-  for (const [taskIndex, task] of selectedTasks.entries()) {
-    const taskLabel = input.taskLabel ?? "task";
-    emitExperimentLog(input.onLog, `${taskLabel} ${taskIndex + 1}/${selectedTasks.length} (${task.id}) started`);
-    const result = await input.runner.runTask({
+  for (const [scenarioIndex, scenario] of selectedScenarios.entries()) {
+    const scenarioLabel = input.scenarioLabel ?? "scenario";
+    emitExperimentLog(
+      input.onLog,
+      `${scenarioLabel} ${scenarioIndex + 1}/${selectedScenarios.length} (${scenario.scenarioId}) started`
+    );
+    const result = await input.runner.runScenario({
       model: input.model,
-      task,
+      scenario,
       trial: input.trial,
       aut: input.workspace.aut,
       runConfig: {
@@ -308,32 +320,35 @@ export async function executeGuidedTasks(input: {
       },
       cacheConfig,
       usagePhase: input.usagePhase,
-      systemPrompt: input.systemPrompt,
+      systemPrompt: input.systemPrompt
     });
-    taskRuns.push(result);
-    await input.onTaskRunComplete?.({
-      taskIndex,
-      totalTasks: selectedTasks.length,
-      taskId: task.id,
+    scenarioRuns.push(result);
+    await input.onScenarioRunComplete?.({
+      scenarioIndex,
+      totalScenarios: selectedScenarios.length,
+      scenarioId: scenario.scenarioId,
       result
     });
     emitExperimentLog(
       input.onLog,
-      `${taskLabel} ${taskIndex + 1}/${selectedTasks.length} (${task.id}) ${describeTaskResult(result)}`
+      `${scenarioLabel} ${scenarioIndex + 1}/${selectedScenarios.length} (${scenario.scenarioId}) ${describeScenarioResult(result)}`
     );
 
     if (!input.includeFindings || result.success) {
       continue;
     }
 
-    const artifactRefs = await persistTaskArtifacts(input.resultsRoot, input.runId, input.model.id, result);
-    const reason = result.error ?? result.message;
+    const artifactRefs = await persistScenarioArtifacts(input.resultsRoot, input.runId, input.model.id, result);
+    const failure = firstFailedAssertion(result);
+    const reason = failure?.failedAssertion?.error ?? failure?.failedAssertion?.message ?? result.error ?? result.message;
     const category = classifyFailure(reason);
     findings.push({
-      id: `${input.runId}:${input.model.id}:${task.id}:${input.trial}`,
+      id: `${input.runId}:${input.model.id}:${scenario.scenarioId}:${failure?.step.stepId ?? "unknown"}:${input.trial}`,
       runId: input.runId,
       modelId: input.model.id,
-      taskId: task.id,
+      scenarioId: scenario.scenarioId,
+      stepId: failure?.step.stepId ?? "unknown",
+      assertionId: failure?.failedAssertion?.assertionId,
       trial: input.trial,
       severity: severityFromCategory(category),
       category,
@@ -342,7 +357,7 @@ export async function executeGuidedTasks(input: {
       sourceCandidates: buildSourceCandidates({
         workspacePath: input.workspace.workspacePath,
         suite: input.resolvedSuite,
-        task,
+        scenario,
         result,
         category,
         message: reason,
@@ -352,41 +367,46 @@ export async function executeGuidedTasks(input: {
     });
   }
 
-  return { taskRuns, findings };
+  return { scenarioRuns, findings };
 }
 
-export function groupTaskOutcomesByTask(taskRuns: TaskRunResult[]): number[][] {
+export function groupScenarioOutcomesByScenario(scenarioRuns: ScenarioRunResult[]): number[][] {
   const groups = new Map<string, number[]>();
-  for (const run of taskRuns) {
-    const current = groups.get(run.taskId) ?? [];
+  for (const run of scenarioRuns) {
+    const current = groups.get(run.scenarioId) ?? [];
     current.push(run.success ? 1 : 0);
-    groups.set(run.taskId, current);
+    groups.set(run.scenarioId, current);
   }
   return [...groups.values()];
 }
 
-export function summarizeTaskRuns(taskRuns: TaskRunResult[]): {
-  taskPassRate: number;
+export function summarizeScenarioRuns(scenarioRuns: ScenarioRunResult[]): {
+  scenarioPassRate: number;
+  stepPassRate: number;
   avgLatencyMs: number;
   avgCostUsd: number;
   costSummary: UsageCostSummary;
   stability: number;
   usageSummary: ReturnType<typeof sumAiUsageSummaries>;
-  cacheSummary?: ReturnType<typeof summarizeTaskRunCache>;
+  cacheSummary?: ReturnType<typeof summarizeScenarioRunCache>;
 } {
-  const successes = taskRuns.filter((run) => run.success).length;
-  const taskPassRate = taskRuns.length ? successes / taskRuns.length : 0;
-  const usageSummaries = taskRuns.map((run) => run.usageSummary);
+  const successes = scenarioRuns.filter((run) => run.success).length;
+  const scenarioPassRate = scenarioRuns.length ? successes / scenarioRuns.length : 0;
+  const stepRuns = scenarioRuns.flatMap((run) => run.stepRuns);
+  const passedSteps = stepRuns.filter((step) => step.success).length;
+  const stepPassRate = stepRuns.length ? passedSteps / stepRuns.length : 0;
+  const usageSummaries = scenarioRuns.map((run) => run.usageSummary);
   const usageSummary = sumAiUsageSummaries(usageSummaries);
-  const costSummary = summarizeUsageCosts(usageSummaries, taskRuns.length);
+  const costSummary = summarizeUsageCosts(usageSummaries, scenarioRuns.length);
   return {
-    taskPassRate: round(taskPassRate),
-    avgLatencyMs: round(avg(taskRuns.map((run) => run.latencyMs)), 3),
+    scenarioPassRate: round(scenarioPassRate),
+    stepPassRate: round(stepPassRate),
+    avgLatencyMs: round(avg(scenarioRuns.map((run) => run.latencyMs)), 3),
     avgCostUsd: costSummary.avgResolvedUsd,
     costSummary,
-    stability: computeBinaryStability(groupTaskOutcomesByTask(taskRuns)),
+    stability: computeBinaryStability(groupScenarioOutcomesByScenario(scenarioRuns)),
     usageSummary,
-    cacheSummary: summarizeTaskRunCache(taskRuns)
+    cacheSummary: summarizeScenarioRunCache(scenarioRuns)
   };
 }
 

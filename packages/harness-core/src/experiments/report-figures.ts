@@ -1,4 +1,4 @@
-import type { TaskRunResult } from "../types.js";
+import type { ScenarioRunResult } from "../types.js";
 import type {
   ExploreModelSummary,
   ExploreProbeRun,
@@ -10,15 +10,15 @@ import type {
   QaReport
 } from "./types.js";
 
-const QA_PREFERRED_TASK_IDS = [
-  "guided-edit-task",
-  "guided-add-task",
-  "guided-complete-task",
-  "guided-filter-active",
-  "guided-create-delete-task"
+const QA_PREFERRED_SCENARIO_IDS = [
+  "edit-task",
+  "add-task",
+  "complete-task",
+  "filter-active",
+  "create-delete-task"
 ];
 
-const BASELINE_TASK_IDS = ["smoke-home-title", "smoke-default-count"];
+const BASELINE_SCENARIO_IDS = ["smoke-load"];
 
 function orderByLeaderboard<T extends { model: { id: string } }>(
   summaries: T[],
@@ -32,19 +32,22 @@ function orderByLeaderboard<T extends { model: { id: string } }>(
   });
 }
 
-function firstSuccessfulRun(taskRuns: TaskRunResult[], preferredTaskIds: string[]): TaskRunResult | undefined {
-  for (const taskId of preferredTaskIds) {
-    const match = taskRuns.find((run) => run.success && run.taskId === taskId && run.screenshotBase64);
+function firstSuccessfulRun(
+  scenarioRuns: ScenarioRunResult[],
+  preferredScenarioIds: string[]
+): ScenarioRunResult | undefined {
+  for (const scenarioId of preferredScenarioIds) {
+    const match = scenarioRuns.find((run) => run.success && run.scenarioId === scenarioId && run.screenshotBase64);
     if (match) {
       return match;
     }
   }
 
-  return taskRuns.find((run) => run.success && run.screenshotBase64);
+  return scenarioRuns.find((run) => run.success && run.screenshotBase64);
 }
 
-function firstRunWithScreenshot(taskRuns: TaskRunResult[]): TaskRunResult | undefined {
-  return taskRuns.find((run) => run.screenshotBase64);
+function firstRunWithScreenshot(scenarioRuns: ScenarioRunResult[]): ScenarioRunResult | undefined {
+  return scenarioRuns.find((run) => run.screenshotBase64);
 }
 
 export function screenshotDataUrl(screenshotBase64?: string): string | undefined {
@@ -54,20 +57,20 @@ export function screenshotDataUrl(screenshotBase64?: string): string | undefined
   return `data:image/png;base64,${screenshotBase64}`;
 }
 
-export function selectQaRepresentativeRun(summary: QaModelSummary): TaskRunResult | undefined {
-  return firstSuccessfulRun(summary.taskRuns, QA_PREFERRED_TASK_IDS);
+export function selectQaRepresentativeRun(summary: QaModelSummary): ScenarioRunResult | undefined {
+  return firstSuccessfulRun(summary.scenarioRuns, QA_PREFERRED_SCENARIO_IDS);
 }
 
-export function selectQaBaselineRun(report: QaReport): TaskRunResult | undefined {
+export function selectQaBaselineRun(report: QaReport): ScenarioRunResult | undefined {
   for (const summary of orderByLeaderboard(report.modelSummaries, report.leaderboard)) {
-    const match = firstSuccessfulRun(summary.taskRuns, BASELINE_TASK_IDS);
+    const match = firstSuccessfulRun(summary.scenarioRuns, BASELINE_SCENARIO_IDS);
     if (match) {
       return match;
     }
   }
 
   for (const summary of orderByLeaderboard(report.modelSummaries, report.leaderboard)) {
-    const match = firstSuccessfulRun(summary.taskRuns, QA_PREFERRED_TASK_IDS);
+    const match = firstSuccessfulRun(summary.scenarioRuns, QA_PREFERRED_SCENARIO_IDS);
     if (match) {
       return match;
     }
@@ -103,24 +106,24 @@ export function selectExploreRepresentativeProbeRun(summary: ExploreModelSummary
   }
 
   const preferredSmoke = bestTrial.probeRuns.find(
-    (probe) => probe.success && probe.taskId === "smoke-home-title" && probe.taskRun.screenshotBase64
+    (probe) => probe.success && probe.scenarioId === "smoke-load" && probe.scenarioRun.screenshotBase64
   );
   if (preferredSmoke) {
     return preferredSmoke;
   }
 
-  return bestTrial.probeRuns.find((probe) => probe.success && probe.taskRun.screenshotBase64);
+  return bestTrial.probeRuns.find((probe) => probe.success && probe.scenarioRun.screenshotBase64);
 }
 
-export function selectExploreBaselineRun(report: ExploreReport): TaskRunResult | undefined {
+export function selectExploreBaselineRun(report: ExploreReport): ScenarioRunResult | undefined {
   for (const summary of orderByLeaderboard(report.modelSummaries, report.leaderboard)) {
     for (const trial of [...summary.trials].sort((left, right) => left.trial - right.trial)) {
-      for (const taskId of BASELINE_TASK_IDS) {
+      for (const scenarioId of BASELINE_SCENARIO_IDS) {
         const match = trial.probeRuns.find(
-          (probe) => probe.success && probe.taskId === taskId && probe.taskRun.screenshotBase64
+          (probe) => probe.success && probe.scenarioId === scenarioId && probe.scenarioRun.screenshotBase64
         );
         if (match) {
-          return match.taskRun;
+          return match.scenarioRun;
         }
       }
     }
@@ -129,14 +132,14 @@ export function selectExploreBaselineRun(report: ExploreReport): TaskRunResult |
   for (const summary of orderByLeaderboard(report.modelSummaries, report.leaderboard)) {
     const match = selectExploreRepresentativeProbeRun(summary);
     if (match) {
-      return match.taskRun;
+      return match.scenarioRun;
     }
   }
 
   return undefined;
 }
 
-export function selectHealBaselineRun(report: HealReport): TaskRunResult | undefined {
+export function selectHealBaselineRun(report: HealReport): ScenarioRunResult | undefined {
   for (const summary of orderByLeaderboard(report.modelSummaries, report.leaderboard)) {
     for (const caseResult of summary.caseResults) {
       const reproduction = firstRunWithScreenshot(caseResult.reproductionRuns);

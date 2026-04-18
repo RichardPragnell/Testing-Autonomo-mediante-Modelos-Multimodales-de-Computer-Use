@@ -1,10 +1,10 @@
 import { join } from "node:path";
 import type {
-  BenchmarkTask,
+  BenchmarkScenario,
   FailureCategory,
   ResolvedBenchmarkSuite,
   SourceCandidate,
-  TaskRunResult
+  ScenarioRunResult
 } from "../types.js";
 
 type RouteHint = "composer" | "filter" | "editor" | "overview";
@@ -170,7 +170,7 @@ function normalizeRelativePath(path: string): string {
   return path.replaceAll("\\", "/");
 }
 
-function collectTraceText(result: TaskRunResult): string[] {
+function collectTraceText(result: ScenarioRunResult): string[] {
   const values: string[] = [];
   for (const entry of result.trace) {
     values.push(entry.action);
@@ -224,8 +224,8 @@ function addCandidate(
 export function buildSourceCandidates(input: {
   workspacePath: string;
   suite: ResolvedBenchmarkSuite;
-  task: BenchmarkTask;
-  result: TaskRunResult;
+  scenario: BenchmarkScenario;
+  result: ScenarioRunResult;
   category: FailureCategory;
   message: string;
   includeBugHints?: boolean;
@@ -235,10 +235,14 @@ export function buildSourceCandidates(input: {
   const routeFiles = buildRouteFiles(appShape);
   const categoryFiles = buildCategoryFiles(appShape);
   const files = appShapeFiles[appShape];
+  const failedStep = input.result.stepRuns.find((step) => !step.success);
+  const failedAssertion = failedStep?.assertionRuns.find((assertion) => !assertion.success);
   const routeHint = detectRouteHint([
-    input.task.id,
-    input.task.instruction,
-    input.task.expected.value,
+    input.scenario.scenarioId,
+    input.scenario.title,
+    ...(input.scenario.steps.map((step) => step.title)),
+    failedStep?.title ?? "",
+    failedAssertion?.message ?? "",
     input.result.urlAfter ?? "",
     input.message,
     input.result.domSnapshot ?? "",
@@ -247,7 +251,7 @@ export function buildSourceCandidates(input: {
 
   if (input.includeBugHints ?? true) {
     for (const bug of input.suite.selectedBugs) {
-      if (!bug.expectedFailureTaskIds.includes(input.task.id)) {
+      if (!bug.expectedFailureScenarioIds.includes(input.scenario.scenarioId)) {
         continue;
       }
       for (const touchedFile of bug.touchedFiles) {
@@ -256,7 +260,7 @@ export function buildSourceCandidates(input: {
           input.workspacePath,
           touchedFile,
           90,
-          `bug pack ${bug.bugId} is expected to fail on task ${input.task.id}`
+          `bug pack ${bug.bugId} is expected to fail on scenario ${input.scenario.scenarioId}`
         );
       }
     }

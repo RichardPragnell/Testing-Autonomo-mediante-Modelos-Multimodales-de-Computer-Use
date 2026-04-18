@@ -2,6 +2,7 @@ import {
   OpenAICompatibleChatLanguageModel,
   type MetadataExtractor
 } from "@ai-sdk/openai-compatible";
+import type { SharedV2ProviderOptions } from "@ai-sdk/provider";
 import type { AiOperation, AiUsagePhase, AiUsageRecord } from "../types.js";
 import { nowIso } from "../utils/time.js";
 
@@ -52,8 +53,26 @@ function resolveOpenRouterBaseUrl(env: NodeJS.ProcessEnv = process.env): string 
   return env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
 }
 
+const OPENROUTER_CHAT_PROVIDER = "openrouter.chat";
+
 export function isOpenRouterCostTrackingEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.OPENROUTER_API_KEY?.trim());
+}
+
+export function buildPinnedOpenRouterProviderOptions(providerSlug: string): SharedV2ProviderOptions {
+  const provider = providerSlug.trim();
+  if (!provider) {
+    throw new Error("OpenRouter provider slug is required to pin routing");
+  }
+
+  return {
+    [OPENROUTER_CHAT_PROVIDER]: {
+      provider: {
+        only: [provider],
+        allow_fallbacks: false
+      }
+    }
+  };
 }
 
 export function parseOpenRouterUsage(usage: unknown): OpenRouterUsageDetails {
@@ -142,7 +161,7 @@ export function createOpenRouterLanguageModel(modelId: string, env: NodeJS.Proce
   }
 
   return new OpenAICompatibleChatLanguageModel(modelId, {
-    provider: "openrouter.chat",
+    provider: OPENROUTER_CHAT_PROVIDER,
     url: ({ path }) => `${baseURL}${path}`,
     headers: () => headers,
     includeUsage: true,

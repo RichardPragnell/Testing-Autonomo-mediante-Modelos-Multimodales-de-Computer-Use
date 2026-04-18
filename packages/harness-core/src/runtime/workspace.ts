@@ -82,7 +82,9 @@ export async function prepareRunWorkspace(input: {
 
   await removeDir(workspacePath);
   await ensureDir(runRoot);
-  await copyDir(input.resolvedSuite.target.templatePath, workspacePath);
+  await copyDir(input.resolvedSuite.target.templatePath, workspacePath, {
+    excludeNames: ["node_modules"]
+  });
 
   await expectSuccess("git init", workspacePath);
   await expectSuccess('git config user.email "bench@local.invalid"', workspacePath);
