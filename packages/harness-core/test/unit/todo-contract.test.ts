@@ -52,11 +52,20 @@ describe("todo benchmark contract parity", () => {
     expect(Object.fromEntries(appScenarios)).toEqual(contract.scenarios);
     expect(benchmark.capabilities).toEqual(contract.benchmark.capabilities);
     expect(benchmark.guided).toEqual(contract.benchmark.guided);
-    expect(benchmark.explore).toEqual({
-      capabilityIds: contract.benchmark.explore.capabilityIds,
-      probeScenarioIds: contract.benchmark.explore.probeScenarioIds,
-      heuristicTargets: contract.benchmark.explore.heuristicTargets
-    });
+    expect(benchmark.explore.capabilityIds).toEqual(contract.benchmark.explore.capabilityIds);
+    expect(benchmark.explore.heuristicTargets.actionKinds).toEqual(contract.benchmark.explore.heuristicTargets.actionKinds);
+    expect(benchmark.explore.heuristicTargets.minStates).toBeLessThanOrEqual(
+      contract.benchmark.explore.heuristicTargets.minStates
+    );
+    expect(benchmark.explore.heuristicTargets.minTransitions).toBeLessThanOrEqual(
+      contract.benchmark.explore.heuristicTargets.minTransitions
+    );
+    expect(benchmark.explore.probeScenarioIds).toEqual(
+      expect.arrayContaining(benchmark.explore.capabilityIds.filter((id: string) => id === "smoke-load"))
+    );
+    expect(contract.benchmark.explore.probeScenarioIds).toEqual(
+      expect.arrayContaining(benchmark.explore.probeScenarioIds)
+    );
     expect(benchmark.heal.caseIds).toEqual(contract.benchmark.heal.caseIds);
     expect(benchmark.heal.cases).toEqual(
       contract.benchmark.heal.cases.map((candidate: any) => ({

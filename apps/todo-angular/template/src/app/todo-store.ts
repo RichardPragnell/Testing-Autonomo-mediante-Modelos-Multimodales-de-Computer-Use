@@ -7,9 +7,7 @@ export type Todo = {
 export type FilterKey = "all" | "active" | "completed";
 
 export type TodoSummary = {
-  total: number;
   completed: number;
-  remaining: number;
   statusLine: string;
   progressLine: string;
 };
@@ -67,9 +65,7 @@ export function summarizeTodos(todos: Todo[]): TodoSummary {
   const completed = todos.filter((todo) => todo.done).length;
   const remaining = todos.length - completed;
   return {
-    total: todos.length,
     completed,
-    remaining,
     statusLine: `${remaining} tasks remaining`,
     progressLine: `${completed} of ${todos.length} tasks done`
   };

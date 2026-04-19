@@ -23,10 +23,6 @@ function unique<T>(values: T[]): T[] {
   return [...new Set(values)];
 }
 
-function sortMetricValue(value: number | string | null): number {
-  return typeof value === "number" ? value : 0;
-}
-
 function aggregateMetricValues(
   column: BenchmarkMetricColumn,
   values: Array<number | string | null>

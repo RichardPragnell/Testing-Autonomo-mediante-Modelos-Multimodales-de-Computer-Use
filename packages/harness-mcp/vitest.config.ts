@@ -1,10 +1,10 @@
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
     alias: {
-      "@agentic-qa/harness-core": resolve(__dirname, "../harness-core/src/index.ts")
+      "@agentic-qa/harness-core": fileURLToPath(new URL("../harness-core/src/index.ts", import.meta.url))
     }
   },
   test: {

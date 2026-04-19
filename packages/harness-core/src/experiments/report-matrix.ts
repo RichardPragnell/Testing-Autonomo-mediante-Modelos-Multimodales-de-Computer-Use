@@ -84,7 +84,6 @@ function formatMetricValue(
 }
 
 const LEAN_MATRIX_COLUMN_KEYS = ["score", "avgLatency", "totalCost"] as const;
-const LEAN_AUDIT_COLUMN_NAMES = ["App", "Model", "Total Cost"] as const;
 
 function visibleMatrixColumns(section: BenchmarkComparisonSection): BenchmarkMetricColumn[] {
   return LEAN_MATRIX_COLUMN_KEYS.flatMap((key) => section.metricColumns.filter((column) => column.key === key));

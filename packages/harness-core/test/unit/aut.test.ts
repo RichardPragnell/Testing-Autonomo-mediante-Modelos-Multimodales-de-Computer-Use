@@ -267,7 +267,7 @@ describe("startAut", () => {
 
     const child = spawn(
       process.execPath,
-      [join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs"), launcherPath, repoRoot, serverScriptPath, pidPath, String(port)],
+      ["--import", "tsx", launcherPath, repoRoot, serverScriptPath, pidPath, String(port)],
       {
         cwd: repoRoot,
         stdio: "ignore"

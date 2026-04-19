@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  type ExploreTargetInput,
+  type RunBenchmarkSuiteInput,
+  type RunGuidedInput,
+  type RunSelfHealInput,
   compareBenchmarkRuns,
   describeTarget,
   exploreTarget,
@@ -11,12 +15,19 @@ import {
   runSelfHeal
 } from "@agentic-qa/harness-core";
 
+type ToolInput = Record<string, unknown>;
+
 export interface ToolContract {
   name: string;
   description: string;
   inputSchema: z.ZodRawShape;
-  handler: (input: any) => Promise<any>;
+  handler: (input: ToolInput) => Promise<unknown>;
 }
+
+const viewportInputSchema = z.object({
+  width: z.number().int().positive(),
+  height: z.number().int().positive()
+});
 
 export const toolContracts: ToolContract[] = [
   {
@@ -26,8 +37,7 @@ export const toolContracts: ToolContract[] = [
       suitePath: z.string(),
       modelsPath: z.string().optional()
     },
-    handler: async ({ suitePath, modelsPath }: { suitePath: string; modelsPath?: string }) =>
-      runBenchmarkSuite({ suitePath, modelsPath })
+    handler: async (input) => runBenchmarkSuite(input as unknown as RunBenchmarkSuiteInput)
   },
   {
     name: "bench.explore_target",
@@ -42,28 +52,9 @@ export const toolContracts: ToolContract[] = [
       timeoutMs: z.number().int().positive().optional(),
       retryCount: z.number().int().min(0).optional(),
       maxSteps: z.number().int().positive().optional(),
-      viewport: z
-        .object({
-          width: z.number().int().positive(),
-          height: z.number().int().positive()
-        })
-        .optional()
+      viewport: viewportInputSchema.optional()
     },
-    handler: async (input: {
-      targetId: string;
-      modelId?: string;
-      bugIds?: string[];
-      prompt: string;
-      modelsPath?: string;
-      resultsDir?: string;
-      timeoutMs?: number;
-      retryCount?: number;
-      maxSteps?: number;
-      viewport?: {
-        width: number;
-        height: number;
-      };
-    }) => exploreTarget(input)
+    handler: async (input) => exploreTarget(input as unknown as ExploreTargetInput)
   },
   {
     name: "bench.run_guided",
@@ -81,42 +72,21 @@ export const toolContracts: ToolContract[] = [
       timeoutMs: z.number().int().positive().optional(),
       retryCount: z.number().int().min(0).optional(),
       maxSteps: z.number().int().positive().optional(),
-      viewport: z
-        .object({
-          width: z.number().int().positive(),
-          height: z.number().int().positive()
-        })
-        .optional()
+      viewport: viewportInputSchema.optional()
     },
-    handler: async (input: {
-      targetId: string;
-      scenarioIds: string[];
-      modelId?: string;
-      bugIds?: string[];
-      modelsPath?: string;
-      resultsDir?: string;
-      guidedPromptId?: string;
-      explorationRunId?: string;
-      timeoutMs?: number;
-      retryCount?: number;
-      maxSteps?: number;
-      viewport?: {
-        width: number;
-        height: number;
-      };
-    }) => runGuided(input)
+    handler: async (input) => runGuided(input as unknown as RunGuidedInput)
   },
   {
     name: "bench.get_report",
     description: "Get a generated benchmark report by run ID.",
     inputSchema: { runId: z.string() },
-    handler: async ({ runId }: { runId: string }) => getBenchmarkReport(runId)
+    handler: async (input) => getBenchmarkReport(input.runId as string)
   },
   {
     name: "bench.compare_runs",
     description: "Compare model performance across benchmark run IDs.",
     inputSchema: { runIds: z.array(z.string()).min(1) },
-    handler: async ({ runIds }: { runIds: string[] }) => compareBenchmarkRuns(runIds)
+    handler: async (input) => compareBenchmarkRuns(input.runIds as string[])
   },
   {
     name: "bench.run_self_heal",
@@ -127,23 +97,7 @@ export const toolContracts: ToolContract[] = [
       agentCommand: z.string(),
       validationCommand: z.string().optional()
     },
-    handler: async ({
-      runId,
-      findingId,
-      agentCommand,
-      validationCommand
-    }: {
-      runId: string;
-      findingId: string;
-      agentCommand: string;
-      validationCommand?: string;
-    }) =>
-      runSelfHeal({
-        runId,
-        findingId,
-        agentCommand,
-        validationCommand
-      })
+    handler: async (input) => runSelfHeal(input as unknown as RunSelfHealInput)
   },
   {
     name: "bench.list_targets",
@@ -163,6 +117,6 @@ export const toolContracts: ToolContract[] = [
     inputSchema: {
       targetId: z.string()
     },
-    handler: async ({ targetId }: { targetId: string }) => describeTarget(targetId)
+    handler: async (input) => describeTarget(input.targetId as string)
   }
 ];

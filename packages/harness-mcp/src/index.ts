@@ -1,7 +1,18 @@
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadProjectEnv } from "@agentic-qa/harness-core";
 import { toolContracts } from "./tools.js";
+
+function isDirectExecution(): boolean {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    return false;
+  }
+
+  return fileURLToPath(import.meta.url) === resolve(scriptPath);
+}
 
 export function createServer(): McpServer {
   const server = new McpServer(
@@ -46,7 +57,7 @@ async function main(): Promise<void> {
   console.error("bench-harness MCP server running on stdio");
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectExecution()) {
   main().catch((error) => {
     console.error("Fatal error in mcp server:", error);
     process.exit(1);

@@ -1,6 +1,15 @@
 #!/usr/bin/env node
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import {
+  type ExploreRunResult,
+  type HealRunResult,
+  type QaRunResult,
+  type RebuildBenchmarkReportsResult,
+  type RunExploreAcrossAppsResult,
+  type RunHealAcrossAppsResult,
+  type RunQaAcrossAppsResult,
   loadProjectEnv,
   rebuildBenchmarkReports,
   runExploreAcrossApps,
@@ -10,6 +19,19 @@ import {
   runQaAcrossApps,
   runQaExperiment
 } from "@agentic-qa/harness-core";
+
+type ProgressLogger = (message: string) => void;
+type SingleRunResult = QaRunResult | ExploreRunResult | HealRunResult;
+type MultiRunResult = RunQaAcrossAppsResult | RunExploreAcrossAppsResult | RunHealAcrossAppsResult;
+
+function isDirectExecution(): boolean {
+  const scriptPath = process.argv[1];
+  if (!scriptPath) {
+    return false;
+  }
+
+  return fileURLToPath(import.meta.url) === resolve(scriptPath);
+}
 
 function parsePositiveInt(value: string): number {
   const parsed = Number.parseInt(value, 10);
@@ -27,14 +49,7 @@ function toPublicMode(mode: string): string {
   return mode === "qa" ? "guided" : mode;
 }
 
-function printSingleRun(result: {
-  artifact: {
-    runId: string;
-  };
-  artifactPath: string;
-  reportPath: string;
-  htmlPath: string;
-}): void {
+function printSingleRun(result: SingleRunResult): void {
   print({
     runId: result.artifact.runId,
     artifactPath: result.artifactPath,
@@ -43,19 +58,7 @@ function printSingleRun(result: {
   });
 }
 
-function printMultiRun(result: {
-  mode: string;
-  appIds: string[];
-  runs: Array<{
-    appId: string;
-    runId: string;
-    artifactPath: string;
-    reportPath: string;
-    htmlPath: string;
-  }>;
-  finalReportPath: string;
-  finalJsonPath: string;
-}): void {
+function printMultiRun(result: MultiRunResult): void {
   print({
     mode: toPublicMode(result.mode),
     appIds: result.appIds,
@@ -65,26 +68,7 @@ function printMultiRun(result: {
   });
 }
 
-function printReportRebuild(result: {
-  selectionPolicy: string;
-  selectedReports: Array<{
-    kind: string;
-    appId: string;
-    modelId: string;
-    runId: string;
-    generatedAt: string;
-    reportPath: string;
-  }>;
-  modeReports: Array<{
-    kind: string;
-    appIds: string[];
-    runIds: string[];
-    finalReportPath: string;
-    finalJsonPath: string;
-  }>;
-  finalReportPath?: string;
-  finalJsonPath?: string;
-}): void {
+function printReportRebuild(result: RebuildBenchmarkReportsResult): void {
   print({
     selectionPolicy: result.selectionPolicy,
     selectedReports: result.selectedReports.map((entry) => ({
@@ -101,65 +85,10 @@ function printReportRebuild(result: {
 }
 
 function printFullBench(result: {
-  guided: {
-    mode: string;
-    appIds: string[];
-    runs: Array<{
-      appId: string;
-      runId: string;
-      artifactPath: string;
-      reportPath: string;
-      htmlPath: string;
-    }>;
-    finalReportPath: string;
-    finalJsonPath: string;
-  };
-  explore: {
-    mode: string;
-    appIds: string[];
-    runs: Array<{
-      appId: string;
-      runId: string;
-      artifactPath: string;
-      reportPath: string;
-      htmlPath: string;
-    }>;
-    finalReportPath: string;
-    finalJsonPath: string;
-  };
-  heal: {
-    mode: string;
-    appIds: string[];
-    runs: Array<{
-      appId: string;
-      runId: string;
-      artifactPath: string;
-      reportPath: string;
-      htmlPath: string;
-    }>;
-    finalReportPath: string;
-    finalJsonPath: string;
-  };
-  report: {
-    selectionPolicy: string;
-    selectedReports: Array<{
-      kind: string;
-      appId: string;
-      modelId: string;
-      runId: string;
-      generatedAt: string;
-      reportPath: string;
-    }>;
-    modeReports: Array<{
-      kind: string;
-      appIds: string[];
-      runIds: string[];
-      finalReportPath: string;
-      finalJsonPath: string;
-    }>;
-    finalReportPath?: string;
-    finalJsonPath?: string;
-  };
+  guided: RunQaAcrossAppsResult;
+  explore: RunExploreAcrossAppsResult;
+  heal: RunHealAcrossAppsResult;
+  report: RebuildBenchmarkReportsResult;
 }): void {
   print({
     guided: {
@@ -215,7 +144,7 @@ function normalizeHtmlScope(scope: string | undefined): "compare" | "all" {
   throw new Error(`unsupported html scope ${scope}`);
 }
 
-function createProgressLogger(): ((message: string) => void) | undefined {
+function createProgressLogger(): ProgressLogger | undefined {
   if (!process.stderr.isTTY) {
     return undefined;
   }
@@ -225,16 +154,9 @@ function createProgressLogger(): ((message: string) => void) | undefined {
   };
 }
 
-function registerGuidedCommand(
-  program: Command,
-  input: {
-    name: string;
-    hidden?: boolean;
-    onLog: ((message: string) => void) | undefined;
-  }
-): void {
+function registerGuidedCommand(program: Command, onLog: ProgressLogger | undefined): void {
   program
-    .command(input.name, input.hidden ? { hidden: true } : {})
+    .command("guided")
     .description("Run the guided benchmark; omit app to run all benchmark apps")
     .option("--models <ids...>", "Explicit OpenRouter model IDs to run")
     .option("--trials <n>", "Override trial count", parsePositiveInt)
@@ -262,7 +184,7 @@ function registerGuidedCommand(
           maxSteps: options.maxSteps,
           timeoutMs: options.timeoutMs,
           maxOutputTokens: options.maxOutputTokens,
-          onLog: input.onLog
+          onLog
         });
         printSingleRun(result);
         return;
@@ -276,24 +198,20 @@ function registerGuidedCommand(
         maxSteps: options.maxSteps,
         timeoutMs: options.timeoutMs,
         maxOutputTokens: options.maxOutputTokens,
-        onLog: input.onLog
+        onLog
       });
       printMultiRun(result);
     });
-
 }
 
-async function main(): Promise<void> {
-  await loadProjectEnv();
-  const onLog = createProgressLogger();
-
+export function createProgram(onLog: ProgressLogger | undefined = createProgressLogger()): Command {
   const program = new Command();
   program
     .name("agentic-qa")
     .description("Production benchmark CLI for guided runs, exploration, self-healing, and report rebuilds")
     .showHelpAfterError();
 
-  registerGuidedCommand(program, { name: "guided", onLog });
+  registerGuidedCommand(program, onLog);
 
   program
     .command("explore")
@@ -436,10 +354,18 @@ async function main(): Promise<void> {
       printReportRebuild(result);
     });
 
+  return program;
+}
+
+async function main(): Promise<void> {
+  await loadProjectEnv();
+  const program = createProgram(createProgressLogger());
   await program.parseAsync(process.argv);
 }
 
-main().catch((error) => {
-  process.stderr.write(`benchmark command failed: ${error instanceof Error ? error.message : String(error)}\n`);
-  process.exit(1);
-});
+if (isDirectExecution()) {
+  main().catch((error) => {
+    process.stderr.write(`benchmark command failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
+}

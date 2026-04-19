@@ -52,9 +52,7 @@ export function summarizeTodos(todos) {
   const completed = todos.filter((todo) => todo.done).length;
   const remaining = todos.length - completed;
   return {
-    total: todos.length,
     completed,
-    remaining,
     statusLine: `${remaining} tasks remaining`,
     progressLine: `${completed} of ${todos.length} tasks done`
   };
